@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MediQuote Pro — 의료장비 견적 시스템</title>
+  <title>DWmedi — 의료장비 견적 시스템</title>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -496,7 +496,7 @@ function Toast({ toasts }) {
    ============================================================ */
 const DEPT_LIST = ['정형외과','내과','가정의학과','재활의학과','산부인과','피부과','응급의학과','영상의학과','안과','흉부외과','성형외과','비뇨기과','이비인후과','소아과','신경외과','정신건강의학과','마취통증의학과','직업의학과','신경과','외과'];
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome }) {
   const textFields = [
     { key:'hospital', label:'병원명', w:'w-36' },
     { key:'doctor', label:'원장명', w:'w-28' },
@@ -506,10 +506,10 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage }) {
   ];
   return (
     <header className="bg-slate-900 text-white px-5 py-2.5 flex items-center gap-4 shrink-0 border-b border-slate-800">
-      <div className="flex items-center gap-2 mr-2 shrink-0">
-        <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
-        <span className="font-bold text-sm tracking-tight text-slate-100">MediQuote Pro</span>
-      </div>
+      <button onClick={onHome} className="flex items-center gap-2 mr-2 shrink-0 hover:opacity-80 transition-opacity">
+        <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
+        <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+      </button>
       <div className="flex items-center gap-3 flex-1 overflow-x-auto">
         {textFields.map(f => (
           <div key={f.key} className="flex items-center gap-1.5 shrink-0">
@@ -1816,7 +1816,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
 
             {tab==='cover' && (
               <div className="p-10 flex flex-col items-center text-center">
-                <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-6">MQ</div>
+                <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-6">DW</div>
                 <h1 className="text-3xl font-black text-slate-900 tracking-tight">의료장비 공급 견적서</h1>
                 <p className="text-slate-500 mt-2 mb-10">Medical Equipment Supply Quotation</p>
                 <div className="bg-slate-50 rounded-xl p-8 w-full max-w-sm text-left border border-slate-200">
@@ -2194,10 +2194,10 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* Header */}
       <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <div className="flex items-center gap-2 mr-2">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
-          <span className="font-bold text-sm text-slate-100">MediQuote Pro</span>
-        </div>
+        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
+          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
+          <span className="font-bold text-sm text-slate-100">DWmedi</span>
+        </button>
         <span className="text-slate-400 text-xs">·</span>
         <span className="text-slate-200 text-sm font-semibold">장비 관리</span>
         <span className="ml-2 px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded-full">{equips.length}개 등록</span>
@@ -2674,10 +2674,10 @@ function SavedQuotesList({ onLoad, onBack }) {
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* Header */}
       <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <div className="flex items-center gap-2 mr-2">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
-          <span className="font-bold text-sm tracking-tight text-slate-100">MediQuote Pro</span>
-        </div>
+        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
+          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
+          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+        </button>
         <span className="text-slate-400 text-xs">·</span>
         <span className="text-slate-200 text-sm font-semibold">저장된 견적서</span>
         <div className="ml-auto">
@@ -2911,7 +2911,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')}/>
       <ControlsBar search={search} setSearch={setSearch} catFilter={catFilter} setCatFilter={setCatFilter} categories={categories} dynCats={dynCats} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
