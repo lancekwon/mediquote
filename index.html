@@ -1,0 +1,2726 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediQuote Pro — 의료장비 견적 시스템</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #f1f5f9; font-family: 'Noto Sans KR', system-ui, sans-serif; font-size: 13px; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    input[type=number] { -moz-appearance: textfield; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    .tnum { font-variant-numeric: tabular-nums; }
+    .tr-excluded td { opacity: 0.38; }
+    .tr-excluded td.td-toggle { opacity: 1; }
+    .tr-row:hover td { background: #f8fafc !important; }
+    .tr-excluded:hover td { background: #fef2f2 !important; }
+    @keyframes fadeSlide { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    .animate-fs { animation: fadeSlide .15s ease-out; }
+    @keyframes toastIn { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+    .toast-anim { animation: toastIn .2s ease-out; }
+    /* PDF print styles */
+    @media print {
+      body > #root { display: none !important; }
+      #pdf-print-root { display: block !important; }
+    }
+    #pdf-print-root { display: none; }
+  </style>
+</head>
+<body>
+<div id="root" style="height:100vh;display:flex;flex-direction:column;overflow:hidden;"></div>
+<div id="pdf-print-root"></div>
+
+<script type="text/babel">
+const { useState, useMemo, useCallback, useEffect, useRef } = React;
+
+/* ============================================================
+   SUPABASE CLIENT
+   ============================================================ */
+const SUPABASE_URL = 'https://dmqzixpappullrnyospj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_UcusGk4UNMVEp82y_2jSdA_dQGjd1bH';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ---------- Equipment DB ---------- */
+async function dbLoadEquip() {
+  const { data, error } = await sb.from('equipment').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('dbLoadEquip:', error); return []; }
+  return data.map(r => r.raw_data || {
+    id: r.id,
+    catId: r.cat_id || 'imaging',
+    catName: r.cat_name || r.category,
+    itemName: r.item_name,
+    model: { id: r.model_id || r.id, name: r.model_name, manufacturer: r.manufacturer, price: r.price, notes: r.model_notes || '' },
+    altText: r.alt_text || '',
+    image: r.image_data || null,
+    spec: { desc: r.description || '', specs: r.specs || [], origin: r.origin || '', cert: r.cert || '', as: r.as_period || '', warranty: r.warranty || '' },
+    createdAt: r.created_at,
+  });
+}
+
+async function dbSaveEquip(entry) {
+  const row = {
+    category: entry.catName,
+    item_name: entry.itemName,
+    model_name: entry.model.name,
+    manufacturer: entry.model.manufacturer || '',
+    price: entry.model.price || null,
+    specs: entry.spec?.specs || [],
+    description: entry.spec?.desc || '',
+    cert: entry.spec?.cert || '',
+    warranty: entry.spec?.warranty || '',
+    as_period: entry.spec?.as || '',
+    origin: entry.spec?.origin || '',
+    image_data: entry.image || null,
+    memo: entry.model?.notes || '',
+    cat_id: entry.catId,
+    cat_name: entry.catName,
+    model_id: entry.model.id,
+    model_notes: entry.model.notes || '',
+    alt_text: entry.altText || '',
+    raw_data: entry,
+  };
+  // 수정
+  if (entry.id && !entry.id.startsWith('equip-')) {
+    const { data, error } = await sb.from('equipment').update(row).eq('id', entry.id).select('id').single();
+    if (error) throw error;
+    return data.id;
+  }
+  // 신규
+  const { data, error } = await sb.from('equipment').insert(row).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function dbDeleteEquip(id) {
+  const { error } = await sb.from('equipment').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------- Quotes DB ---------- */
+async function dbLoadQuotes() {
+  const { data, error } = await sb.from('quotes').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('dbLoadQuotes:', error); return []; }
+  return data.map(r => ({
+    id: r.id,
+    quoteNo: r.quote_no,
+    hospital: r.hospital,
+    doctor: r.doctor,
+    savedAt: new Date(r.created_at).toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).replace(/\.\s*/g,'.').replace(',',''),
+    finalAmt: r.final_amt,
+    quoteInfo: { hospital: r.hospital, doctor: r.doctor, quoteNo: r.quote_no, date: r.date, validity: r.validity },
+    categories: r.categories,
+    globalDiscount: r.global_discount,
+    vatIncluded: r.vat_included,
+  }));
+}
+
+async function dbSaveQuote(entry) {
+  const row = {
+    quote_no: entry.quoteNo,
+    hospital: entry.quoteInfo.hospital,
+    doctor: entry.quoteInfo.doctor,
+    date: entry.quoteInfo.date,
+    validity: entry.quoteInfo.validity,
+    categories: entry.categories,
+    global_discount: entry.globalDiscount,
+    vat_included: entry.vatIncluded,
+    final_amt: entry.finalAmt,
+  };
+  const { error } = await sb.from('quotes').insert(row);
+  if (error) throw error;
+}
+
+async function dbDeleteQuote(id) {
+  const { error } = await sb.from('quotes').delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function dbGenerateQuoteNo() {
+  const year = new Date().getFullYear();
+  const { data, error } = await sb.from('quotes').select('quote_no').like('quote_no', `DW-${year}-%`).order('quote_no', { ascending: false }).limit(1);
+  if (error || !data || data.length === 0) return `DW-${year}-001`;
+  const seq = parseInt(data[0].quote_no.split('-')[2], 10);
+  return `DW-${year}-${String((isNaN(seq) ? 0 : seq) + 1).padStart(3, '0')}`;
+}
+
+/* ============================================================
+   INITIAL DATA
+   ============================================================ */
+const INITIAL_CATEGORIES = [
+  {
+    id: 'imaging', name: '영상진단 장비', colorKey: 'blue',
+    items: [
+      { id:'xray', name:'X-Ray (DR System)', selectedModelId:'xvision-hf-525r',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'xvision-hf-525r', name:'Xvision HF 525R', manufacturer:'Gemss healthcare', price:15000000, notes:'' },
+          { id:'gxr-e40-plus', name:'GXR-E40 Plus', manufacturer:'DRgem', price:null, notes:'문의' },
+          { id:'dk-innovision-f1', name:'DK Innovision F1', manufacturer:'DK Medical System', price:null, notes:'문의' },
+          { id:'rex-525r', name:'REX 525R', manufacturer:'Listem', price:16000000, notes:'' },
+          { id:'accuray-d5', name:'Accuray D5', manufacturer:'DK Medical System', price:null, notes:'문의' },
+          { id:'ai-xray-dr', name:'AI X RAY + DR', manufacturer:'Remedi', price:20000000, notes:'' },
+          { id:'apex-dr', name:'Apex DR', manufacturer:'DK Medical System', price:15000000, notes:'콘덴서 포함' },
+        ]},
+      { id:'dr', name:'DR', selectedModelId:'lg-17x17',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'lg-17x17', name:'LG 17x17', manufacturer:'LG', price:29910000, notes:'' },
+          { id:'bsd-4343', name:'BSD 4343', manufacturer:'Bon Tech', price:10500000, notes:'' },
+          { id:'acquidr-mano4343t', name:'AcquiDR Mano4343T', manufacturer:'DrGem', price:11000000, notes:'' },
+          { id:'rfa-17x17', name:'RFA 17x17', manufacturer:'Astel', price:10500000, notes:'' },
+        ]},
+      { id:'carm', name:'C-Arm', selectedModelId:'kmc-650',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'kmc-650', name:'KMC-650', manufacturer:'Gemss healthcare', price:34500000, notes:'' },
+          { id:'zen-2090-turbo', name:'ZEN-2090 Turbo', manufacturer:'Genoray', price:null, notes:'미팅시 가격제안' },
+          { id:'xplus-35d', name:'Xplus 35D', manufacturer:'Gemss healthcare', price:40000000, notes:'' },
+          { id:'oscar-prime', name:'Oscar Prime', manufacturer:'Genoray', price:null, notes:'미팅시 가격제안' },
+          { id:'spinel-3g', name:'Spinel 3G', manufacturer:'Gemss healthcare', price:70000000, notes:'' },
+          { id:'carm-handswitch', name:'핸드스위치 (C-Arm 옵션)', manufacturer:'제조사별', price:110000, notes:'' },
+        ]},
+      { id:'carm-table', name:'C-Arm Table', selectedModelId:'x3-b',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'x3-b', name:'X3-B', manufacturer:'01M', price:2000000, notes:'' },
+          { id:'kf-906', name:'KF 906', manufacturer:'펄시', price:1900000, notes:'' },
+          { id:'ca-1000', name:'CA-1000', manufacturer:'네오텍', price:2000000, notes:'' },
+        ]},
+      { id:'ultrasound', name:'초음파진단기', selectedModelId:'versana-balance',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'versana-balance', name:'Versana Balance', manufacturer:'GE Healthcare', price:22000000, notes:'' },
+          { id:'logiq-f', name:'Logiq F', manufacturer:'GE Healthcare', price:27000000, notes:'' },
+          { id:'logiq-p7', name:'Logiq P7', manufacturer:'GE Healthcare', price:null, notes:'문의' },
+          { id:'xc-50', name:'XC-50', manufacturer:'Alpinion', price:null, notes:'문의' },
+          { id:'xc-60', name:'XC-60', manufacturer:'Alpinion', price:null, notes:'문의' },
+          { id:'v5', name:'V5', manufacturer:'Samsung Medison', price:null, notes:'문의' },
+          { id:'v7', name:'V7', manufacturer:'Samsung Medison', price:null, notes:'문의' },
+          { id:'juniper', name:'Juniper', manufacturer:'Siemens Healthineers', price:35000000, notes:'' },
+        ]},
+      { id:'bmd', name:'골밀도진단기', selectedModelId:'dexino',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'dexino', name:'Dexino', manufacturer:'J-One Medical System', price:14000000, notes:'' },
+          { id:'inalyzer-air', name:'Inalyzer AIR', manufacturer:'Medikors', price:16000000, notes:'' },
+          { id:'dexxum-t', name:'Dexxum T', manufacturer:'Osteosys', price:null, notes:'문의' },
+        ]},
+      { id:'pacs', name:'PACS', selectedModelId:'pacs-techheim',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'pacs-techheim', name:'PACS', manufacturer:'TechHeim', price:2000000, notes:'' },
+          { id:'pacs-fuji', name:'PACS', manufacturer:'Fuji', price:500000, notes:'' },
+        ]},
+    ]
+  },
+  {
+    id: 'pt', name: '물리치료기기', colorKey: 'emerald',
+    items: [
+      { id:'ict', name:'ICT 간섭파', selectedModelId:'ecoplus',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'kmc-2900jt', name:'KMC-2900JT', manufacturer:'Medi Round', price:1000000, notes:'TENS 포함' },
+          { id:'ecoplus', name:'Ecoplus', manufacturer:'Goodple', price:1000000, notes:'' },
+          { id:'gp-mediplus', name:'GP-Mediplus', manufacturer:'Goodple', price:1000000, notes:'' },
+          { id:'lectron-350ri', name:'Lectron 350RI', manufacturer:'DMC', price:1200000, notes:'' },
+          { id:'biotron', name:'BioTron', manufacturer:'DMC', price:1400000, notes:'' },
+          { id:'pmi-3000', name:'PMI 3000', manufacturer:'Stratek', price:1600000, notes:'' },
+          { id:'ict-insung', name:'ICT', manufacturer:'Insung Medical', price:1200000, notes:'' },
+        ]},
+      { id:'microwave', name:'Microwave', selectedModelId:'is-3000',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'is-3000', name:'IS-3000', manufacturer:'Insung Medical', price:1500000, notes:'' },
+          { id:'scan-laser', name:'Scan Laser', manufacturer:'Goodple', price:1500000, notes:'' },
+        ]},
+      { id:'ir', name:'적외선치료기', selectedModelId:'ir-2014',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'ir-3000', name:'IR-3000', manufacturer:'Haedong Medical', price:120000, notes:'' },
+          { id:'ir-2014', name:'IR-2014', manufacturer:'열린세상', price:120000, notes:'' },
+        ]},
+      { id:'newmyo', name:'Newmyo', selectedModelId:'newmyo-kmg',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'newmyo-kmg', name:'뉴마이오 (의료용조합자극기)', manufacturer:'KMG', price:3600000, notes:'' },
+        ]},
+      { id:'cryo', name:'Cryo', selectedModelId:'cryo-master',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'btl-cryo', name:'BTL Cryotherapy', manufacturer:'BTL', price:null, notes:'문의' },
+          { id:'cryo-master', name:'Cryo Master', manufacturer:'Mesh', price:4800000, notes:'' },
+          { id:'cryo-well', name:'Cryo-Well', manufacturer:'DMC', price:4000000, notes:'' },
+          { id:'pain-zero', name:'Pain Zero', manufacturer:'메디젠', price:4000000, notes:'' },
+        ]},
+      { id:'magnetic', name:'자기장치료기', selectedModelId:'tesla-3000',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'tesla-3000', name:'Tesla 3000', manufacturer:'Wever', price:3600000, notes:'' },
+          { id:'anybeat-33', name:'Anybeat 33', manufacturer:'신화', price:3500000, notes:'' },
+          { id:'magstorm-flat', name:'Magstorm Flat', manufacturer:'케이원메드', price:3600000, notes:'' },
+        ]},
+      { id:'hilt', name:'고강도레이저', selectedModelId:'lambda-yag',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'lambda-yag', name:'Lambda Yag', manufacturer:'AITIS Korea', price:20000000, notes:'' },
+          { id:'hilthera-4', name:'Hilthera 4.0', manufacturer:'Rev Med', price:30000000, notes:'' },
+          { id:'bonpapa', name:'Bonpapa', manufacturer:'Bonpapa', price:16000000, notes:'' },
+        ]},
+      { id:'hydro', name:'수치료기', selectedModelId:'aqua-healing-bed',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'aqua-healing-bed', name:'Aqua Healing Bed', manufacturer:'Hyu Medi', price:5900000, notes:'' },
+          { id:'aqua-line-g4', name:'Aqua Line G4', manufacturer:'Goodple', price:5500000, notes:'' },
+        ]},
+      { id:'percussion', name:'근육타진기', selectedModelId:'01m7-d',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'01m7-d', name:'01M7-D', manufacturer:'01M', price:1200000, notes:'' },
+          { id:'t10', name:'T10 (팁7개)', manufacturer:'Young In', price:1000000, notes:'' },
+        ]},
+    ]
+  },
+  {
+    id: 'manual', name: '도수치료 장비', colorKey: 'amber',
+    items: [
+      { id:'eswt', name:'ESWT', selectedModelId:'zeus-wave-pr',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'dual-wave-plus', name:'Dual Wave Plus', manufacturer:'iwellness', price:13000000, notes:'' },
+          { id:'zeus-wave-pr', name:'Zeus Wave (piezo+Radial)', manufacturer:'Wever Instrument', price:16000000, notes:'' },
+          { id:'zeus-wave-ph', name:'Zeus Wave (piezo+Hilt)', manufacturer:'Wever Instrument', price:25000000, notes:'' },
+          { id:'dual-active-f', name:'Dual Active F', manufacturer:'K1 Med', price:16000000, notes:'' },
+          { id:'wolf-piezo-2', name:'Wolf Piezo Wave 2', manufacturer:'Wolf', price:50000000, notes:'' },
+          { id:'storz', name:'Storz', manufacturer:'Storz Medical', price:null, notes:'문의' },
+          { id:'shockwave-f1', name:'Shockwave F1', manufacturer:'WMedix', price:35000000, notes:'' },
+          { id:'sineson-piezo', name:'Sineson Piezo', manufacturer:'K1Med', price:15000000, notes:'' },
+          { id:'piezo-di2', name:'Piezo Di2', manufacturer:'DMC', price:12000000, notes:'' },
+          { id:'gp707sw', name:'GP707SW', manufacturer:'Goodple', price:6000000, notes:'' },
+        ]},
+      { id:'traction', name:'견인치료기', selectedModelId:'spine-balance',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'lc-100', name:'LC-100', manufacturer:'Win-Trac', price:3600000, notes:'' },
+          { id:'spine-balance', name:'Spine Balance', manufacturer:'에이원', price:8000000, notes:'' },
+          { id:'sst-100-plus', name:'SST-100 Plus', manufacturer:'Stratek', price:2500000, notes:'' },
+          { id:'traction-dmc', name:'Traction', manufacturer:'DMC', price:2400000, notes:'' },
+        ]},
+      { id:'chiro', name:'Chiropractic', selectedModelId:'raphael-707',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'raphael-707', name:'Raphael 707', manufacturer:'01M', price:12000000, notes:'' },
+          { id:'cw500', name:'CW500', manufacturer:'01M', price:5000000, notes:'' },
+        ]},
+      { id:'manual-table', name:'도수치료 테이블', selectedModelId:'m2-a',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'m2-a', name:'M2-A', manufacturer:'01M', price:690000, notes:'' },
+          { id:'m2-b', name:'M2-B', manufacturer:'01M', price:780000, notes:'' },
+          { id:'e-100', name:'E-100 보급형', manufacturer:'HCK', price:700000, notes:'' },
+          { id:'e-102', name:'E-102 경추형', manufacturer:'HCK', price:900000, notes:'' },
+          { id:'go-2000', name:'GO 2000 범용 전동식', manufacturer:'네오텍', price:800000, notes:'' },
+        ]},
+      { id:'duta-mat', name:'두타매트', selectedModelId:'mks-001',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'mks-001', name:'MKS-001', manufacturer:'선경', price:300000, notes:'' },
+        ]},
+      { id:'hotpack', name:'Hot Pack Unit 핫팩통', selectedModelId:'dw-12',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'dw-12', name:'DW 12단', manufacturer:'DW', price:590000, notes:'' },
+          { id:'dw-24', name:'DW 24단', manufacturer:'DW', price:690000, notes:'' },
+        ]},
+      { id:'parapin', name:'Parapin Bath', selectedModelId:'ps-100',
+        quantity:1, itemDiscount:0, excluded:false, memo:'',
+        models:[
+          { id:'ps-100', name:'PS-100', manufacturer:'아이젠', price:70000, notes:'' },
+        ]},
+    ]
+  }
+];
+
+/* ============================================================
+   DUMMY PRODUCT SPECS
+   ============================================================ */
+const PRODUCT_SPECS = {
+  'xvision-hf-525r': { specs:[{l:'관전압',v:'40 ~ 150 kVp'},{l:'관전류',v:'100 ~ 500 mA'},{l:'촬영 방식',v:'DR (Flat Panel Detector)'},{l:'이미지 센서',v:'43×43 cm FPD'},{l:'해상도',v:'3.4 lp/mm'},{l:'그리드',v:'착탈식 그리드 포함'},{l:'인터페이스',v:'DICOM 3.0, HL7'},{l:'전원',v:'AC 200V, 50/60Hz'}], as:'2년 (부품 보증 5년)', warranty:'설치 후 1년', origin:'대한민국', cert:['식약처 허가','CE','ISO 13485'], desc:'Gemss healthcare의 고주파 DR X-Ray 시스템으로, 빠른 촬영 속도와 높은 이미지 품질을 자랑합니다. 의원급 및 병원급 모두에 적합한 범용 DR 시스템입니다.' },
+  'kmc-650':          { specs:[{l:'관전압',v:'40 ~ 110 kVp'},{l:'관전류',v:'0.1 ~ 6.3 mA'},{l:'이미지 증배관',v:'9인치 II'},{l:'모니터',v:'17인치 LCD × 2'},{l:'회전 범위',v:'C자 회전 190°'},{l:'아암 이동',v:'수평/수직 독립 제어'},{l:'인터페이스',v:'DICOM 3.0'},{l:'중량',v:'약 145 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'Gemss healthcare의 대표 C-Arm 제품. 정형외과, 척추외과, 통증의학과 등 다양한 시술에 최적화된 고해상도 C-Arm 영상 시스템입니다.' },
+  'versana-balance':  { specs:[{l:'스캔 방식',v:'Digital Beamforming'},{l:'탐촉자 채널',v:'128ch'},{l:'이미지 모드',v:'B, M, Color Doppler, PW, CW'},{l:'모니터',v:'15.6인치 LED'},{l:'저장',v:'SSD 500GB'},{l:'무게',v:'약 28 kg'},{l:'전원',v:'AC 100~240V'},{l:'인터페이스',v:'DICOM, USB, HDMI'}], as:'1년 (옵션 연장 가능)', warranty:'1년', origin:'미국 (GE Healthcare)', cert:['식약처 허가','FDA','CE'], desc:'GE Healthcare의 Versana Balance는 선명한 화질과 사용 편의성을 갖춘 보급형 초음파진단기로, 일반의원 및 내과·산부인과에 최적화된 모델입니다.' },
+  'dexino':           { specs:[{l:'측정 방식',v:'DEXA (Dual Energy X-Ray Absorptiometry)'},{l:'측정 부위',v:'요추, 대퇴골, 전신'},{l:'측정 시간',v:'요추 30초, 대퇴 45초'},{l:'정밀도',v:'CV < 1.0%'},{l:'방사선량',v:'< 1 μSv/scan'},{l:'디스플레이',v:'17인치 LCD'},{l:'소프트웨어',v:'T-score, Z-score 자동 산출'},{l:'크기',v:'W 900 × D 680 × H 800 mm'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE','ISO 13485'], desc:'J-One Medical System의 Dexino는 소형 클리닉에 적합한 정밀 골밀도 측정 시스템입니다. 짧은 검사 시간과 낮은 방사선량으로 환자 편의성이 뛰어납니다.' },
+  'lambda-yag':       { specs:[{l:'레이저 종류',v:'Nd:YAG'},{l:'파장',v:'1064 nm'},{l:'최대 출력',v:'12 W'},{l:'주파수',v:'1 ~ 40 Hz'},{l:'펄스 에너지',v:'최대 500 mJ'},{l:'조사 면적',v:'Ø 2 ~ 35 mm'},{l:'냉각 방식',v:'수냉식'},{l:'화면',v:'7인치 터치스크린'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'AITIS Korea의 Lambda Yag는 고강도 Nd:YAG 레이저 치료기로 근골격계 통증, 힘줄염, 관절염 등 다양한 물리치료 적응증에 적용 가능합니다.' },
+  'zeus-wave-pr':     { specs:[{l:'충격파 종류',v:'Piezo + Radial'},{l:'에너지 범위',v:'0.01 ~ 0.45 mJ/mm²'},{l:'주파수',v:'1 ~ 22 Hz'},{l:'충격수',v:'최대 5,000회/세션'},{l:'화면',v:'10.1인치 터치스크린'},{l:'핸드피스',v:'Piezo 1개 + Radial 1개'},{l:'전원',v:'AC 100~240V'},{l:'중량',v:'약 12 kg'}], as:'2년', warranty:'1년', origin:'독일 (OEM)', cert:['식약처 허가','CE','FDA'], desc:'Wever Instrument의 Zeus Wave는 피에조 + 방사형 충격파를 동시에 지원하는 복합 ESWT 시스템으로, 족저근막염·석회성건염·테니스엘보우 등에 탁월한 효과를 보입니다.' },
+  'cryo-master':      { specs:[{l:'냉각 방식',v:'압축 공기 (CO₂ 불사용)'},{l:'온도 범위',v:'-30°C ~ +5°C'},{l:'분사 거리',v:'5 ~ 15 cm'},{l:'냉각 면적',v:'조절 가능'},{l:'전원',v:'AC 220V, 50Hz'},{l:'컴프레서',v:'내장 오일-프리'},{l:'디스플레이',v:'디지털 LCD'},{l:'중량',v:'약 18 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'Mesh의 Cryo Master는 CO₂를 사용하지 않는 친환경 냉각치료기로, 운동 후 회복 및 통증 완화에 효과적입니다.' },
+  'spine-balance':    { specs:[{l:'견인 방식',v:'전동 견인 (경추/요추)'},{l:'최대 견인력',v:'경추 30 kgf, 요추 60 kgf'},{l:'견인 각도',v:'0 ~ 30° 조절'},{l:'프로그램',v:'간헐적/지속적/사용자 정의'},{l:'테이블',v:'전동 승강 포함'},{l:'디스플레이',v:'7인치 컬러 터치'},{l:'전원',v:'AC 220V'},{l:'중량',v:'약 80 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가'], desc:'에이원의 Spine Balance는 경추와 요추 모두 지원하는 통합 견인치료기로, 디스크 탈출증 및 척추협착증 환자에 널리 사용됩니다.' },
+  'raphael-707':      { specs:[{l:'조절 방식',v:'전동 3-섹션'},{l:'하중 용량',v:'최대 180 kg'},{l:'높이 조절',v:'45 ~ 85 cm'},{l:'테이블 크기',v:'W 700 × L 1900 mm'},{l:'틸트 범위',v:'±15°'},{l:'머리 받침',v:'탈착식 도넛 쿠션'},{l:'전원',v:'AC 220V'},{l:'중량',v:'약 95 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'01M의 Raphael 707은 도수치료 및 카이로프랙틱 전용으로 설계된 3섹션 전동 테이블입니다. 정밀한 자세 조절이 가능해 치료 효율을 높여줍니다.' },
+  '_default':         { specs:[{l:'전원',v:'AC 220V, 50/60Hz'},{l:'인터페이스',v:'표준 의료기기 인터페이스'},{l:'동작 온도',v:'10 ~ 40°C'},{l:'보관 온도',v:'-20 ~ 60°C'},{l:'습도',v:'30 ~ 75% RH'},{l:'안전 등급',v:'Class II, Type BF'}], as:'1년', warranty:'1년', origin:'정보 없음', cert:['식약처 허가'], desc:'상세 스펙 정보는 제조사에 문의하거나 카탈로그를 참고해 주세요.' },
+};
+
+/* ============================================================
+   DUMMY MANUFACTURER INFO
+   ============================================================ */
+const MANUFACTURER_INFO = {
+  'Gemss healthcare':      { founded:'1999', country:'대한민국', hq:'서울특별시 금천구', website:'www.gemss.co.kr', tel:'02-2102-4700', category:'영상진단장비', desc:'Gemss healthcare는 X-Ray, C-Arm 등 의료 영상진단 장비 전문 기업으로, 국내 최고 수준의 기술력과 A/S 네트워크를 갖추고 있습니다. 국내 400여 개 대리점과 40여 개국 수출 실적을 보유하고 있습니다.' },
+  'DRgem':                 { founded:'2003', country:'대한민국', hq:'경기도 성남시', website:'www.drgem.com', tel:'031-628-5300', category:'DR 영상장비', desc:'DRgem은 디지털 방사선 촬영 시스템(DR) 전문 기업으로 전 세계 70여 개국에 제품을 수출하고 있습니다. 고화질 FPD 기술로 의료 영상 품질을 혁신하고 있습니다.' },
+  'DK Medical System':     { founded:'2008', country:'대한민국', hq:'서울특별시 강남구', website:'www.dkmedicalsystem.com', tel:'02-3452-7000', category:'X-Ray·영상장비', desc:'DK Medical System은 의료 영상 장비 개발 및 유통 전문 기업으로, X-Ray DR 시스템과 영상 솔루션을 공급합니다.' },
+  'Listem':                { founded:'1991', country:'대한민국', hq:'서울특별시 영등포구', website:'www.listem.co.kr', tel:'02-2635-8853', category:'X-Ray·의료기기', desc:'Listem Corporation은 30년 이상의 역사를 가진 국내 의료기기 전문 기업으로, X-Ray, 방사선 측정기, 의료 소프트웨어 등을 제조·공급합니다.' },
+  'Genoray':               { founded:'2003', country:'대한민국', hq:'경기도 성남시', website:'www.genoray.com', tel:'031-628-1900', category:'C-Arm·X-Ray', desc:'Genoray는 C-Arm 및 디지털 X-Ray 시스템 전문 기업입니다. 혁신적인 설계와 경쟁력 있는 가격으로 국내외 시장에서 빠르게 성장하고 있습니다.' },
+  'GE Healthcare':         { founded:'1892', country:'미국', hq:'Chicago, Illinois, USA', website:'www.gehealthcare.com', tel:'1-800-558-3282', category:'의료기기 전반', desc:'GE Healthcare는 GE 그룹의 의료 부문으로, 초음파·MRI·CT·X-Ray 등 전 분야에 걸쳐 세계 최고 수준의 의료기기를 제조합니다. 전 세계 160개국에 제품과 서비스를 제공합니다.' },
+  'Alpinion':              { founded:'2010', country:'대한민국', hq:'경기도 성남시', website:'www.alpinion.com', tel:'031-627-9150', category:'초음파진단기', desc:'Alpinion은 삼성 출신 연구진이 설립한 초음파 전문 기업으로, 독자 개발한 SonixTouch 및 XC 시리즈로 국내외에서 호평을 받고 있습니다.' },
+  'Samsung Medison':       { founded:'1985', country:'대한민국', hq:'서울특별시 강남구', website:'www.samsungmedison.com', tel:'02-1588-5885', category:'초음파진단기', desc:'Samsung Medison은 삼성그룹 계열의 의료기기 전문 기업으로, 초음파진단기 분야 글로벌 Top 5 기업 중 하나입니다. RS85, V7, V8 등 하이엔드 제품군을 보유하고 있습니다.' },
+  'Siemens Healthineers':  { founded:'1847', country:'독일', hq:'Erlangen, Germany', website:'www.siemens-healthineers.com', tel:'+49-9131-84-0', category:'의료기기 전반', desc:'Siemens Healthineers는 150년 이상의 역사를 가진 글로벌 의료기기 기업으로, 영상진단·임상검사·치료장비 등 전 영역에서 세계 최고 수준의 기술을 보유합니다.' },
+  'J-One Medical System':  { founded:'2005', country:'대한민국', hq:'경기도 의왕시', website:'www.j-one.co.kr', tel:'031-455-3701', category:'골밀도진단기', desc:'J-One Medical System은 DEXA 기반 골밀도 측정 시스템 전문 기업입니다. 국내 골밀도 장비 시장 점유율 1위 기업으로, 정밀도와 내구성이 검증된 제품을 공급합니다.' },
+  'Wever Instrument':      { founded:'2012', country:'대한민국', hq:'서울특별시 구로구', website:'www.weverinstrument.com', tel:'02-858-1234', category:'ESWT·재활장비', desc:'Wever Instrument는 체외충격파(ESWT)와 자기장치료기 전문 기업으로, Zeus Wave 시리즈를 통해 도수치료 및 재활의학 분야에서 높은 인지도를 가지고 있습니다.' },
+  'AITIS Korea':           { founded:'2009', country:'대한민국', hq:'서울특별시 서초구', website:'www.aitis.co.kr', tel:'02-3446-5500', category:'레이저치료기', desc:'AITIS Korea는 고강도 레이저 치료기(HILT) 전문 기업입니다. Lambda Yag 시리즈로 물리치료·재활의학 분야 고강도 레이저 치료기 시장을 선도하고 있습니다.' },
+  '01M':                   { founded:'2001', country:'대한민국', hq:'서울특별시 강서구', website:'www.01m.co.kr', tel:'02-2655-0011', category:'치료용 테이블·재활장비', desc:'01M은 도수치료 테이블, 카이로프랙틱 장비, 근육타진기 등 재활·도수치료 분야 전문 의료기기 기업입니다. 국내 도수치료 장비 시장의 선두 업체로 품질과 A/S로 정평이 나 있습니다.' },
+  'Goodple':               { founded:'2000', country:'대한민국', hq:'경기도 파주시', website:'www.goodple.co.kr', tel:'031-944-5555', category:'물리치료기기', desc:'Goodple은 ICT 간섭파, Microwave, 수치료기 등 물리치료 장비 전문 기업으로, 합리적인 가격과 우수한 품질로 국내 의원급 의료기관에 널리 공급되고 있습니다.' },
+  'Wever':                 { founded:'2010', country:'대한민국', hq:'서울특별시 구로구', website:'www.wever.co.kr', tel:'02-858-4567', category:'자기장치료기·ESWT', desc:'Wever는 자기장치료기와 체외충격파 장비를 전문으로 하는 의료기기 기업입니다. Tesla 3000 시리즈는 국내 자기장치료기 시장에서 높은 인지도를 보유하고 있습니다.' },
+  'Mesh':                  { founded:'2007', country:'대한민국', hq:'서울특별시 강남구', website:'www.meshmedical.co.kr', tel:'02-545-1234', category:'냉각치료기', desc:'Mesh는 냉각치료기(크라이오테라피) 전문 기업으로, Cryo Master 시리즈는 CO₂를 사용하지 않는 친환경 냉각치료 솔루션을 제공합니다.' },
+  '에이원':                 { founded:'1998', country:'대한민국', hq:'서울특별시 금천구', website:'www.aonemed.co.kr', tel:'02-803-0100', category:'견인치료기', desc:'에이원은 견인치료기 전문 기업으로, Spine Balance 시리즈는 경추·요추 통합 견인 기능으로 척추 질환 치료 분야에서 널리 사용되고 있습니다.' },
+  '_default':              { founded:'—', country:'—', hq:'—', website:'—', tel:'—', category:'의료기기', desc:'상세 제조사 정보는 담당 영업사원에게 문의해 주세요.' },
+};
+
+const COLOR_MAP = {
+  blue:    { header:'bg-blue-50 border-b border-blue-200',    accent:'bg-blue-400',    headText:'text-blue-800',    badge:'bg-blue-100 text-blue-800',    text:'text-blue-600',    border:'border-blue-200',    light:'bg-blue-50',    btn:'bg-blue-600 hover:bg-blue-700' },
+  emerald: { header:'bg-emerald-50 border-b border-emerald-200', accent:'bg-emerald-400', headText:'text-emerald-800', badge:'bg-emerald-100 text-emerald-800', text:'text-emerald-600', border:'border-emerald-200', light:'bg-emerald-50', btn:'bg-emerald-600 hover:bg-emerald-700' },
+  amber:   { header:'bg-amber-50 border-b border-amber-200',   accent:'bg-amber-400',   headText:'text-amber-800',   badge:'bg-amber-100 text-amber-800',  text:'text-amber-600',  border:'border-amber-200',  light:'bg-amber-50',  btn:'bg-amber-600 hover:bg-amber-700' },
+};
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const getToday = () => new Date().toISOString().split('T')[0];
+const getValidity = (days=30) => { const d=new Date(); d.setDate(d.getDate()+days); return d.toISOString().split('T')[0]; };
+const formatWon = (n) => n!=null ? n.toLocaleString('ko-KR')+'원' : '—';
+const formatWonShort = (n) => n!=null ? n.toLocaleString('ko-KR') : '—';
+const getModel = (item) => item.models.find(m=>m.id===item.selectedModelId) || item.models[0];
+const getGross = (item) => { const m=getModel(item); return (m&&m.price!=null) ? m.price*item.quantity : null; };
+const getNet = (item) => { const g=getGross(item); return g!=null ? Math.max(0, g-(item.itemDiscount||0)) : null; };
+
+function calcSummary(categories, globalDiscount) {
+  let totalItems=0, activeItems=0, grossSum=0, discountSum=0, unknownCount=0;
+  categories.forEach(cat => cat.items.forEach(item => {
+    totalItems++;
+    if (!item.excluded) {
+      activeItems++;
+      const g = getGross(item);
+      if (g!=null) { grossSum += g; discountSum += (item.itemDiscount||0); }
+      else unknownCount++;
+    }
+  }));
+  const afterItemDiscount = grossSum - discountSum;
+  const globalAmt = globalDiscount.type==='rate'
+    ? Math.round(afterItemDiscount * (globalDiscount.value||0) / 100)
+    : Math.min(globalDiscount.value||0, afterItemDiscount);
+  const finalAmt = afterItemDiscount - globalAmt;
+  return { totalItems, activeItems, grossSum, discountSum, afterItemDiscount, globalAmt, finalAmt, unknownCount };
+}
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+function Toast({ toasts }) {
+  return (
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+      {toasts.map(t => (
+        <div key={t.id} className={`toast-anim flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-white text-sm font-medium ${t.type==='success'?'bg-emerald-600':t.type==='error'?'bg-red-600':'bg-slate-700'}`}>
+          <span>{t.type==='success'?'✓':t.type==='error'?'✕':'ℹ'}</span>
+          <span>{t.msg}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad }) {
+  const fields = [
+    { key:'hospital', label:'병원명', w:'w-36' },
+    { key:'doctor', label:'원장명', w:'w-28' },
+    { key:'quoteNo', label:'견적번호', w:'w-32' },
+    { key:'date', label:'견적일자', type:'date', w:'w-36' },
+    { key:'validity', label:'유효기간', type:'date', w:'w-36' },
+  ];
+  return (
+    <header className="bg-slate-900 text-white px-5 py-2.5 flex items-center gap-4 shrink-0 border-b border-slate-800">
+      <div className="flex items-center gap-2 mr-2 shrink-0">
+        <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
+        <span className="font-bold text-sm tracking-tight text-slate-100">MediQuote Pro</span>
+      </div>
+      <div className="flex items-center gap-3 flex-1 overflow-x-auto">
+        {fields.map(f => (
+          <div key={f.key} className="flex items-center gap-1.5 shrink-0">
+            <label className="text-slate-400 text-xs whitespace-nowrap">{f.label}</label>
+            <input
+              type={f.type||'text'}
+              value={quoteInfo[f.key]}
+              onChange={e => setQuoteInfo(p=>({...p,[f.key]:e.target.value}))}
+              className={`${f.w} bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500`}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button onClick={onLoad} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+          불러오기
+        </button>
+        <button onClick={onSave} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+          견적 저장
+        </button>
+      </div>
+    </header>
+  );
+}
+
+/* ============================================================
+   PRODUCT DETAIL MODAL
+   ============================================================ */
+function ProductDetailModal({ modelId, modelName, manufacturer, catName, catColorKey, onClose, onViewManufacturer }) {
+  const spec = PRODUCT_SPECS[modelId] || PRODUCT_SPECS['_default'];
+  const colors = COLOR_MAP[catColorKey] || COLOR_MAP['blue'];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-xl shadow-2xl animate-fs flex flex-col" style={{width:'860px', maxHeight:'86vh'}}>
+
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-6 py-4 rounded-t-xl flex items-start justify-between shrink-0">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`px-2 py-0.5 text-xs rounded font-medium ${colors.badge}`}>{catName}</span>
+            </div>
+            <div className="text-lg font-bold leading-tight">{modelName}</div>
+            <button
+              onClick={() => { onClose(); onViewManufacturer(manufacturer); }}
+              className="text-sm text-slate-400 hover:text-blue-300 transition-colors mt-0.5 text-left"
+            >
+              {manufacturer} →
+            </button>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors mt-1">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
+
+          {/* Left — image placeholder */}
+          <div className="w-72 shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 p-6">
+            <div className="w-full aspect-square rounded-xl border-2 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center gap-2 text-slate-400">
+              <svg className="w-12 h-12 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              <span className="text-xs font-medium">이미지 준비 중</span>
+              <span className="text-xs opacity-60">제품 이미지를 등록해 주세요</span>
+            </div>
+            <div className="w-full bg-white rounded-lg border border-slate-200 p-3 flex flex-col gap-1.5">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">인증 및 원산지</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 w-14 shrink-0">원산지</span>
+                <span className="text-xs font-medium text-slate-800">{spec.origin}</span>
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="text-xs text-slate-500 w-14 shrink-0">인증</span>
+                <div className="flex flex-wrap gap-1">
+                  {spec.cert.map(c => <span key={c} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200">{c}</span>)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right — specs */}
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
+            {/* Description */}
+            <div>
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">제품 소개</div>
+              <p className="text-sm text-slate-700 leading-relaxed">{spec.desc}</p>
+            </div>
+
+            {/* Specs table */}
+            <div>
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">주요 사양</div>
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {spec.specs.map((s, i) => (
+                      <tr key={s.l} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                        <td className="px-4 py-2.5 font-medium text-slate-600 w-36 border-r border-slate-200">{s.l}</td>
+                        <td className="px-4 py-2.5 text-slate-800 font-medium">{s.v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* A/S & Warranty */}
+            <div>
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">보증 및 A/S</div>
+              <div className="grid grid-cols-2 gap-3">
+                {[['A/S 기간', spec.as, 'bg-emerald-50 border-emerald-200 text-emerald-800'], ['제품 보증', spec.warranty, 'bg-blue-50 border-blue-200 text-blue-800']].map(([label, val, cls]) => (
+                  <div key={label} className={`rounded-lg border p-3 ${cls}`}>
+                    <div className="text-xs opacity-70 mb-0.5">{label}</div>
+                    <div className="font-bold text-sm">{val}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   MANUFACTURER MODAL
+   ============================================================ */
+function ManufacturerModal({ manufacturer, allCategories, onClose, onViewProduct }) {
+  const info = MANUFACTURER_INFO[manufacturer] || { ...MANUFACTURER_INFO['_default'] };
+
+  // 해당 제조사의 모든 모델 수집
+  const products = useMemo(() => {
+    const rows = [];
+    allCategories.forEach(cat => {
+      cat.items.forEach(item => {
+        item.models.forEach(model => {
+          if (model.manufacturer === manufacturer) {
+            rows.push({ cat, item, model });
+          }
+        });
+      });
+    });
+    return rows;
+  }, [allCategories, manufacturer]);
+
+  const infoItems = [
+    { label:'설립', value: info.founded },
+    { label:'국가', value: info.country },
+    { label:'본사', value: info.hq },
+    { label:'주요 분야', value: info.category },
+    { label:'전화', value: info.tel },
+    { label:'홈페이지', value: info.website },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-xl shadow-2xl animate-fs flex flex-col" style={{width:'780px', maxHeight:'86vh'}}>
+
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-6 py-4 rounded-t-xl flex items-center justify-between shrink-0">
+          <div>
+            <div className="text-xs text-slate-400 mb-0.5">제조사 정보</div>
+            <div className="text-lg font-bold">{manufacturer}</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
+          {/* Info grid */}
+          <div className="grid grid-cols-3 gap-2">
+            {infoItems.map(({ label, value }) => (
+              <div key={label} className="bg-slate-50 rounded-lg px-4 py-3 border border-slate-200">
+                <div className="text-xs text-slate-400 mb-0.5">{label}</div>
+                <div className="text-xs font-semibold text-slate-800">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Description */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+            <p className="text-sm text-slate-700 leading-relaxed">{info.desc}</p>
+          </div>
+
+          {/* Products */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="text-sm font-bold text-slate-900">취급 모델</div>
+              <span className="px-2 py-0.5 bg-slate-200 text-slate-600 text-xs rounded-full font-medium">{products.length}개</span>
+            </div>
+            {products.length === 0 ? (
+              <div className="text-sm text-slate-400 py-4 text-center">등록된 모델이 없습니다.</div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white">
+                      <th className="px-4 py-2.5 text-left font-semibold">카테고리</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">품목명</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">모델명</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">단가</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">비고</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.map(({ cat, item, model }, i) => {
+                      const colors = COLOR_MAP[cat.colorKey];
+                      return (
+                        <tr key={model.id} className={`border-t border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50'} hover:bg-blue-50 transition-colors`}>
+                          <td className="px-4 py-2.5">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${colors.badge}`}>{cat.name}</span>
+                          </td>
+                          <td className="px-4 py-2.5 font-medium text-slate-800">{item.name}</td>
+                          <td className="px-4 py-2.5">
+                            <button
+                              onClick={() => { onClose(); onViewProduct(model.id, model.name, manufacturer, cat.name, cat.colorKey); }}
+                              className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
+                            >
+                              {model.name}
+                            </button>
+                          </td>
+                          <td className="px-4 py-2.5 text-right tnum">
+                            {model.price != null
+                              ? <span className="font-semibold text-slate-800">{model.price.toLocaleString('ko-KR')}원</span>
+                              : <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded">문의</span>
+                            }
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-500">{model.notes || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ADD EQUIPMENT MODAL
+   ============================================================ */
+function AddEquipmentModal({ categories, customEquips = [], onAdd, onClose, onViewProduct, onViewManufacturer }) {
+  const [tab, setTab] = useState('search');          // 'search' | 'custom'
+  const [query, setQuery] = useState('');
+  const [selectedCat, setSelectedCat] = useState('all');
+  const searchRef = useRef(null);
+
+  // custom form state
+  const [form, setForm] = useState({
+    catId: categories[0]?.id || '',
+    itemName: '', modelName: '', manufacturer: '', price: '', notes: '',
+  });
+  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  useEffect(() => { if (tab === 'search') searchRef.current?.focus(); }, [tab]);
+
+  // Flatten all models into a searchable catalog (기본 + 사용자 등록 장비)
+  const catalog = useMemo(() => {
+    const rows = [];
+    categories.forEach(cat => {
+      cat.items.forEach(item => {
+        item.models.forEach(model => {
+          rows.push({ catId: cat.id, catName: cat.name, catColorKey: cat.colorKey, itemName: item.name, model, isCustom: false });
+        });
+      });
+    });
+    // 사용자 등록 장비 추가 (Supabase에서 로드된 데이터)
+    customEquips.forEach(e => {
+      const colorKey = BUILTIN_CATS.find(c=>c.id===e.catId) ? (categories.find(c=>c.id===e.catId)?.colorKey || 'blue') : 'blue';
+      rows.push({ catId: e.catId, catName: e.catName, catColorKey: colorKey, itemName: e.itemName, model: e.model, isCustom: true, equipId: e.id });
+    });
+    return rows;
+  }, [categories, customEquips]);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return catalog.filter(r => {
+      const matchCat = selectedCat === 'all' || r.catId === selectedCat;
+      const matchQ = !q ||
+        r.itemName.toLowerCase().includes(q) ||
+        r.model.name.toLowerCase().includes(q) ||
+        r.model.manufacturer.toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+  }, [catalog, query, selectedCat]);
+
+  const handleAddFromSearch = (row) => {
+    onAdd({
+      catId: row.catId,
+      itemName: row.itemName,
+      modelName: row.model.name,
+      manufacturer: row.model.manufacturer,
+      price: row.model.price,
+      notes: row.model.notes,
+    });
+  };
+
+  const handleAddCustom = () => {
+    if (!form.itemName.trim() || !form.modelName.trim()) return;
+    onAdd({
+      catId: form.catId,
+      itemName: form.itemName.trim(),
+      modelName: form.modelName.trim(),
+      manufacturer: form.manufacturer.trim(),
+      price: parseInt(form.price.replace(/[^0-9]/g,'')) || null,
+      notes: form.notes.trim(),
+    });
+    setForm(p => ({ ...p, itemName:'', modelName:'', manufacturer:'', price:'', notes:'' }));
+  };
+
+  const catColorMap = {};
+  categories.forEach(c => { catColorMap[c.id] = c.colorKey; });
+
+  const inputCls = "w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400";
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-xl shadow-2xl flex flex-col animate-fs" style={{width:'960px', maxHeight:'82vh'}}>
+
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-5 py-3.5 rounded-t-xl flex items-center justify-between shrink-0">
+          <div>
+            <div className="font-bold text-sm">장비 추가</div>
+            <div className="text-xs text-slate-400 mt-0.5">카탈로그 검색 또는 직접 입력으로 견적에 장비를 추가합니다</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 shrink-0">
+          {[{id:'search',label:'카탈로그 검색',icon:'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0'},{id:'custom',label:'직접 입력',icon:'M12 4v16m8-8H4'}].map(t => (
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab===t.id?'border-blue-600 text-blue-700':'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={t.icon}/></svg>
+              {t.label}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center pr-4">
+            <span className="text-xs text-slate-400">총 {catalog.length}개 모델 등록됨</span>
+          </div>
+        </div>
+
+        {/* ── 카탈로그 검색 탭 ── */}
+        {tab === 'search' && (
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Search controls */}
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 shrink-0">
+              <div className="relative flex-1">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+                <input ref={searchRef} type="text" placeholder="품목명, 모델명, 제조사로 검색..." value={query} onChange={e=>setQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"/>
+                {query && <button onClick={()=>setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg>
+                </button>}
+              </div>
+              <div className="flex items-center gap-1">
+                {[{id:'all',label:'전체'},...categories.map(c=>({id:c.id,label:c.name}))].map(f=>(
+                  <button key={f.id} onClick={()=>setSelectedCat(f.id)}
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors whitespace-nowrap ${selectedCat===f.id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-100'}`}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="overflow-y-auto flex-1">
+              {filtered.length === 0 ? (
+                <div className="py-16 text-center text-slate-400">
+                  <div className="text-2xl mb-2">🔍</div>
+                  <div className="font-medium text-sm">검색 결과가 없습니다</div>
+                  <div className="text-xs mt-1">직접 입력 탭에서 새 장비를 추가해 보세요</div>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">카테고리</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">품목명</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">모델명</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">제조사</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">단가</th>
+                      <th className="w-20 px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((row, idx) => {
+                      const colors = COLOR_MAP[row.catColorKey];
+                      return (
+                        <tr key={idx} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${row.isCustom ? 'bg-emerald-50/30' : ''}`}>
+                          <td className="px-3 py-2.5">
+                            <div className="flex flex-col gap-0.5">
+                              <span className={`px-1.5 py-0.5 text-xs rounded font-medium whitespace-nowrap ${colors.badge}`}>{row.catName}</span>
+                              {row.isCustom && <span className="px-1.5 py-0.5 text-xs rounded font-medium whitespace-nowrap bg-emerald-100 text-emerald-700">사용자등록</span>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-xs font-medium text-slate-800 whitespace-nowrap">{row.itemName}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => onViewProduct(row.model.id, row.model.name, row.model.manufacturer, row.catName, row.catColorKey)}
+                                className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium whitespace-nowrap transition-colors"
+                              >{row.model.name}</button>
+                              {row.model.notes && <span className="px-1 py-0.5 bg-amber-50 text-amber-700 text-xs rounded border border-amber-200 whitespace-nowrap">{row.model.notes}</span>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <button onClick={() => onViewManufacturer(row.model.manufacturer)} className="text-xs text-slate-600 hover:text-blue-600 hover:underline transition-colors">{row.model.manufacturer}</button>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tnum text-xs">
+                            {row.model.price != null
+                              ? <span className="font-medium text-slate-800">{row.model.price.toLocaleString('ko-KR')}원</span>
+                              : <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">문의</span>
+                            }
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <button onClick={()=>handleAddFromSearch(row)}
+                              className={`px-2.5 py-1 text-xs rounded font-medium transition-colors text-white ${colors.btn}`}>
+                              + 추가
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── 직접 입력 탭 ── */}
+        {tab === 'custom' && (
+          <div className="p-5 overflow-y-auto flex-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">추가할 카테고리 <span className="text-red-500">*</span></label>
+                <div className="flex gap-2">
+                  {categories.map(cat => {
+                    const colors = COLOR_MAP[cat.colorKey];
+                    const active = form.catId === cat.id;
+                    return (
+                      <button key={cat.id} onClick={()=>setF('catId', cat.id)}
+                        className={`flex-1 py-2 text-xs rounded-lg border-2 font-medium transition-colors ${active ? `${colors.btn} text-white border-transparent` : `border-slate-200 text-slate-600 hover:border-slate-300`}`}>
+                        {cat.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">품목명 <span className="text-red-500">*</span></label>
+                <input type="text" placeholder="예) X-Ray, 초음파진단기" value={form.itemName} onChange={e=>setF('itemName',e.target.value)} className={inputCls}/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">모델명 <span className="text-red-500">*</span></label>
+                <input type="text" placeholder="예) DR-5000" value={form.modelName} onChange={e=>setF('modelName',e.target.value)} className={inputCls}/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">제조사</label>
+                <input type="text" placeholder="예) GE Healthcare" value={form.manufacturer} onChange={e=>setF('manufacturer',e.target.value)} className={inputCls}/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">단가 (원)</label>
+                <input type="text" inputMode="numeric" placeholder="미입력 시 '문의' 표시" value={form.price}
+                  onChange={e=>setF('price', e.target.value.replace(/[^0-9]/g,''))}
+                  className={inputCls + ' tnum'}/>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">비고</label>
+                <input type="text" placeholder="특이사항, 옵션 등" value={form.notes} onChange={e=>setF('notes',e.target.value)} className={inputCls}/>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
+              <p className="text-xs text-slate-400">* 표시 항목은 필수입니다. 추가 후 견적 화면에서 수량·할인을 조정하세요.</p>
+              <button
+                onClick={handleAddCustom}
+                disabled={!form.itemName.trim() || !form.modelName.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                견적에 추가
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CONTROLS BAR
+   ============================================================ */
+function ControlsBar({ search, setSearch, catFilter, setCatFilter, categories, onAddEquip, onRegisterEquip }) {
+  return (
+    <div className="bg-white border-b border-slate-200 px-5 py-2 flex items-center gap-4 shrink-0">
+      <button
+        onClick={onRegisterEquip}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        장비 등록
+      </button>
+      <button
+        onClick={onAddEquip}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-700 text-white transition-colors shrink-0"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+        장비 추가
+      </button>
+      <div className="w-px h-5 bg-slate-200 shrink-0"/>
+      <div className="relative">
+        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0" />
+        </svg>
+        <input
+          type="text"
+          placeholder="품목명, 모델명, 제조사 검색..."
+          value={search}
+          onChange={e=>setSearch(e.target.value)}
+          className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md w-56 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        />
+        {search && (
+          <button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        {[{id:'all',label:'전체'},...categories.map(c=>({id:c.id,label:c.name}))].map(tab=>(
+          <button
+            key={tab.id}
+            onClick={()=>setCatFilter(tab.id)}
+            className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${catFilter===tab.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >{tab.label}</button>
+        ))}
+      </div>
+      <div className="ml-auto flex items-center gap-1 text-xs text-slate-400">
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>반영</span>
+        <span className="mx-1.5">·</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block"></span>제외</span>
+        <span className="mx-1.5">·</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"></span>문의</span>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ITEM ROW
+   ============================================================ */
+function ItemRow({ item, catColorKey, rowNum, onUpdate, onOpenAlt, onViewProduct, onViewManufacturer, catName }) {
+  const model = getModel(item);
+  const gross = getGross(item);
+  const net = getNet(item);
+  const hasPrice = model?.price != null;
+  const colors = COLOR_MAP[catColorKey];
+
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [priceInput, setPriceInput] = useState('');
+  const priceRef = useRef(null);
+
+  useEffect(() => {
+    if (editingPrice && priceRef.current) {
+      priceRef.current.focus();
+      priceRef.current.select();
+    }
+  }, [editingPrice]);
+
+  const startPriceEdit = () => {
+    if (item.excluded) return;
+    setPriceInput(model?.price != null ? String(model.price) : '');
+    setEditingPrice(true);
+  };
+
+  const commitPriceEdit = () => {
+    const parsed = parseInt(priceInput.replace(/[^0-9]/g,'')) || 0;
+    const updatedModels = item.models.map(m =>
+      m.id === item.selectedModelId ? { ...m, price: parsed } : m
+    );
+    onUpdate({ ...item, models: updatedModels, itemDiscount: Math.min(item.itemDiscount, parsed * item.quantity) });
+    setEditingPrice(false);
+  };
+
+  const updateQty = (delta) => {
+    const newQty = Math.max(1, Math.min(99, item.quantity + delta));
+    onUpdate({ ...item, quantity: newQty });
+  };
+
+  const updateDiscount = (val) => {
+    const parsed = parseInt(val.replace(/,/g,'')) || 0;
+    const maxDiscount = gross || 0;
+    onUpdate({ ...item, itemDiscount: Math.min(parsed, maxDiscount) });
+  };
+
+  return (
+    <tr className={`tr-row border-b border-slate-100 ${item.excluded ? 'tr-excluded bg-slate-50' : 'bg-white'}`}>
+      {/* 번호 / 상태 */}
+      <td className="td-toggle px-2 py-2 text-center w-10">
+        <button
+          onClick={() => onUpdate({...item, excluded:!item.excluded})}
+          title={item.excluded?'반영하기':'제외하기'}
+          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mx-auto transition-all ${
+            item.excluded
+              ? 'border-slate-300 bg-white hover:border-red-300'
+              : 'border-emerald-500 bg-emerald-500 hover:bg-emerald-600'
+          }`}
+        >
+          {!item.excluded && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>}
+        </button>
+      </td>
+      {/* 품명 */}
+      <td className="px-2 py-2 w-36">
+        <div className="flex items-center gap-1.5">
+          <span className={`text-xs shrink-0 ${item.excluded?'text-slate-300':'text-slate-400'}`}>#{rowNum}</span>
+          <span className="font-semibold text-slate-800 text-xs leading-tight truncate">{item.name}</span>
+        </div>
+      </td>
+      {/* 모델명 */}
+      <td className="px-2 py-2 w-44">
+        <div className="flex items-center gap-1 flex-wrap">
+          <button
+            onClick={() => model && onViewProduct(model.id, model.name, model.manufacturer, catName, catColorKey)}
+            className="font-medium text-xs text-blue-600 hover:text-blue-800 hover:underline leading-tight transition-colors"
+          >{model?.name}</button>
+          {model?.notes && (
+            <span className="px-1 py-0.5 bg-amber-50 text-amber-700 text-xs rounded border border-amber-200 leading-tight">{model.notes}</span>
+          )}
+        </div>
+      </td>
+      {/* 제조사 */}
+      <td className="px-2 py-2 w-36">
+        <button
+          onClick={() => model?.manufacturer && onViewManufacturer(model.manufacturer)}
+          className="text-xs text-slate-500 hover:text-blue-600 hover:underline transition-colors whitespace-nowrap"
+        >{model?.manufacturer}</button>
+      </td>
+      {/* 단가 — 더블클릭으로 직접 편집 */}
+      <td
+        className="px-2 py-2 text-right w-28 tnum"
+        onDoubleClick={startPriceEdit}
+        title="더블클릭하여 단가 수정"
+        style={{cursor: item.excluded ? 'default' : 'text'}}
+      >
+        {editingPrice ? (
+          <input
+            ref={priceRef}
+            type="text"
+            inputMode="numeric"
+            value={priceInput}
+            onChange={e => setPriceInput(e.target.value.replace(/[^0-9]/g,''))}
+            onBlur={commitPriceEdit}
+            onKeyDown={e => {
+              if (e.key === 'Enter') commitPriceEdit();
+              if (e.key === 'Escape') setEditingPrice(false);
+            }}
+            className="w-full text-right px-1 py-0.5 text-xs border-0 border-b-2 border-blue-500 focus:outline-none bg-blue-50 rounded-sm tnum"
+          />
+        ) : hasPrice ? (
+          <span className="text-xs text-slate-700 group relative">
+            {model.price.toLocaleString('ko-KR')}
+            <span className="ml-1 text-slate-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✎</span>
+          </span>
+        ) : (
+          <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-xs rounded font-medium">문의</span>
+        )}
+      </td>
+      {/* 수량 */}
+      <td className="px-2 py-2 w-24">
+        <div className="flex items-center gap-1 justify-center">
+          <button onClick={()=>updateQty(-1)} className="w-5 h-5 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 flex items-center justify-center text-xs font-bold leading-none">−</button>
+          <span className="w-6 text-center text-xs font-semibold tnum text-slate-800">{item.quantity}</span>
+          <button onClick={()=>updateQty(1)} className="w-5 h-5 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 flex items-center justify-center text-xs font-bold leading-none">+</button>
+        </div>
+      </td>
+      {/* 공급가액 */}
+      <td className="px-2 py-2 text-right w-28 tnum">
+        {gross!=null
+          ? <span className="text-xs text-slate-700">{gross.toLocaleString('ko-KR')}</span>
+          : <span className="text-slate-400 text-xs">—</span>
+        }
+      </td>
+      {/* 품목할인 */}
+      <td className="px-2 py-2 w-28">
+        <div className="relative">
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="0"
+            value={item.itemDiscount ? item.itemDiscount.toLocaleString('ko-KR') : ''}
+            onChange={e => updateDiscount(e.target.value)}
+            disabled={!hasPrice || item.excluded}
+            className="w-full text-right pr-5 pl-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-400 tnum"
+          />
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs">₩</span>
+        </div>
+      </td>
+      {/* 할인 후 금액 */}
+      <td className="px-2 py-2 text-right w-32 tnum">
+        {net!=null
+          ? <span className={`text-xs font-semibold ${item.itemDiscount>0?'text-blue-700':'text-slate-800'}`}>{net.toLocaleString('ko-KR')}</span>
+          : <span className="text-slate-400 text-xs">—</span>
+        }
+      </td>
+      {/* 대체품 */}
+      <td className="px-2 py-2 w-20 text-center">
+        {item.models.length > 1
+          ? <button
+              onClick={() => onOpenAlt(item)}
+              className={`px-2 py-1 text-xs rounded border font-medium transition-colors ${colors.border} ${colors.text} hover:${colors.light} bg-white hover:bg-opacity-60`}
+            >
+              {item.models.length}개
+            </button>
+          : <span className="text-xs text-slate-300">단일</span>
+        }
+      </td>
+      {/* 메모 */}
+      <td className="px-2 py-2">
+        <input
+          type="text"
+          value={item.memo}
+          onChange={e => onUpdate({...item, memo:e.target.value})}
+          placeholder="메모 입력..."
+          className="w-full min-w-[80px] px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-transparent placeholder-slate-300"
+        />
+      </td>
+    </tr>
+  );
+}
+
+/* ============================================================
+   CATEGORY SECTION
+   ============================================================ */
+function CategorySection({ category, collapsed, onToggle, onUpdateItem, onOpenAlt, search, rowOffset, onViewProduct, onViewManufacturer }) {
+  const colors = COLOR_MAP[category.colorKey];
+  const activeCount = category.items.filter(i => !i.excluded).length;
+  const filteredItems = search
+    ? category.items.filter(i =>
+        i.name.toLowerCase().includes(search.toLowerCase()) ||
+        getModel(i)?.name.toLowerCase().includes(search.toLowerCase()) ||
+        getModel(i)?.manufacturer.toLowerCase().includes(search.toLowerCase())
+      )
+    : category.items;
+
+  if (search && filteredItems.length === 0) return null;
+
+  return (
+    <tbody>
+      <tr>
+        <td colSpan={11} className={`${colors.header} cursor-pointer select-none`} onClick={onToggle}>
+          <div className="px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className={`w-1 h-4 rounded-full ${colors.accent} inline-block shrink-0`}></span>
+              <svg className={`w-3 h-3 ${colors.headText} transition-transform ${collapsed ? 'rotate-[-90deg]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7"/></svg>
+              <span className={`font-semibold text-sm ${colors.headText}`}>{category.name}</span>
+              <span className="text-xs text-slate-400 font-normal">
+                총 {category.items.length}개 · 반영 <span className="font-medium text-slate-600">{activeCount}</span>개
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {(() => {
+                const catSum = category.items
+                  .filter(i => !i.excluded)
+                  .reduce((sum, i) => { const n = getNet(i); return sum + (n || 0); }, 0);
+                return catSum > 0
+                  ? <span className={`text-xs font-semibold tnum ${colors.headText}`}>{catSum.toLocaleString('ko-KR')}원</span>
+                  : null;
+              })()}
+            </div>
+          </div>
+        </td>
+      </tr>
+      {!collapsed && filteredItems.map((item, idx) => (
+        <ItemRow
+          key={item.id}
+          item={item}
+          catColorKey={category.colorKey}
+          rowNum={rowOffset + idx + 1}
+          onUpdate={updated => onUpdateItem(category.id, updated)}
+          onOpenAlt={onOpenAlt}
+          onViewProduct={onViewProduct}
+          onViewManufacturer={onViewManufacturer}
+          catName={category.name}
+        />
+      ))}
+    </tbody>
+  );
+}
+
+/* ============================================================
+   SUMMARY PANEL
+   ============================================================ */
+function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatIncluded, setVatIncluded, onPdfPreview }) {
+  const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
+  // VAT 별도: finalAmt에 10% 가산 / VAT 포함: finalAmt를 역산하여 공급가·부가세 분리
+  const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
+  const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
+
+  return (
+    <aside className="w-72 bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-y-auto">
+      {/* Header */}
+      <div className="bg-slate-900 text-white px-4 py-3">
+        <div className="text-xs font-semibold tracking-widest text-slate-400 uppercase mb-0.5">견적 요약</div>
+        <div className="text-xl font-bold tnum">{supplyAmt.toLocaleString('ko-KR')}<span className="text-sm font-normal text-slate-300 ml-1">원</span></div>
+        <div className="text-xs text-slate-400 mt-0.5">{vatIncluded ? '공급가 (부가세 역산)' : '최종 제안 금액 (VAT 별도)'}</div>
+      </div>
+
+      <div className="p-4 flex flex-col gap-4 flex-1">
+        {/* 품목 현황 */}
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="text-center">
+            <div className="text-lg font-bold text-emerald-600 tnum">{s.activeItems}</div>
+            <div className="text-xs text-slate-500">총 견적 품목</div>
+          </div>
+          {s.unknownCount > 0 && (
+            <div className="text-center pt-1 border-t border-slate-200 mt-1">
+              <div className="text-xs text-orange-600 font-medium">가격 미확정 {s.unknownCount}개 품목 제외됨</div>
+            </div>
+          )}
+        </div>
+
+        {/* 금액 내역 */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-slate-500">공급가액 합계</span>
+            <span className="font-medium tnum text-slate-700">{s.grossSum.toLocaleString('ko-KR')}원</span>
+          </div>
+          {s.discountSum > 0 && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500">품목별 할인 합계</span>
+              <span className="font-medium tnum text-red-600">−{s.discountSum.toLocaleString('ko-KR')}원</span>
+            </div>
+          )}
+          {s.discountSum > 0 && (
+            <div className="flex justify-between items-center text-xs border-t border-slate-100 pt-1.5">
+              <span className="text-slate-600 font-medium">할인 후 소계</span>
+              <span className="font-semibold tnum">{s.afterItemDiscount.toLocaleString('ko-KR')}원</span>
+            </div>
+          )}
+        </div>
+
+        {/* 전체 할인 */}
+        <div className="border border-slate-200 rounded-lg p-3">
+          <div className="text-xs font-semibold text-slate-700 mb-2">전체 할인</div>
+          <div className="flex gap-1.5 mb-2">
+            <button
+              onClick={() => setGlobalDiscount(p => ({...p, type:'rate'}))}
+              className={`flex-1 py-1 text-xs rounded border font-medium transition-colors ${globalDiscount.type==='rate' ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            >정률 (%)</button>
+            <button
+              onClick={() => setGlobalDiscount(p => ({...p, type:'amount'}))}
+              className={`flex-1 py-1 text-xs rounded border font-medium transition-colors ${globalDiscount.type==='amount' ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            >정액 (₩)</button>
+          </div>
+          <div className="relative">
+            <input
+              type="number"
+              min={0}
+              max={globalDiscount.type==='rate'?100:s.afterItemDiscount}
+              value={globalDiscount.value||''}
+              onChange={e => {
+                const v = parseFloat(e.target.value)||0;
+                const capped = globalDiscount.type==='rate' ? Math.min(100,v) : Math.min(v, s.afterItemDiscount);
+                setGlobalDiscount(p=>({...p,value:capped}));
+              }}
+              placeholder="0"
+              className="w-full text-right pr-8 pl-3 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 tnum"
+            />
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
+              {globalDiscount.type==='rate' ? '%' : '₩'}
+            </span>
+          </div>
+          {s.globalAmt > 0 && (
+            <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-slate-100">
+              <span className="text-slate-500">
+                {globalDiscount.type==='rate' ? `${globalDiscount.value}% 할인` : '정액 할인'}
+              </span>
+              <span className="text-red-600 font-semibold tnum">−{s.globalAmt.toLocaleString('ko-KR')}원</span>
+            </div>
+          )}
+        </div>
+
+        {/* 최종 금액 */}
+        <div className="border-t-2 border-slate-800 pt-3">
+          {vatIncluded ? (
+            /* VAT 포함 역산 표시 */
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-500">VAT 포함 합계 (고정)</span>
+                <span className="text-sm font-bold tnum text-blue-700">{s.finalAmt.toLocaleString('ko-KR')}원</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500">공급가 (÷1.1, 내림)</span>
+                <span className="font-semibold tnum text-slate-800">{supplyAmt.toLocaleString('ko-KR')}원</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500">부가세 (10%)</span>
+                <span className="font-semibold tnum text-slate-600">{vatAmt.toLocaleString('ko-KR')}원</span>
+              </div>
+            </div>
+          ) : (
+            /* VAT 별도 표시 */
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between items-start">
+                <span className="text-sm font-bold text-slate-800">최종 제안 금액</span>
+                <div className="text-lg font-bold tnum text-slate-900">{s.finalAmt.toLocaleString('ko-KR')}원</div>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500">부가세 (10%)</span>
+                <span className="font-semibold tnum text-slate-600">{Math.floor(s.finalAmt * 0.1).toLocaleString('ko-KR')}원</span>
+              </div>
+              <div className="flex justify-between items-center text-xs border-t border-slate-200 pt-1.5 mt-0.5">
+                <span className="font-semibold text-slate-700">VAT 포함 합계</span>
+                <span className="font-bold tnum text-blue-700">{Math.floor(s.finalAmt * 1.1).toLocaleString('ko-KR')}원</span>
+              </div>
+            </div>
+          )}
+
+          {/* VAT 토글 */}
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setVatIncluded(p=>!p)}
+                className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${vatIncluded ? 'bg-blue-600' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block w-4 h-4 bg-white rounded-full shadow transform transition-transform mt-0.5 ${vatIncluded ? 'translate-x-4.5' : 'translate-x-0.5'}`} style={{marginLeft: vatIncluded?'19px':'2px'}}/>
+              </button>
+              <span className="text-xs text-slate-600">VAT {vatIncluded ? '포함 (역산)' : '별도'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 카테고리별 소계 */}
+        <div>
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">카테고리별 소계</div>
+          {categories.map(cat => {
+            const colors = COLOR_MAP[cat.colorKey];
+            const catSum = cat.items.filter(i=>!i.excluded).reduce((sum,i)=>sum+(getNet(i)||0),0);
+            const catActive = cat.items.filter(i=>!i.excluded).length;
+            return (
+              <div key={cat.id} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${cat.colorKey==='blue'?'bg-blue-500':cat.colorKey==='emerald'?'bg-emerald-500':'bg-amber-500'}`}></span>
+                  <span className="text-xs text-slate-600">{cat.name}</span>
+                  <span className="text-xs text-slate-400">({catActive})</span>
+                </div>
+                <span className="text-xs font-medium tnum text-slate-700">{catSum.toLocaleString('ko-KR')}원</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* PDF 버튼 */}
+        <div className="mt-auto pt-2 flex flex-col gap-2">
+          <button
+            onClick={onPdfPreview}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-slate-800 text-slate-800 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            PDF 미리보기
+          </button>
+          <button
+            onClick={onPdfPreview}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+            최종 PDF 생성
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/* ============================================================
+   ALT MODAL
+   ============================================================ */
+function AltModal({ item, catColorKey, onSelect, onClose }) {
+  const colors = COLOR_MAP[catColorKey];
+  const selectedModel = getModel(item);
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-xl shadow-2xl w-[680px] max-h-[80vh] flex flex-col animate-fs">
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <div className={`text-xs font-medium mb-0.5 ${colors.text}`}>대체 모델 선택</div>
+            <div className="text-base font-bold text-slate-900">{item.name}</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-4">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2 pl-2">모델명</th>
+                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2">제조사</th>
+                <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2">가격</th>
+                <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide pb-2 pl-3">비고</th>
+                <th className="w-24 pb-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {item.models.map((model, idx) => {
+                const isSelected = model.id === item.selectedModelId;
+                const isBase = idx === 0;
+                return (
+                  <tr key={model.id} className={`border-b border-slate-100 last:border-0 ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} transition-colors`}>
+                    <td className="py-2.5 pl-2 pr-3">
+                      <div className="flex items-center gap-2">
+                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>}
+                        <span className={`text-sm font-medium ${isSelected?'text-blue-800':'text-slate-800'}`}>{model.name}</span>
+                        {isBase && <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">기본</span>}
+                      </div>
+                    </td>
+                    <td className="py-2.5 text-xs text-slate-600">{model.manufacturer}</td>
+                    <td className="py-2.5 text-right tnum">
+                      {model.price!=null
+                        ? <span className={`text-sm font-semibold ${isSelected?'text-blue-700':'text-slate-800'}`}>{model.price.toLocaleString('ko-KR')}원</span>
+                        : <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded font-medium">문의</span>
+                      }
+                    </td>
+                    <td className="py-2.5 pl-3 text-xs text-slate-500">{model.notes||'—'}</td>
+                    <td className="py-2.5 text-right pr-2">
+                      {isSelected
+                        ? <span className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded font-medium">선택됨</span>
+                        : <button
+                            onClick={() => { onSelect(item, model.id); onClose(); }}
+                            className={`px-2.5 py-1 text-xs rounded font-medium border transition-colors ${colors.border} ${colors.text} hover:bg-opacity-10 bg-white`}
+                          >선택</button>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* price compare bar */}
+        {(() => {
+          const prices = item.models.filter(m=>m.price!=null).map(m=>m.price);
+          if (prices.length < 2) return null;
+          const minP = Math.min(...prices), maxP = Math.max(...prices);
+          const curP = selectedModel?.price;
+          return (
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+              <div className="flex items-center gap-3 text-xs text-slate-500">
+                <span>가격 범위</span>
+                <div className="flex-1 h-1.5 bg-slate-200 rounded-full relative">
+                  {curP!=null && (
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-blue-600 rounded-full border-2 border-white shadow"
+                      style={{left: `${((curP-minP)/(maxP-minP||1))*100}%`, transform:'translateX(-50%) translateY(-50%)'}}
+                    />
+                  )}
+                  <div className="h-1.5 bg-blue-200 rounded-full" style={{width:`${((maxP-minP)/(maxP||1))*100}%`}}/>
+                </div>
+                <span className="tnum">{minP.toLocaleString('ko-KR')}원</span>
+                <span>~</span>
+                <span className="tnum">{maxP.toLocaleString('ko-KR')}원</span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   PDF PREVIEW MODAL
+   ============================================================ */
+function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, onClose }) {
+  const [tab, setTab] = useState('summary');
+  const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
+  const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
+  const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
+
+  const handlePrint = () => {
+    const printWin = window.open('', '_blank', 'width=900,height=700');
+    if (!printWin) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요.'); return; }
+
+    let rowNum = 0;
+    const activeItems = [];
+    categories.forEach(cat => cat.items.forEach(item => {
+      if (!item.excluded) {
+        rowNum++;
+        const m = getModel(item);
+        activeItems.push({ rowNum, catName: cat.name, itemName: item.name, modelId: m?.id||'', modelName: m?.name||'', manufacturer: m?.manufacturer||'', price: m?.price, quantity: item.quantity, gross: getGross(item), discount: item.itemDiscount, net: getNet(item) });
+      }
+    }));
+
+    const rows = activeItems.map(i => `
+      <tr>
+        <td style="text-align:center;width:40px">${i.rowNum}</td>
+        <td><strong>${i.itemName}</strong><br/><span style="color:#64748b;font-size:10px">${i.modelName} · ${i.manufacturer}</span></td>
+        <td style="text-align:center;width:50px">${i.quantity}</td>
+        <td style="text-align:right;font-weight:700;width:120px">${i.net!=null?i.net.toLocaleString('ko-KR')+'원':'—'}</td>
+      </tr>`).join('');
+
+    printWin.document.write(`<!DOCTYPE html><html lang="ko"><head>
+      <meta charset="UTF-8"><title>의료장비 견적서</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap');
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Noto Sans KR',sans-serif; font-size:11px; color:#1e293b; }
+        .cover { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px; border-bottom:3px solid #1e3a5f; }
+        .cover-title { font-size:32px; font-weight:900; color:#1e3a5f; letter-spacing:-1px; margin-bottom:8px; }
+        .cover-sub { font-size:14px; color:#64748b; margin-bottom:60px; }
+        .cover-info { background:#f8fafc; border-radius:12px; padding:32px 48px; min-width:400px; }
+        .cover-info table { width:100%; border-collapse:collapse; }
+        .cover-info td { padding:8px 0; border-bottom:1px solid #e2e8f0; }
+        .cover-info td:first-child { color:#64748b; width:100px; font-size:12px; }
+        .cover-info td:last-child { font-weight:600; font-size:13px; }
+        .page-break { page-break-before:always; }
+        .page { padding:40px 50px; }
+        .section-title { font-size:16px; font-weight:700; color:#1e3a5f; border-bottom:2px solid #1e3a5f; padding-bottom:8px; margin-bottom:16px; }
+        table.data { width:100%; border-collapse:collapse; }
+        table.data th { background:#1e3a5f; color:#fff; padding:7px 8px; text-align:left; font-size:10px; font-weight:600; }
+        table.data td { padding:6px 8px; border-bottom:1px solid #e2e8f0; vertical-align:middle; }
+        table.data tr:nth-child(even) td { background:#f8fafc; }
+        .total-box { background:#1e3a5f; color:#fff; border-radius:8px; padding:20px 24px; margin-top:20px; }
+        .total-box .row { display:flex; justify-content:space-between; padding:4px 0; font-size:12px; }
+        .total-box .final { font-size:18px; font-weight:700; border-top:1px solid rgba(255,255,255,0.3); padding-top:12px; margin-top:8px; }
+        .footer { text-align:center; color:#94a3b8; font-size:10px; margin-top:40px; padding-top:16px; border-top:1px solid #e2e8f0; }
+        @media print {
+          .cover { min-height:100vh; page-break-after:always; }
+          .page-break { page-break-before:always; }
+          @page { margin:15mm; size:A4; }
+        }
+      </style>
+    </head><body>
+
+    <!-- 표지 -->
+    <div class="cover">
+      <div class="cover-title">의료장비 공급 견적서</div>
+      <div class="cover-sub">Medical Equipment Supply Quotation</div>
+      <div class="cover-info">
+        <table>
+          <tr><td>수신</td><td>${quoteInfo.hospital} ${quoteInfo.doctor} 원장님</td></tr>
+          <tr><td>견적번호</td><td>${quoteInfo.quoteNo}</td></tr>
+          <tr><td>견적일자</td><td>${quoteInfo.date}</td></tr>
+          <tr><td>유효기간</td><td>${quoteInfo.validity}</td></tr>
+          <tr><td>총 견적 품목</td><td>${s.activeItems}개</td></tr>
+          <tr><td>최종 제안금액</td><td style="font-size:16px;font-weight:900;color:#1e3a5f">${vatIncluded?Math.floor(s.finalAmt/1.1).toLocaleString('ko-KR'):s.finalAmt.toLocaleString('ko-KR')}원 (VAT ${vatIncluded?'포함':'별도'})</td></tr>
+          <tr><td>부가세 (10%)</td><td>${vatIncluded?(s.finalAmt-Math.floor(s.finalAmt/1.1)).toLocaleString('ko-KR'):Math.floor(s.finalAmt*0.1).toLocaleString('ko-KR')}원</td></tr>
+          <tr><td style="font-weight:700">VAT 포함 합계</td><td style="font-size:15px;font-weight:700;color:#1e3a5f">${vatIncluded?s.finalAmt.toLocaleString('ko-KR'):Math.floor(s.finalAmt*1.1).toLocaleString('ko-KR')}원</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- 총괄표 -->
+    <div class="page">
+      <div class="section-title">총괄표</div>
+      <table class="data">
+        <thead>
+          <tr>
+            <th style="width:40px;text-align:center">No.</th>
+            <th>품목명 · 모델</th>
+            <th style="text-align:center;width:50px">수량</th>
+            <th style="text-align:right;width:120px">최종금액</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="total-box">
+        <div class="row"><span>공급가액 합계</span><span style="font-variant-numeric:tabular-nums">${s.grossSum.toLocaleString('ko-KR')}원</span></div>
+        ${s.discountSum>0?`<div class="row"><span>품목별 할인</span><span>−${s.discountSum.toLocaleString('ko-KR')}원</span></div>`:''}
+        <div class="row"><span>전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})</span><span>−${s.globalAmt.toLocaleString('ko-KR')}원</span></div>
+        ${vatIncluded
+          ? `<div class="row"><span>공급가 (역산)</span><span style="font-variant-numeric:tabular-nums">${Math.floor(s.finalAmt/1.1).toLocaleString('ko-KR')}원</span></div><div class="row"><span>부가세 (10%)</span><span style="font-variant-numeric:tabular-nums">${(s.finalAmt-Math.floor(s.finalAmt/1.1)).toLocaleString('ko-KR')}원</span></div><div class="row final"><span>VAT 포함 합계</span><span style="font-variant-numeric:tabular-nums">${s.finalAmt.toLocaleString('ko-KR')}원</span></div>`
+          : `<div class="row final"><span>최종 제안 금액</span><span style="font-variant-numeric:tabular-nums">${s.finalAmt.toLocaleString('ko-KR')}원</span></div><div class="row" style="font-size:12px"><span>부가세 (10%)</span><span style="font-variant-numeric:tabular-nums">${Math.floor(s.finalAmt*0.1).toLocaleString('ko-KR')}원</span></div><div class="row final" style="background:rgba(255,255,255,0.15)"><span>VAT 포함 합계</span><span style="font-variant-numeric:tabular-nums">${Math.floor(s.finalAmt*1.1).toLocaleString('ko-KR')}원</span></div>`
+        }
+      </div>
+      <div class="footer">본 견적서는 ${quoteInfo.validity}까지 유효합니다. · ${quoteInfo.hospital} 귀중</div>
+    </div>
+
+    <!-- 제품 상세 페이지들 -->
+    ${(() => {
+      let detailNum = 0;
+      return activeItems.map(i => {
+        detailNum++;
+        const foundSpec = PRODUCT_SPECS[i.modelId] || PRODUCT_SPECS['_default'];
+        const certsHtml = foundSpec.cert.map(c => `<span style="display:inline-block;padding:1px 6px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:4px;font-size:9px;margin:1px">${c}</span>`).join('');
+        const specsHtml = foundSpec.specs.map((s,idx) => `<tr style="background:${idx%2===0?'#fff':'#f8fafc'}"><td style="padding:5px 8px;color:#64748b;width:120px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;font-size:10px">${s.l}</td><td style="padding:5px 8px;color:#1e293b;border-bottom:1px solid #e2e8f0;font-size:10px;font-weight:500">${s.v}</td></tr>`).join('');
+        return `
+    <div class="page page-break">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e3a5f">
+        <span style="color:#94a3b8;font-size:11px">#${detailNum}</span>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#1e293b">${i.itemName}</div>
+          <div style="font-size:11px;color:#64748b;margin-top:1px">${i.modelName} · ${i.manufacturer}</div>
+        </div>
+        <div style="margin-left:auto;text-align:right">
+          <div style="font-size:11px;color:#64748b">${i.price!=null?i.price.toLocaleString('ko-KR')+'원 × '+i.quantity:'문의'}</div>
+          <div style="font-size:14px;font-weight:700;color:#1e3a5f">${i.net!=null?i.net.toLocaleString('ko-KR')+'원':'—'}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:20px">
+        <!-- 이미지 영역 -->
+        <div style="width:180px;shrink:0;flex-shrink:0">
+          <div style="width:180px;height:180px;border:2px dashed #cbd5e1;border-radius:10px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;margin-bottom:10px">
+            <div style="font-size:24px;opacity:0.3">📷</div>
+            <div>이미지 준비 중</div>
+          </div>
+          <div style="font-size:10px;display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;gap:4px"><span style="color:#94a3b8;width:36px">원산지</span><span style="font-weight:600;color:#1e293b">${foundSpec.origin}</span></div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:flex-start"><span style="color:#94a3b8;width:36px">인증</span><div>${certsHtml}</div></div>
+          </div>
+        </div>
+        <!-- 스펙 -->
+        <div style="flex:1">
+          <div style="margin-bottom:10px">
+            <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">제품 소개</div>
+            <p style="font-size:10px;color:#475569;line-height:1.7">${foundSpec.desc}</p>
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">주요 사양</div>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
+              <tbody>${specsHtml}</tbody>
+            </table>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div style="border:1px solid #a7f3d0;background:#ecfdf5;border-radius:8px;padding:10px">
+              <div style="font-size:9px;color:#059669;margin-bottom:2px">A/S 기간</div>
+              <div style="font-size:12px;font-weight:700;color:#065f46">${foundSpec.as}</div>
+            </div>
+            <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:10px">
+              <div style="font-size:9px;color:#2563eb;margin-bottom:2px">제품 보증</div>
+              <div style="font-size:12px;font-weight:700;color:#1e40af">${foundSpec.warranty}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+      }).join('');
+    })()}
+
+    <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`);
+    printWin.document.close();
+  };
+
+  const s_all = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
+  let rowCounter = 0;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-xl shadow-2xl w-[820px] max-h-[90vh] flex flex-col animate-fs">
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
+          <div>
+            <div className="text-xs text-slate-400">PDF 미리보기</div>
+            <div className="text-sm font-bold">의료장비 공급 견적서</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handlePrint} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+              PDF 인쇄 / 저장
+            </button>
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 bg-slate-50">
+          {[{id:'cover',label:'표지'},{ id:'summary',label:'총괄표'},{ id:'detail',label:'상세 내역'}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab===t.id?'border-blue-600 text-blue-700 bg-white':'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Preview content */}
+        <div className="flex-1 overflow-y-auto bg-slate-100 p-6">
+          <div className="bg-white shadow-sm rounded-lg max-w-2xl mx-auto min-h-full">
+
+            {tab==='cover' && (
+              <div className="p-10 flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-6">MQ</div>
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight">의료장비 공급 견적서</h1>
+                <p className="text-slate-500 mt-2 mb-10">Medical Equipment Supply Quotation</p>
+                <div className="bg-slate-50 rounded-xl p-8 w-full max-w-sm text-left border border-slate-200">
+                  {[
+                    ['수신', `${quoteInfo.hospital} ${quoteInfo.doctor} 원장님`],
+                    ['견적번호', quoteInfo.quoteNo],
+                    ['견적일자', quoteInfo.date],
+                    ['유효기간', quoteInfo.validity],
+                    ['총 견적 품목', `${s_all.activeItems}개`],
+                    ['최종 제안금액', `${s_all.finalAmt.toLocaleString('ko-KR')}원 (VAT ${vatIncluded?'포함':'별도'})`],
+                  ].map(([k,v]) => (
+                    <div key={k} className="flex py-2 border-b border-slate-200 last:border-0">
+                      <span className="w-28 text-slate-500 text-sm shrink-0">{k}</span>
+                      <span className="font-semibold text-sm text-slate-900">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tab==='summary' && (
+              <div className="p-6">
+                <h2 className="text-base font-bold text-slate-900 border-b-2 border-slate-900 pb-2 mb-4">총괄표</h2>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white">
+                      <th className="px-2 py-2 text-center w-8">No.</th>
+                      <th className="px-2 py-2 text-left">품목명 · 모델</th>
+                      <th className="px-2 py-2 text-center w-12">수량</th>
+                      <th className="px-2 py-2 text-right w-32">최종금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categories.map(cat => [
+                      <tr key={'cat-'+cat.id} className={`${COLOR_MAP[cat.colorKey].header}`}>
+                        <td colSpan={4} className={`px-3 py-1.5 font-semibold text-xs ${COLOR_MAP[cat.colorKey].headText}`}>{cat.name}</td>
+                      </tr>,
+                      ...cat.items.filter(i=>!i.excluded).map(item => {
+                        rowCounter++;
+                        const m = getModel(item);
+                        const n = getNet(item);
+                        return (
+                          <tr key={item.id} className="border-b border-slate-100">
+                            <td className="px-2 py-2 text-center text-slate-400 text-xs">{rowCounter}</td>
+                            <td className="px-2 py-2">
+                              <div className="font-medium text-slate-800 text-xs">{item.name}</div>
+                              <div className="text-slate-500 text-xs">{m?.name} · {m?.manufacturer}</div>
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs">{item.quantity}</td>
+                            <td className="px-2 py-2 text-right tnum font-semibold text-xs">{n!=null?n.toLocaleString('ko-KR')+'원':'—'}</td>
+                          </tr>
+                        );
+                      })
+                    ])}
+                  </tbody>
+                </table>
+                <div className="mt-4 bg-slate-900 text-white rounded-lg p-4 text-sm">
+                  {[
+                    ['공급가액 합계', s_all.grossSum.toLocaleString('ko-KR')+'원'],
+                    ...(s_all.discountSum>0?[['품목별 할인', '−'+s_all.discountSum.toLocaleString('ko-KR')+'원']]:[]),
+                    [`전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})`, '−'+s_all.globalAmt.toLocaleString('ko-KR')+'원'],
+                    ...(vatIncluded
+                      ? [
+                          ['공급가 (역산 ÷1.1)', Math.floor(s_all.finalAmt/1.1).toLocaleString('ko-KR')+'원'],
+                          ['부가세 (10%)', (s_all.finalAmt-Math.floor(s_all.finalAmt/1.1)).toLocaleString('ko-KR')+'원'],
+                        ]
+                      : [
+                          ['부가세 (10%)', Math.floor(s_all.finalAmt*0.1).toLocaleString('ko-KR')+'원'],
+                        ]
+                    ),
+                  ].map(([k,v]) => (
+                    <div key={k} className="flex justify-between py-1 text-slate-300 text-xs">
+                      <span>{k}</span><span className="tnum">{v}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between pt-3 mt-2 border-t border-slate-600 font-bold text-sm">
+                    <span>{vatIncluded ? '최종 제안 금액 (공급가)' : '최종 제안 금액'}</span>
+                    <span className="tnum">{vatIncluded ? Math.floor(s_all.finalAmt/1.1).toLocaleString('ko-KR') : s_all.finalAmt.toLocaleString('ko-KR')}원</span>
+                  </div>
+                  <div className="flex justify-between pt-2 mt-1 border-t border-slate-500 font-bold text-base text-blue-300">
+                    <span>VAT 포함 합계</span>
+                    <span className="tnum">{vatIncluded ? s_all.finalAmt.toLocaleString('ko-KR') : Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">VAT {vatIncluded?'포함 (역산)':'별도'} · 유효기간 {quoteInfo.validity}까지</div>
+                </div>
+              </div>
+            )}
+
+            {tab==='detail' && (() => {
+              let detailCounter = 0;
+              const allActive = [];
+              categories.forEach(cat => cat.items.forEach(item => {
+                if (!item.excluded) allActive.push({ cat, item });
+              }));
+              if (allActive.length === 0) return (
+                <div className="p-10 text-center text-slate-400 text-sm">반영된 품목이 없습니다.</div>
+              );
+              return (
+                <div className="p-6 flex flex-col gap-6">
+                  <h2 className="text-base font-bold text-slate-900 border-b-2 border-slate-900 pb-2">상세 내역</h2>
+                  {allActive.map(({ cat, item }) => {
+                    detailCounter++;
+                    const m = getModel(item);
+                    const spec = PRODUCT_SPECS[m?.id] || PRODUCT_SPECS['_default'];
+                    const colors = COLOR_MAP[cat.colorKey];
+                    const n = getNet(item);
+                    return (
+                      <div key={item.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        {/* Card header */}
+                        <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-400 text-xs tnum">#{detailCounter}</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 text-xs rounded font-medium ${colors.badge}`}>{cat.name}</span>
+                                <span className="font-semibold text-sm">{item.name}</span>
+                              </div>
+                              <div className="text-xs text-slate-400 mt-0.5">{m?.name} · {m?.manufacturer}</div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs text-slate-400 tnum">{m?.price!=null?m.price.toLocaleString('ko-KR')+'원 × '+item.quantity:'문의'}</div>
+                            {item.itemDiscount>0 && <div className="text-xs text-red-400 tnum">−{item.itemDiscount.toLocaleString('ko-KR')}원</div>}
+                            <div className="font-bold text-sm tnum text-white">{n!=null?n.toLocaleString('ko-KR')+'원':'—'}</div>
+                          </div>
+                        </div>
+                        {/* Card body */}
+                        <div className="flex">
+                          {/* Left — image + cert */}
+                          <div className="w-52 shrink-0 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-3">
+                            <div className="w-full aspect-square rounded-lg border-2 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center gap-1.5 text-slate-400">
+                              <svg className="w-8 h-8 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                              </svg>
+                              <span className="text-xs">이미지 준비 중</span>
+                            </div>
+                            <div className="flex flex-col gap-1 text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 w-10 shrink-0">원산지</span>
+                                <span className="font-medium text-slate-700">{spec.origin}</span>
+                              </div>
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-slate-400 w-10 shrink-0">인증</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {spec.cert.map(c => <span key={c} className="px-1 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200 text-xs">{c}</span>)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {/* Right — specs */}
+                          <div className="flex-1 p-4 flex flex-col gap-4">
+                            <div>
+                              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">제품 소개</div>
+                              <p className="text-xs text-slate-700 leading-relaxed">{spec.desc}</p>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">주요 사양</div>
+                              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                <table className="w-full text-xs">
+                                  <tbody>
+                                    {spec.specs.map((sp, i) => (
+                                      <tr key={sp.l} className={i%2===0?'bg-white':'bg-slate-50'}>
+                                        <td className="px-3 py-2 font-medium text-slate-500 w-32 border-r border-slate-200">{sp.l}</td>
+                                        <td className="px-3 py-2 text-slate-800">{sp.v}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5">
+                                <div className="text-xs text-emerald-600 mb-0.5">A/S 기간</div>
+                                <div className="font-bold text-sm text-emerald-800">{spec.as}</div>
+                              </div>
+                              <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+                                <div className="text-xs text-blue-600 mb-0.5">제품 보증</div>
+                                <div className="font-bold text-sm text-blue-800">{spec.warranty}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   EQUIPMENT REGISTER PAGE
+   ============================================================ */
+// Equipment 저장소는 Supabase로 대체됨 (dbLoadEquip / dbSaveEquip / dbDeleteEquip)
+
+const BUILTIN_CATS = [
+  { id:'imaging', name:'영상진단 장비' },
+  { id:'pt',      name:'물리치료기기' },
+  { id:'manual',  name:'도수치료 장비' },
+];
+
+function EquipmentRegisterPage({ onBack, onEquipChange }) {
+  const emptySpec  = () => ({ l:'', v:'' });
+  const emptyForm  = () => ({
+    catId:'imaging', catCustom:'', itemName:'', modelName:'', manufacturer:'',
+    price:'', altText:'', image:null,
+    desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'',
+  });
+
+  const [equips, setEquips]     = React.useState([]);
+  const [loadingEquips, setLoadingEquips] = React.useState(true);
+  const [form, setForm]         = React.useState(emptyForm);
+  const [editId, setEditId]     = React.useState(null);
+  const [confirmDel, setConfirmDel] = React.useState(null);
+  const [saved, setSaved]       = React.useState(false);
+  const [saving, setSaving]     = React.useState(false);
+  const imgRef = React.useRef(null);
+
+  React.useEffect(() => {
+    dbLoadEquip().then(data => { setEquips(data); setLoadingEquips(false); });
+  }, []);
+
+  const setF = (k, v) => setForm(p => ({...p, [k]: v}));
+
+  const handleImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setF('image', ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const addSpec   = () => setF('specs', [...form.specs, emptySpec()]);
+  const removeSpec = (i) => setF('specs', form.specs.filter((_,idx) => idx !== i));
+  const setSpec   = (i, k, v) => setF('specs', form.specs.map((s, idx) => idx===i ? {...s,[k]:v} : s));
+
+  const handleSubmit = async () => {
+    if (!form.itemName.trim() || !form.modelName.trim()) return;
+    setSaving(true);
+    const catId   = form.catId === 'custom' ? 'custom' : form.catId;
+    const catName = form.catId === 'custom' ? (form.catCustom.trim() || '기타') : (BUILTIN_CATS.find(c=>c.id===form.catId)?.name || '기타');
+    const entry = {
+      id: editId || null,
+      catId, catName,
+      itemName: form.itemName.trim(),
+      model: {
+        id: editId ? equips.find(e=>e.id===editId)?.model.id : ('cm-' + Date.now()),
+        name: form.modelName.trim(),
+        manufacturer: form.manufacturer.trim(),
+        price: parseInt(form.price.replace(/[^0-9]/g,'')) || null,
+        notes: form.notes.trim(),
+      },
+      altText: form.altText.trim(),
+      image: form.image,
+      spec: {
+        desc: form.desc.trim(),
+        specs: form.specs.filter(s => s.l.trim()),
+        origin: form.origin.trim(),
+        cert: form.cert.trim(),
+        as: form.as.trim(),
+        warranty: form.warranty.trim(),
+      },
+      createdAt: new Date().toLocaleDateString('ko-KR'),
+    };
+    try {
+      const savedId = await dbSaveEquip(entry);
+      entry.id = savedId;
+      const next = editId
+        ? equips.map(e => e.id === editId ? entry : e)
+        : [entry, ...equips];
+      setEquips(next);
+      setForm(emptyForm());
+      setEditId(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      onEquipChange?.();
+    } catch(e) {
+      console.error('장비 저장 오류:', e);
+      alert('저장 중 오류가 발생했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (e) => {
+    setEditId(e.id);
+    const isCustom = !BUILTIN_CATS.find(c=>c.id===e.catId);
+    setForm({
+      catId: isCustom ? 'custom' : e.catId,
+      catCustom: isCustom ? e.catName : '',
+      itemName: e.itemName,
+      modelName: e.model.name,
+      manufacturer: e.model.manufacturer,
+      price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
+      altText: e.altText || '',
+      image: e.image || null,
+      desc: e.spec?.desc || '',
+      specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
+      origin: e.spec?.origin || '',
+      cert: e.spec?.cert || '',
+      as: e.spec?.as || '',
+      warranty: e.spec?.warranty || '',
+      notes: e.model.notes || '',
+    });
+    window.scrollTo(0,0);
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await dbDeleteEquip(id);
+      setEquips(p => p.filter(e => e.id !== id));
+      setConfirmDel(null);
+      onEquipChange?.();
+    } catch(e) {
+      console.error('장비 삭제 오류:', e);
+      alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  const cancelEdit = () => { setEditId(null); setForm(emptyForm()); };
+
+  const inputCls = "w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400";
+  const labelCls = "block text-xs font-semibold text-slate-600 mb-1";
+
+  return (
+    <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
+      {/* Header */}
+      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
+        <div className="flex items-center gap-2 mr-2">
+          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
+          <span className="font-bold text-sm text-slate-100">MediQuote Pro</span>
+        </div>
+        <span className="text-slate-400 text-xs">·</span>
+        <span className="text-slate-200 text-sm font-semibold">장비 등록 관리</span>
+        <div className="ml-auto">
+          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            견적 작성으로 돌아가기
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-5xl mx-auto flex flex-col gap-6">
+
+          {/* ── 등록 폼 ── */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-slate-900 text-base">{editId ? '장비 수정' : '새 장비 등록'}</div>
+                <div className="text-xs text-slate-400 mt-0.5">등록된 장비는 견적서 장비 추가 시 검색·선택할 수 있습니다</div>
+              </div>
+              {editId && (
+                <button onClick={cancelEdit} className="text-xs text-slate-500 hover:text-slate-700 underline">취소</button>
+              )}
+            </div>
+
+            <div className="p-6 flex flex-col gap-6">
+              {/* Row 1: 카테고리 / 품목명 / 모델명 / 제조사 */}
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <label className={labelCls}>카테고리 <span className="text-red-400">*</span></label>
+                  <select value={form.catId} onChange={e=>setF('catId',e.target.value)} className={inputCls}>
+                    {BUILTIN_CATS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                    <option value="custom">직접 입력</option>
+                  </select>
+                  {form.catId === 'custom' && (
+                    <input type="text" placeholder="카테고리명 입력" value={form.catCustom} onChange={e=>setF('catCustom',e.target.value)} className={`${inputCls} mt-1`}/>
+                  )}
+                </div>
+                <div>
+                  <label className={labelCls}>품목명 <span className="text-red-400">*</span></label>
+                  <input type="text" placeholder="예: X-Ray (DR System)" value={form.itemName} onChange={e=>setF('itemName',e.target.value)} className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>모델명 <span className="text-red-400">*</span></label>
+                  <input type="text" placeholder="예: Xvision HF 525R" value={form.modelName} onChange={e=>setF('modelName',e.target.value)} className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>제조사</label>
+                  <input type="text" placeholder="예: Gemss healthcare" value={form.manufacturer} onChange={e=>setF('manufacturer',e.target.value)} className={inputCls}/>
+                </div>
+              </div>
+
+              {/* Row 2: 단가 / 대체품 메모 / 기타 특이사항 */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className={labelCls}>단가 (원)</label>
+                  <input type="text" inputMode="numeric" placeholder="0" value={form.price}
+                    onChange={e=>setF('price', (parseInt(e.target.value.replace(/[^0-9]/g,''))||'').toLocaleString('ko-KR').replace('NaN',''))}
+                    className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>대체품 메모</label>
+                  <input type="text" placeholder="예: KMC-650과 교체 가능" value={form.altText} onChange={e=>setF('altText',e.target.value)} className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>기타 특이사항</label>
+                  <input type="text" placeholder="예: 콘덴서 포함" value={form.notes} onChange={e=>setF('notes',e.target.value)} className={inputCls}/>
+                </div>
+              </div>
+
+              {/* 이미지 + 제품소개 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>제품 이미지</label>
+                  <div
+                    className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-400 transition-colors bg-slate-50"
+                    onClick={()=>imgRef.current?.click()}
+                  >
+                    {form.image ? (
+                      <div className="relative w-full">
+                        <img src={form.image} alt="preview" className="w-full h-32 object-contain rounded"/>
+                        <button onClick={e=>{e.stopPropagation();setF('image',null);}} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center hover:bg-red-400">×</button>
+                      </div>
+                    ) : (
+                      <>
+                        <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        <span className="text-xs text-slate-400">클릭하여 이미지 업로드</span>
+                        <span className="text-xs text-slate-300">JPG, PNG, WEBP</span>
+                      </>
+                    )}
+                  </div>
+                  <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImage}/>
+                </div>
+                <div>
+                  <label className={labelCls}>제품 소개</label>
+                  <textarea placeholder="제품 특징 및 소개를 입력하세요" value={form.desc} onChange={e=>setF('desc',e.target.value)}
+                    rows={5} className={`${inputCls} resize-none`}/>
+                </div>
+              </div>
+
+              {/* 주요 사양 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className={labelCls + ' mb-0'}>주요 사양</label>
+                  <button onClick={addSpec} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                    항목 추가
+                  </button>
+                </div>
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 grid grid-cols-2 text-xs font-semibold text-slate-500 px-3 py-2 border-b border-slate-200">
+                    <span>항목명</span><span>값</span>
+                  </div>
+                  {form.specs.map((s, i) => (
+                    <div key={i} className="grid grid-cols-2 gap-0 border-b border-slate-100 last:border-0">
+                      <input type="text" placeholder="예: 관전압" value={s.l} onChange={e=>setSpec(i,'l',e.target.value)}
+                        className="px-3 py-2 text-xs border-r border-slate-100 focus:outline-none focus:bg-blue-50"/>
+                      <div className="flex items-center">
+                        <input type="text" placeholder="예: 40~150 kVp" value={s.v} onChange={e=>setSpec(i,'v',e.target.value)}
+                          className="flex-1 px-3 py-2 text-xs focus:outline-none focus:bg-blue-50"/>
+                        {form.specs.length > 1 && (
+                          <button onClick={()=>removeSpec(i)} className="px-2 text-slate-300 hover:text-red-400 text-sm">×</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 인증·원산지 / 보증 */}
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <label className={labelCls}>원산지</label>
+                  <input type="text" placeholder="예: 대한민국" value={form.origin} onChange={e=>setF('origin',e.target.value)} className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>인증 (쉼표 구분)</label>
+                  <input type="text" placeholder="예: 식약처 허가, CE, FDA" value={form.cert} onChange={e=>setF('cert',e.target.value)} className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>A/S 기간</label>
+                  <input type="text" placeholder="예: 2년" value={form.as} onChange={e=>setF('as',e.target.value)} className={inputCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>제품 보증</label>
+                  <input type="text" placeholder="예: 설치 후 1년" value={form.warranty} onChange={e=>setF('warranty',e.target.value)} className={inputCls}/>
+                </div>
+              </div>
+
+              {/* 저장 버튼 */}
+              <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
+                <button
+                  onClick={handleSubmit}
+                  disabled={!form.itemName.trim() || !form.modelName.trim() || saving}
+                  className="flex items-center gap-2 px-5 py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                  {saving ? '저장 중...' : editId ? '수정 저장' : '장비 등록'}
+                </button>
+                {saved && <span className="text-xs text-emerald-600 font-medium">✓ 저장되었습니다</span>}
+                <span className="text-xs text-slate-400 ml-auto">* 품목명, 모델명은 필수 항목입니다</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── 등록된 장비 목록 ── */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <div className="font-bold text-slate-900 text-base">등록된 장비 목록</div>
+              <div className="text-xs text-slate-400 mt-0.5">총 {equips.length}개 · 견적서 [장비 추가] 에서 검색 가능</div>
+            </div>
+            {loadingEquips ? (
+              <div className="py-14 text-center text-slate-400">
+                <div className="text-sm">불러오는 중...</div>
+              </div>
+            ) : equips.length === 0 ? (
+              <div className="py-14 text-center text-slate-400">
+                <div className="text-2xl mb-2">📦</div>
+                <div className="text-sm font-medium">등록된 장비가 없습니다</div>
+                <div className="text-xs mt-1">위 폼에서 장비를 등록해 보세요</div>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">카테고리</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">품목명</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">모델명</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">제조사</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">단가</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">등록일</th>
+                    <th className="px-4 py-3 w-36"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {equips.map((e, idx) => (
+                    <tr key={e.id} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${editId===e.id?'bg-blue-50':''}`}>
+                      <td className="px-4 py-3">
+                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded font-medium">{e.catName}</span>
+                      </td>
+                      <td className="px-4 py-3 text-xs font-medium text-slate-800">{e.itemName}</td>
+                      <td className="px-4 py-3 text-xs text-slate-700">
+                        <div>{e.model.name}</div>
+                        {e.model.notes && <div className="text-slate-400 text-xs">{e.model.notes}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{e.model.manufacturer}</td>
+                      <td className="px-4 py-3 text-right text-xs tnum font-medium text-slate-800">
+                        {e.model.price != null ? e.model.price.toLocaleString('ko-KR')+'원' : <span className="text-orange-600">문의</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center text-xs text-slate-400">{e.createdAt}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 justify-end">
+                          <button onClick={()=>startEdit(e)} className="px-2.5 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-100 transition-colors">수정</button>
+                          {confirmDel === e.id ? (
+                            <div className="flex items-center gap-1">
+                              <button onClick={()=>handleDelete(e.id)} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-500">확인</button>
+                              <button onClick={()=>setConfirmDel(null)} className="px-2 py-1 text-xs border border-slate-300 text-slate-500 rounded hover:bg-slate-50">취소</button>
+                            </div>
+                          ) : (
+                            <button onClick={()=>setConfirmDel(e.id)} className="px-2.5 py-1 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors">삭제</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   SAVED QUOTES LIST PAGE
+   ============================================================ */
+function SavedQuotesList({ onLoad, onBack }) {
+  const [saves, setSaves] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [confirmId, setConfirmId] = React.useState(null);
+
+  React.useEffect(() => {
+    dbLoadQuotes().then(data => { setSaves(data); setLoading(false); });
+  }, []);
+
+  const handleDelete = async (id) => {
+    try {
+      await dbDeleteQuote(id);
+      setSaves(p => p.filter(s => s.id !== id));
+      setConfirmId(null);
+    } catch(e) {
+      console.error('삭제 오류:', e);
+      alert('삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  return (
+    <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
+      {/* Header */}
+      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
+        <div className="flex items-center gap-2 mr-2">
+          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
+          <span className="font-bold text-sm tracking-tight text-slate-100">MediQuote Pro</span>
+        </div>
+        <span className="text-slate-400 text-xs">·</span>
+        <span className="text-slate-200 text-sm font-semibold">저장된 견적서</span>
+        <div className="ml-auto">
+          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            견적 작성으로 돌아가기
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-8">
+        <div className="max-w-5xl mx-auto">
+          {loading ? (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-20 flex flex-col items-center justify-center text-slate-400">
+              <div className="text-sm">불러오는 중...</div>
+            </div>
+          ) : saves.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-20 flex flex-col items-center justify-center text-slate-400">
+              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <div className="font-medium text-sm">저장된 견적서가 없습니다</div>
+              <div className="text-xs mt-1">견적 작성 화면에서 "견적 저장" 버튼을 눌러주세요</div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <div className="text-base font-bold text-slate-900">저장된 견적서 목록</div>
+                  <div className="text-xs text-slate-400 mt-0.5">총 {saves.length}건 · 최신순</div>
+                </div>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">견적번호</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-40">병원명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">원장명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">저장일시</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">최종금액</th>
+                    <th className="px-5 py-3 w-40"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {saves.map((s, idx) => (
+                    <tr key={s.id} className={`border-b border-slate-100 last:border-0 hover:bg-blue-50 transition-colors ${idx===0?'bg-blue-50/30':''}`}>
+                      <td className="px-5 py-3.5">
+                        <span className="font-mono font-semibold text-blue-700 text-sm">{s.quoteNo}</span>
+                        {idx === 0 && <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded font-medium">최신</span>}
+                      </td>
+                      <td className="px-5 py-3.5 font-medium text-slate-800">{s.hospital}</td>
+                      <td className="px-5 py-3.5 text-slate-600">{s.doctor}</td>
+                      <td className="px-5 py-3.5 text-slate-500 text-xs">{s.savedAt}</td>
+                      <td className="px-5 py-3.5 text-right font-semibold tnum text-slate-800">
+                        {s.finalAmt != null ? s.finalAmt.toLocaleString('ko-KR') + '원' : '—'}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2 justify-end">
+                          <button
+                            onClick={() => onLoad(s)}
+                            className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded font-semibold hover:bg-slate-700 transition-colors"
+                          >불러오기</button>
+                          {confirmId === s.id ? (
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleDelete(s.id)} className="px-2 py-1.5 text-xs bg-red-600 text-white rounded font-semibold hover:bg-red-500 transition-colors">삭제확인</button>
+                              <button onClick={() => setConfirmId(null)} className="px-2 py-1.5 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition-colors">취소</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmId(s.id)} className="px-3 py-1.5 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors">삭제</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   MAIN APP
+   ============================================================ */
+function App() {
+  const [quoteInfo, setQuoteInfo] = useState({
+    hospital: '○○○○ 의원',
+    doctor: '홍길동',
+    quoteNo: 'QT-2025-001',
+    date: getToday(),
+    validity: getValidity(),
+  });
+  const [categories, setCategories] = useState(() => JSON.parse(JSON.stringify(INITIAL_CATEGORIES)));
+  const [globalDiscount, setGlobalDiscount] = useState({ type:'rate', value:5 });
+  const [vatIncluded, setVatIncluded] = useState(false);
+  const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState('all');
+  const [collapsed, setCollapsed] = useState({});
+  const [addEquipOpen, setAddEquipOpen] = useState(false);
+  const [altModal, setAltModal] = useState(null);
+  const [pdfModal, setPdfModal] = useState(false);
+  const [productModal, setProductModal] = useState(null);   // { modelId, modelName, manufacturer, catName, catColorKey }
+  const [mfrModal, setMfrModal] = useState(null);           // manufacturerName string
+  const [toasts, setToasts] = useState([]);
+  const [view, setView] = useState('editor'); // 'editor' | 'list'
+  const [customEquips, setCustomEquips] = useState([]);
+
+  // Supabase에서 등록 장비 로드
+  useEffect(() => {
+    dbLoadEquip().then(setCustomEquips).catch(console.error);
+  }, []);
+
+  const addToast = useCallback((msg, type='success') => {
+    const id = Date.now();
+    setToasts(p => [...p, {id, msg, type}]);
+    setTimeout(() => setToasts(p => p.filter(t=>t.id!==id)), 2800);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    try {
+      const quoteNo = await dbGenerateQuoteNo();
+      const s = calcSummary(categories, globalDiscount);
+      const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
+      const entry = {
+        quoteNo,
+        finalAmt: supplyAmt,
+        quoteInfo: { ...quoteInfo, quoteNo },
+        categories: JSON.parse(JSON.stringify(categories)),
+        globalDiscount: { ...globalDiscount },
+        vatIncluded,
+      };
+      await dbSaveQuote(entry);
+      setQuoteInfo(p => ({ ...p, quoteNo }));
+      addToast(`견적이 저장되었습니다. (${quoteNo})`, 'success');
+    } catch(e) {
+      console.error('견적 저장 오류:', e);
+      addToast('저장 중 오류가 발생했습니다.', 'error');
+    }
+  }, [quoteInfo, categories, globalDiscount, vatIncluded, addToast]);
+
+  const handleLoadEntry = useCallback((entry) => {
+    setQuoteInfo(entry.quoteInfo);
+    setCategories(JSON.parse(JSON.stringify(entry.categories)));
+    setGlobalDiscount(entry.globalDiscount);
+    setVatIncluded(entry.vatIncluded);
+    setView('editor');
+    addToast(`견적 ${entry.quoteNo} 불러왔습니다.`, 'success');
+  }, [addToast]);
+
+  const updateItem = useCallback((catId, updatedItem) => {
+    setCategories(prev => prev.map(cat =>
+      cat.id !== catId ? cat : { ...cat, items: cat.items.map(i => i.id !== updatedItem.id ? i : updatedItem) }
+    ));
+  }, []);
+
+  const handleAddEquip = useCallback(({ catId, itemName, modelName, manufacturer, price, notes }) => {
+    const newItem = {
+      id: 'custom-' + Date.now(),
+      name: itemName,
+      selectedModelId: 'custom-model-' + Date.now(),
+      quantity: 1,
+      itemDiscount: 0,
+      excluded: false,
+      memo: '',
+      models: [{
+        id: 'custom-model-' + Date.now(),
+        name: modelName,
+        manufacturer: manufacturer || '',
+        price: price ?? null,
+        notes: notes || '',
+      }],
+    };
+    setCategories(prev => prev.map(cat =>
+      cat.id !== catId ? cat : { ...cat, items: [...cat.items, newItem] }
+    ));
+    addToast(`${itemName} — ${modelName} 추가됨`, 'success');
+  }, [addToast]);
+
+  const selectAltModel = useCallback((item, modelId) => {
+    const cat = categories.find(c => c.items.some(i => i.id === item.id));
+    if (!cat) return;
+    const model = item.models.find(m=>m.id===modelId);
+    updateItem(cat.id, { ...item, selectedModelId: modelId, itemDiscount: 0 });
+    addToast(`${item.name}: ${model?.name} 선택됨`, 'success');
+  }, [categories, updateItem, addToast]);
+
+  const visibleCategories = useMemo(() =>
+    catFilter === 'all' ? categories : categories.filter(c => c.id === catFilter),
+    [categories, catFilter]
+  );
+
+  // row offset for each category (for sequential numbering)
+  const catOffsets = useMemo(() => {
+    const offsets = {};
+    let offset = 0;
+    categories.forEach(cat => {
+      offsets[cat.id] = offset;
+      offset += cat.items.length;
+    });
+    return offsets;
+  }, [categories]);
+
+  if (view === 'register') {
+    return <EquipmentRegisterPage onBack={() => setView('editor')} onEquipChange={() => dbLoadEquip().then(setCustomEquips).catch(console.error)} />;
+  }
+
+  if (view === 'list') {
+    return (
+      <SavedQuotesList
+        onLoad={handleLoadEntry}
+        onBack={() => setView('editor')}
+      />
+    );
+  }
+
+  return (
+    <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')}/>
+      <ControlsBar search={search} setSearch={setSearch} catFilter={catFilter} setCatFilter={setCatFilter} categories={categories} onAddEquip={()=>setAddEquipOpen(true)} onRegisterEquip={()=>setView('register')}/>
+
+      <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
+        {/* Main table area */}
+        <div style={{flex:1, overflowY:'auto', overflowX:'auto'}}>
+          <table style={{width:'100%', borderCollapse:'collapse', minWidth:'900px'}}>
+            {/* Sticky header */}
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-slate-100 border-b-2 border-slate-300">
+                <th className="px-2 py-2.5 w-10 text-slate-500 font-semibold text-xs"></th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">품목명</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-44">모델명</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">제조사</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">단가</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">수량</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">공급가액</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">할인금액</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">할인 후 금액</th>
+                <th className="px-2 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-20">대체품</th>
+                <th className="px-2 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">메모</th>
+              </tr>
+            </thead>
+
+            {visibleCategories.map(cat => (
+              <CategorySection
+                key={cat.id}
+                category={cat}
+                collapsed={!!collapsed[cat.id]}
+                onToggle={() => setCollapsed(p => ({...p, [cat.id]: !p[cat.id]}))}
+                onUpdateItem={updateItem}
+                onOpenAlt={(item) => setAltModal({item, catColorKey: cat.colorKey})}
+                search={search}
+                rowOffset={catOffsets[cat.id] || 0}
+                onViewProduct={(modelId, modelName, manufacturer, catName, catColorKey) => setProductModal({modelId, modelName, manufacturer, catName, catColorKey})}
+                onViewManufacturer={(mfr) => setMfrModal(mfr)}
+              />
+            ))}
+
+            {/* Empty state */}
+            {search && visibleCategories.every(cat =>
+              !cat.items.some(i =>
+                i.name.toLowerCase().includes(search.toLowerCase()) ||
+                getModel(i)?.name.toLowerCase().includes(search.toLowerCase()) ||
+                getModel(i)?.manufacturer.toLowerCase().includes(search.toLowerCase())
+              )
+            ) && (
+              <tbody>
+                <tr>
+                  <td colSpan={11} className="py-16 text-center text-slate-400">
+                    <div className="text-2xl mb-2">🔍</div>
+                    <div className="font-medium">"{search}" 검색 결과가 없습니다</div>
+                  </td>
+                </tr>
+              </tbody>
+            )}
+          </table>
+
+          {/* Bottom padding */}
+          <div className="h-8"/>
+        </div>
+
+        {/* Summary panel */}
+        <SummaryPanel
+          categories={categories}
+          globalDiscount={globalDiscount}
+          setGlobalDiscount={setGlobalDiscount}
+          vatIncluded={vatIncluded}
+          setVatIncluded={setVatIncluded}
+          onPdfPreview={() => setPdfModal(true)}
+        />
+      </div>
+
+      {/* Alt modal */}
+      {altModal && (
+        <AltModal
+          item={altModal.item}
+          catColorKey={altModal.catColorKey}
+          onSelect={selectAltModel}
+          onClose={() => setAltModal(null)}
+        />
+      )}
+
+      {/* PDF modal */}
+      {pdfModal && (
+        <PdfPreviewModal
+          quoteInfo={quoteInfo}
+          categories={categories}
+          globalDiscount={globalDiscount}
+          vatIncluded={vatIncluded}
+          onClose={() => setPdfModal(false)}
+        />
+      )}
+
+      {/* Add Equipment Modal */}
+      {addEquipOpen && (
+        <AddEquipmentModal
+          categories={categories}
+          customEquips={customEquips}
+          onAdd={(data) => { handleAddEquip(data); }}
+          onClose={() => setAddEquipOpen(false)}
+          onViewProduct={(modelId, modelName, manufacturer, catName, catColorKey) => { setAddEquipOpen(false); setProductModal({modelId, modelName, manufacturer, catName, catColorKey}); }}
+          onViewManufacturer={(mfr) => { setAddEquipOpen(false); setMfrModal(mfr); }}
+        />
+      )}
+
+      {/* Product Detail Modal */}
+      {productModal && (
+        <ProductDetailModal
+          modelId={productModal.modelId}
+          modelName={productModal.modelName}
+          manufacturer={productModal.manufacturer}
+          catName={productModal.catName}
+          catColorKey={productModal.catColorKey}
+          onClose={() => setProductModal(null)}
+          onViewManufacturer={(mfr) => { setProductModal(null); setMfrModal(mfr); }}
+        />
+      )}
+
+      {/* Manufacturer Modal */}
+      {mfrModal && (
+        <ManufacturerModal
+          manufacturer={mfrModal}
+          allCategories={categories}
+          onClose={() => setMfrModal(null)}
+          onViewProduct={(modelId, modelName, manufacturer, catName, catColorKey) => { setMfrModal(null); setProductModal({modelId, modelName, manufacturer, catName, catColorKey}); }}
+        />
+      )}
+
+      {/* Toasts */}
+      <Toast toasts={toasts}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
