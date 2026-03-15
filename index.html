@@ -1067,8 +1067,7 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
 /* ============================================================
    CONTROLS BAR
    ============================================================ */
-function ControlsBar({ search, setSearch, catFilter, setCatFilter, categories, dynCats, onAddEquip }) {
-  const filterTabs = dynCats && dynCats.length > 0 ? dynCats : categories;
+function ControlsBar({ search, setSearch, onAddEquip }) {
   return (
     <div className="bg-white border-b border-slate-200 px-5 py-2 flex items-center gap-4 shrink-0">
       <button
@@ -1095,15 +1094,6 @@ function ControlsBar({ search, setSearch, catFilter, setCatFilter, categories, d
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
           </button>
         )}
-      </div>
-      <div className="flex items-center gap-1">
-        {[{id:'all',label:'전체'},...filterTabs.map(c=>({id:c.id,label:c.name}))].map(tab=>(
-          <button
-            key={tab.id}
-            onClick={()=>setCatFilter(tab.id)}
-            className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${catFilter===tab.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-          >{tab.label}</button>
-        ))}
       </div>
       <div className="ml-auto flex items-center gap-1 text-xs text-slate-400">
         <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>반영</span>
@@ -3251,7 +3241,6 @@ function App() {
   const [globalDiscount, setGlobalDiscount] = useState({ type:'rate', value:5 });
   const [vatIncluded, setVatIncluded] = useState(false);
   const [search, setSearch] = useState('');
-  const [catFilter, setCatFilter] = useState('all');
   const [collapsed, setCollapsed] = useState({});
   const [addEquipOpen, setAddEquipOpen] = useState(false);
   const [altModal, setAltModal] = useState(null);
@@ -3345,10 +3334,7 @@ function App() {
     addToast(`${item.name}: ${model?.name} 선택됨`, 'success');
   }, [categories, updateItem, addToast]);
 
-  const visibleCategories = useMemo(() =>
-    catFilter === 'all' ? categories : categories.filter(c => c.id === catFilter),
-    [categories, catFilter]
-  );
+  const visibleCategories = categories;
 
   // row offset for each category (for sequential numbering)
   const catOffsets = useMemo(() => {
@@ -3386,7 +3372,7 @@ function App() {
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
       <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')}/>
-      <ControlsBar search={search} setSearch={setSearch} catFilter={catFilter} setCatFilter={setCatFilter} categories={categories} dynCats={dynCats} onAddEquip={()=>setAddEquipOpen(true)}/>
+      <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
         {/* Main table area */}
