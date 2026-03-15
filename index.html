@@ -2651,10 +2651,12 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
 /* ============================================================
    SAVED QUOTES LIST PAGE
    ============================================================ */
-function SavedQuotesList({ onLoad, onBack }) {
+function SavedQuotesList({ onLoad, onBack, customEquips = [] }) {
   const [saves, setSaves] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [confirmId, setConfirmId] = React.useState(null);
+  const [activeTab, setActiveTab] = React.useState('saved');
+  const [selectedDept, setSelectedDept] = React.useState(null);
 
   React.useEffect(() => {
     dbLoadQuotes().then(data => { setSaves(data); setLoading(false); });
@@ -2671,6 +2673,108 @@ function SavedQuotesList({ onLoad, onBack }) {
     }
   };
 
+  // 진료과별 선호 카테고리 키워드
+  const DEPT_CAT_KEYWORDS = {
+    '정형외과':       ['영상진단','물리치료','수술','기타의료'],
+    '내과':           ['영상진단','검사','내시경','기타의료'],
+    '가정의학과':     ['영상진단','검사','기타의료'],
+    '재활의학과':     ['물리치료','영상진단','검사','기타의료'],
+    '산부인과':       ['영상진단','수술','검사','기타의료'],
+    '피부과':         ['미용','레이저','기타의료','검사'],
+    '응급의학과':     ['영상진단','수술','검사','기타의료'],
+    '영상의학과':     ['영상진단','기타의료'],
+    '안과':           ['영상진단','검사','수술','기타의료'],
+    '흉부외과':       ['영상진단','수술','기타의료'],
+    '성형외과':       ['미용','레이저','수술','기타의료'],
+    '비뇨기과':       ['영상진단','수술','내시경','기타의료'],
+    '이비인후과':     ['영상진단','검사','내시경','수술','기타의료'],
+    '소아과':         ['영상진단','검사','기타의료'],
+    '신경외과':       ['영상진단','수술','기타의료'],
+    '정신건강의학과': ['검사','기타의료'],
+    '마취통증의학과': ['물리치료','수술','기타의료'],
+    '직업의학과':     ['검사','영상진단','기타의료'],
+    '신경과':         ['영상진단','검사','기타의료'],
+    '외과':           ['영상진단','수술','기타의료'],
+  };
+
+  // 카테고리별 기본 단가 (가격 null인 장비용 예산 계산에만 사용)
+  const catDefaultPrice = (catName) => {
+    if (catName.includes('영상진단')) return 8000000;
+    if (catName.includes('물리치료') || catName.includes('재활')) return 2000000;
+    if (catName.includes('수술기구') || catName.includes('소모품')) return 300000;
+    if (catName.includes('수술')) return 5000000;
+    if (catName.includes('내시경')) return 12000000;
+    if (catName.includes('검사') || catName.includes('측정')) return 1500000;
+    if (catName.includes('미용') || catName.includes('성형') || catName.includes('레이저')) return 15000000;
+    return 800000;
+  };
+
+  const BUDGET_TIERS = [
+    { label: '1억 미만', key: '1억', max: 100000000, minItems: 5, maxItems: 8 },
+    { label: '3억 미만', key: '3억', max: 300000000, minItems: 10, maxItems: 15 },
+    { label: '5억 미만', key: '5억', max: 500000000, minItems: 15, maxItems: 20 },
+  ];
+
+  const generateStandardQuote = (dept, tier) => {
+    const keywords = DEPT_CAT_KEYWORDS[dept] || ['기타의료'];
+    const withPrice = customEquips.map(e => ({
+      ...e, effectivePrice: e.model.price || catDefaultPrice(e.catName),
+    }));
+
+    const score = (e) => {
+      const idx = keywords.findIndex(k => e.catName.includes(k));
+      return idx === -1 ? keywords.length : idx;
+    };
+    const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+    const pool = shuffle(withPrice).sort((a, b) => score(a) - score(b));
+
+    const selected = [];
+    const seenNames = new Set();
+    let total = 0;
+    for (const e of pool) {
+      if (selected.length >= tier.maxItems) break;
+      if (seenNames.has(e.itemName)) continue;
+      if (total + e.effectivePrice <= tier.max) {
+        selected.push(e); seenNames.add(e.itemName); total += e.effectivePrice;
+      }
+    }
+    // fill to minItems if needed
+    if (selected.length < tier.minItems) {
+      for (const e of pool) {
+        if (selected.length >= tier.minItems) break;
+        if (!seenNames.has(e.itemName)) { selected.push(e); seenNames.add(e.itemName); }
+      }
+    }
+
+    const catMap = {};
+    for (const e of selected) {
+      if (!catMap[e.catId]) catMap[e.catId] = { id: e.catId, name: e.catName, colorKey: 'neutral', items: [] };
+      const uid = Date.now() + Math.random();
+      catMap[e.catId].items.push({
+        id: 'std-' + uid,
+        name: e.itemName,
+        selectedModelId: 'stdm-' + uid,
+        quantity: 1, itemDiscount: 0, excluded: false, memo: '',
+        models: [{
+          id: 'stdm-' + uid,
+          name: e.model.name || '표준모델',
+          manufacturer: e.model.manufacturer || '',
+          price: e.model.price || null,
+          notes: e.model.notes || '',
+        }],
+      });
+    }
+
+    const quoteNo = 'STD-' + dept.replace(/\//g,'');
+    onLoad({
+      quoteNo,
+      quoteInfo: { hospital: '○○○○ 의원', doctor: '홍길동', dept, quoteNo, date: getToday(), validity: getValidity() },
+      categories: Object.values(catMap),
+      globalDiscount: { type: 'rate', value: 0 },
+      vatIncluded: false,
+    });
+  };
+
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* Header */}
@@ -2680,7 +2784,7 @@ function SavedQuotesList({ onLoad, onBack }) {
           <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
         </button>
         <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">저장된 견적서</span>
+        <span className="text-slate-200 text-sm font-semibold">견적서 불러오기</span>
         <div className="ml-auto">
           <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
@@ -2689,75 +2793,152 @@ function SavedQuotesList({ onLoad, onBack }) {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="bg-white border-b border-slate-200 px-8 shrink-0">
+        <div className="max-w-7xl mx-auto flex">
+          {[
+            { key: 'saved', label: '저장된 견적서' },
+            { key: 'standard', label: '진료과별 표준견적서' },
+          ].map(tab => (
+            <button key={tab.key}
+              onClick={() => { setActiveTab(tab.key); setSelectedDept(null); }}
+              className={`px-5 py-3 text-sm font-semibold border-b-2 transition-colors mr-1 ${
+                activeTab === tab.key
+                  ? 'border-slate-900 text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-700'
+              }`}
+            >{tab.label}</button>
+          ))}
+        </div>
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-5xl mx-auto">
-          {loading ? (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-20 flex flex-col items-center justify-center text-slate-400">
-              <div className="text-sm">불러오는 중...</div>
-            </div>
-          ) : saves.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-20 flex flex-col items-center justify-center text-slate-400">
-              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-              <div className="font-medium text-sm">저장된 견적서가 없습니다</div>
-              <div className="text-xs mt-1">견적 작성 화면에서 "견적 저장" 버튼을 눌러주세요</div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                <div>
+        <div className="max-w-7xl mx-auto">
+
+          {/* ── TAB 1: 저장된 견적서 ── */}
+          {activeTab === 'saved' && (
+            loading ? (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-20 flex flex-col items-center justify-center text-slate-400">
+                <div className="text-sm">불러오는 중...</div>
+              </div>
+            ) : saves.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-20 flex flex-col items-center justify-center text-slate-400">
+                <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <div className="font-medium text-sm">저장된 견적서가 없습니다</div>
+                <div className="text-xs mt-1">견적 작성 화면에서 "견적 저장" 버튼을 눌러주세요</div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100">
                   <div className="text-base font-bold text-slate-900">저장된 견적서 목록</div>
                   <div className="text-xs text-slate-400 mt-0.5">총 {saves.length}건 · 최신순</div>
                 </div>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">견적번호</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-40">병원명</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">원장명</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">진료과</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">저장일시</th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">최종금액</th>
-                    <th className="px-5 py-3 w-40"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {saves.map((s, idx) => (
-                    <tr key={s.id} className={`border-b border-slate-100 last:border-0 hover:bg-blue-50 transition-colors ${idx===0?'bg-blue-50/30':''}`}>
-                      <td className="px-5 py-3.5">
-                        <span className="font-mono font-semibold text-blue-700 text-sm">{s.quoteNo}</span>
-                        {idx === 0 && <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded font-medium">최신</span>}
-                      </td>
-                      <td className="px-5 py-3.5 font-medium text-slate-800">{s.hospital}</td>
-                      <td className="px-5 py-3.5 text-slate-600">{s.doctor}</td>
-                      <td className="px-5 py-3.5 text-slate-500">{s.dept || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-5 py-3.5 text-slate-500 text-xs">{s.savedAt}</td>
-                      <td className="px-5 py-3.5 text-right font-semibold tnum text-slate-800">
-                        {s.finalAmt != null ? s.finalAmt.toLocaleString('ko-KR') + '원' : '—'}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2 justify-end">
-                          <button
-                            onClick={() => onLoad(s)}
-                            className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded font-semibold hover:bg-slate-700 transition-colors"
-                          >불러오기</button>
-                          {confirmId === s.id ? (
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => handleDelete(s.id)} className="px-2 py-1.5 text-xs bg-red-600 text-white rounded font-semibold hover:bg-red-500 transition-colors">삭제확인</button>
-                              <button onClick={() => setConfirmId(null)} className="px-2 py-1.5 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition-colors">취소</button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setConfirmId(s.id)} className="px-3 py-1.5 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors">삭제</button>
-                          )}
-                        </div>
-                      </td>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">견적번호</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-40">병원명</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">원장명</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">진료과</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">저장일시</th>
+                      <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">최종금액</th>
+                      <th className="px-5 py-3 w-52"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {saves.map((s, idx) => (
+                      <tr key={s.id} className={`border-b border-slate-100 last:border-0 hover:bg-blue-50 transition-colors ${idx===0?'bg-blue-50/30':''}`}>
+                        <td className="px-5 py-3.5">
+                          <span className="font-mono font-semibold text-blue-700 text-sm">{s.quoteNo}</span>
+                          {idx === 0 && <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded font-medium">최신</span>}
+                        </td>
+                        <td className="px-5 py-3.5 font-medium text-slate-800">{s.hospital}</td>
+                        <td className="px-5 py-3.5 text-slate-600">{s.doctor}</td>
+                        <td className="px-5 py-3.5 text-slate-500">{s.dept || <span className="text-slate-300">—</span>}</td>
+                        <td className="px-5 py-3.5 text-slate-500 text-xs">{s.savedAt}</td>
+                        <td className="px-5 py-3.5 text-right font-semibold tnum text-slate-800">
+                          {s.finalAmt != null ? s.finalAmt.toLocaleString('ko-KR') + '원' : '—'}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => onLoad(s)}
+                              className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded font-semibold hover:bg-slate-700 transition-colors whitespace-nowrap"
+                            >불러오기</button>
+                            {confirmId === s.id ? (
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => handleDelete(s.id)} className="px-2 py-1.5 text-xs bg-red-600 text-white rounded font-semibold hover:bg-red-500 transition-colors whitespace-nowrap">삭제확인</button>
+                                <button onClick={() => setConfirmId(null)} className="px-2 py-1.5 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition-colors">취소</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => setConfirmId(s.id)} className="px-3 py-1.5 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors">삭제</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           )}
+
+          {/* ── TAB 2: 진료과별 표준견적서 ── */}
+          {activeTab === 'standard' && (
+            customEquips.length === 0 ? (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-16 flex flex-col items-center justify-center text-slate-400">
+                <div className="text-sm font-medium">장비 데이터가 없습니다</div>
+                <div className="text-xs mt-1">장비 관리 화면에서 먼저 장비를 등록해주세요</div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Step 1 */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                  <div className="text-sm font-bold text-slate-900 mb-0.5">① 진료과 선택</div>
+                  <div className="text-xs text-slate-400 mb-4">표준견적서를 생성할 진료과를 선택하세요</div>
+                  <div className="grid grid-cols-5 gap-2">
+                    {DEPT_LIST.map(dept => (
+                      <button
+                        key={dept}
+                        onClick={() => setSelectedDept(dept === selectedDept ? null : dept)}
+                        className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-all border ${
+                          selectedDept === dept
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-400 hover:bg-slate-100'
+                        }`}
+                      >{dept}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                {selectedDept ? (
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    <div className="text-sm font-bold text-slate-900 mb-0.5">② 금액대 선택</div>
+                    <div className="text-xs text-slate-400 mb-5">
+                      <span className="font-semibold text-slate-700">{selectedDept}</span> 진료과 표준견적서 — 금액대를 선택하면 즉시 견적서가 생성됩니다
+                    </div>
+                    <div className="flex gap-4">
+                      {BUDGET_TIERS.map(tier => (
+                        <button
+                          key={tier.key}
+                          onClick={() => generateStandardQuote(selectedDept, tier)}
+                          className="flex-1 py-5 rounded-xl border-2 border-slate-200 hover:border-slate-900 hover:bg-slate-900 hover:text-white transition-all group text-center"
+                        >
+                          <div className="text-xl font-bold text-slate-800 group-hover:text-white">{tier.label}</div>
+                          <div className="text-xs mt-1.5 text-slate-400 group-hover:text-slate-300">장비 {tier.minItems}~{tier.maxItems}개</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-xs text-slate-400 py-2">진료과를 선택하면 금액대 버튼이 표시됩니다</div>
+                )}
+              </div>
+            )
+          )}
+
         </div>
       </div>
     </div>
@@ -2906,6 +3087,7 @@ function App() {
       <SavedQuotesList
         onLoad={handleLoadEntry}
         onBack={() => setView('editor')}
+        customEquips={customEquips}
       />
     );
   }
