@@ -55,16 +55,19 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 async function dbLoadEquip() {
   const { data, error } = await sb.from('equipment').select('*').order('created_at', { ascending: false });
   if (error) { console.error('dbLoadEquip:', error); return []; }
-  return data.map(r => r.raw_data || {
-    id: r.id,
-    catId: r.cat_id || 'imaging',
-    catName: r.cat_name || r.category,
-    itemName: r.item_name,
-    model: { id: r.model_id || r.id, name: r.model_name, manufacturer: r.manufacturer, price: r.price, notes: r.model_notes || '' },
-    altText: r.alt_text || '',
-    image: r.image_data || null,
-    spec: { desc: r.description || '', specs: r.specs || [], origin: r.origin || '', cert: r.cert || '', as: r.as_period || '', warranty: r.warranty || '' },
-    createdAt: r.created_at,
+  return data.map(r => {
+    const base = r.raw_data || {
+      catId: r.cat_id || 'imaging',
+      catName: r.cat_name || r.category,
+      itemName: r.item_name,
+      model: { id: r.model_id || r.id, name: r.model_name, manufacturer: r.manufacturer, price: r.price, notes: r.model_notes || '' },
+      altText: r.alt_text || '',
+      image: r.image_data || null,
+      spec: { desc: r.description || '', specs: r.specs || [], origin: r.origin || '', cert: r.cert || '', as: r.as_period || '', warranty: r.warranty || '' },
+      createdAt: r.created_at,
+    };
+    // 항상 Supabase 행 UUID를 id로 사용 (삭제/수정 시 필요)
+    return { ...base, id: r.id };
   });
 }
 
@@ -90,8 +93,8 @@ async function dbSaveEquip(entry) {
     alt_text: entry.altText || '',
     raw_data: entry,
   };
-  // 수정
-  if (entry.id && !entry.id.startsWith('equip-')) {
+  // 수정 (id가 있으면 Supabase UUID로 update)
+  if (entry.id) {
     const { data, error } = await sb.from('equipment').update(row).eq('id', entry.id).select('id').single();
     if (error) throw error;
     return data.id;
