@@ -783,23 +783,17 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
 
   useEffect(() => { if (tab === 'search') searchRef.current?.focus(); }, [tab]);
 
-  // Flatten all models into a searchable catalog (기본 + 사용자 등록 장비)
+  // 장비 관리(Supabase)와 동일한 데이터 소스 사용
   const catalog = useMemo(() => {
-    const rows = [];
-    categories.forEach(cat => {
-      cat.items.forEach(item => {
-        item.models.forEach(model => {
-          rows.push({ catId: cat.id, catName: cat.name, catColorKey: cat.colorKey, itemName: item.name, model, isCustom: false });
-        });
-      });
-    });
-    // 사용자 등록 장비 추가 (Supabase에서 로드된 데이터)
-    customEquips.forEach(e => {
-      const colorKey = (filterCats.find(c=>c.id===e.catId)?.colorKey) || (categories.find(c=>c.id===e.catId)?.colorKey) || 'blue';
-      rows.push({ catId: e.catId, catName: e.catName, catColorKey: colorKey, itemName: e.itemName, model: e.model, isCustom: true, equipId: e.id });
-    });
-    return rows;
-  }, [categories, customEquips]);
+    return customEquips.map(e => ({
+      catId: e.catId,
+      catName: e.catName,
+      catColorKey: (filterCats.find(c=>c.id===e.catId)?.colorKey) || (categories.find(c=>c.id===e.catId)?.colorKey) || 'blue',
+      itemName: e.itemName,
+      model: e.model,
+      equipId: e.id,
+    }));
+  }, [customEquips, filterCats, categories]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
