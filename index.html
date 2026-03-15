@@ -27,8 +27,8 @@
     .tr-excluded:hover td { background: #fef2f2 !important; }
     @keyframes fadeSlide { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     .animate-fs { animation: fadeSlide .15s ease-out; }
-    @keyframes toastIn { from { opacity:0; transform:translate(-50%, -24px) scale(.95); } to { opacity:1; transform:translate(-50%, 0) scale(1); } }
-    .toast-anim { animation: toastIn .22s cubic-bezier(.16,1,.3,1); }
+    @keyframes toastIn { 0%{opacity:0} 10%{opacity:1} 80%{opacity:1} 100%{opacity:0} }
+    .toast-anim { animation: toastIn 3s ease forwards; }
     /* PDF print styles */
     @media print {
       body > #root { display: none !important; }
@@ -2803,7 +2803,7 @@ function App() {
   const addToast = useCallback((msg, type='success') => {
     const id = Date.now();
     setToasts(p => [...p, {id, msg, type}]);
-    setTimeout(() => setToasts(p => p.filter(t=>t.id!==id)), 2800);
+    setTimeout(() => setToasts(p => p.filter(t=>t.id!==id)), 3000);
   }, []);
 
   const handleSave = useCallback(async () => {
