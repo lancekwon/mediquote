@@ -27,8 +27,8 @@
     .tr-excluded:hover td { background: #fef2f2 !important; }
     @keyframes fadeSlide { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     .animate-fs { animation: fadeSlide .15s ease-out; }
-    @keyframes toastIn { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
-    .toast-anim { animation: toastIn .2s ease-out; }
+    @keyframes toastIn { from { opacity:0; transform:translate(-50%, -24px) scale(.95); } to { opacity:1; transform:translate(-50%, 0) scale(1); } }
+    .toast-anim { animation: toastIn .22s cubic-bezier(.16,1,.3,1); }
     /* PDF print styles */
     @media print {
       body > #root { display: none !important; }
@@ -479,14 +479,15 @@ function calcSummary(categories, globalDiscount) {
    TOAST
    ============================================================ */
 function Toast({ toasts }) {
+  if (toasts.length === 0) return null;
+  const t = toasts[toasts.length - 1]; // 가장 최신 1개만 표시
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
-      {toasts.map(t => (
-        <div key={t.id} className={`toast-anim flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-white text-sm font-medium ${t.type==='success'?'bg-emerald-600':t.type==='error'?'bg-red-600':'bg-slate-700'}`}>
-          <span>{t.type==='success'?'✓':t.type==='error'?'✕':'ℹ'}</span>
-          <span>{t.msg}</span>
-        </div>
-      ))}
+    <div className="fixed top-20 left-1/2 z-50 pointer-events-none" style={{transform:'translateX(-50%)'}}>
+      <div key={t.id} className={`toast-anim flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl text-white text-sm font-semibold min-w-[260px] justify-center ${t.type==='success'?'bg-emerald-600':t.type==='error'?'bg-red-600':'bg-slate-800'}`}
+        style={{transform:'translateX(-50%) translateX(50%)'}}>
+        <span className="text-lg leading-none">{t.type==='success'?'✓':t.type==='error'?'✕':'ℹ'}</span>
+        <span>{t.msg}</span>
+      </div>
     </div>
   );
 }
