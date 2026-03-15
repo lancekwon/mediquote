@@ -156,6 +156,39 @@ async function dbGenerateQuoteNo() {
   return `DW-${year}-${String((isNaN(seq) ? 0 : seq) + 1).padStart(3, '0')}`;
 }
 
+/* ---------- Dynamic Categories DB ---------- */
+async function dbLoadDynCats() {
+  const { data, error } = await sb.from('categories').select('*').order('sort_order').order('created_at');
+  if (error) { console.error('dbLoadDynCats:', error); return []; }
+  return data.map(r => ({ dbId: r.id, id: r.cat_id, name: r.name, colorKey: r.color_key || 'blue', sortOrder: r.sort_order }));
+}
+async function dbSaveDynCat(cat) {
+  const catId = 'cat-' + Date.now();
+  const { data, error } = await sb.from('categories').insert({ cat_id: catId, name: cat.name.trim(), color_key: cat.colorKey || 'blue', sort_order: cat.sortOrder || 99 }).select('id').single();
+  if (error) throw error;
+  return { dbId: data.id, id: catId, name: cat.name.trim(), colorKey: cat.colorKey || 'blue', sortOrder: cat.sortOrder || 99 };
+}
+async function dbDeleteDynCat(dbId) {
+  const { error } = await sb.from('categories').delete().eq('id', dbId);
+  if (error) throw error;
+}
+
+/* ---------- Dynamic Cat Items DB ---------- */
+async function dbLoadDynItems() {
+  const { data, error } = await sb.from('cat_items').select('*').order('sort_order').order('created_at');
+  if (error) { console.error('dbLoadDynItems:', error); return []; }
+  return data.map(r => ({ id: r.id, catId: r.cat_id, name: r.name }));
+}
+async function dbSaveDynItem(item) {
+  const { data, error } = await sb.from('cat_items').insert({ cat_id: item.catId, name: item.name.trim() }).select('id').single();
+  if (error) throw error;
+  return { id: data.id, catId: item.catId, name: item.name.trim() };
+}
+async function dbDeleteDynItem(id) {
+  const { error } = await sb.from('cat_items').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /* ============================================================
    INITIAL DATA
    ============================================================ */
@@ -731,11 +764,12 @@ function ManufacturerModal({ manufacturer, allCategories, onClose, onViewProduct
 /* ============================================================
    ADD EQUIPMENT MODAL
    ============================================================ */
-function AddEquipmentModal({ categories, customEquips = [], onAdd, onClose, onViewProduct, onViewManufacturer }) {
+function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd, onClose, onViewProduct, onViewManufacturer }) {
   const [tab, setTab] = useState('search');          // 'search' | 'custom'
   const [query, setQuery] = useState('');
   const [selectedCat, setSelectedCat] = useState('all');
   const searchRef = useRef(null);
+  const filterCats = dynCats.length > 0 ? dynCats : categories;
 
   // custom form state
   const [form, setForm] = useState({
@@ -758,7 +792,7 @@ function AddEquipmentModal({ categories, customEquips = [], onAdd, onClose, onVi
     });
     // 사용자 등록 장비 추가 (Supabase에서 로드된 데이터)
     customEquips.forEach(e => {
-      const colorKey = BUILTIN_CATS.find(c=>c.id===e.catId) ? (categories.find(c=>c.id===e.catId)?.colorKey || 'blue') : 'blue';
+      const colorKey = (filterCats.find(c=>c.id===e.catId)?.colorKey) || (categories.find(c=>c.id===e.catId)?.colorKey) || 'blue';
       rows.push({ catId: e.catId, catName: e.catName, catColorKey: colorKey, itemName: e.itemName, model: e.model, isCustom: true, equipId: e.id });
     });
     return rows;
@@ -849,7 +883,7 @@ function AddEquipmentModal({ categories, customEquips = [], onAdd, onClose, onVi
                 </button>}
               </div>
               <div className="flex items-center gap-1">
-                {[{id:'all',label:'전체'},...categories.map(c=>({id:c.id,label:c.name}))].map(f=>(
+                {[{id:'all',label:'전체'},...filterCats.map(c=>({id:c.id,label:c.name}))].map(f=>(
                   <button key={f.id} onClick={()=>setSelectedCat(f.id)}
                     className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors whitespace-nowrap ${selectedCat===f.id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-100'}`}>
                     {f.label}
@@ -986,16 +1020,10 @@ function AddEquipmentModal({ categories, customEquips = [], onAdd, onClose, onVi
 /* ============================================================
    CONTROLS BAR
    ============================================================ */
-function ControlsBar({ search, setSearch, catFilter, setCatFilter, categories, onAddEquip, onRegisterEquip }) {
+function ControlsBar({ search, setSearch, catFilter, setCatFilter, categories, dynCats, onAddEquip }) {
+  const filterTabs = dynCats && dynCats.length > 0 ? dynCats : categories;
   return (
     <div className="bg-white border-b border-slate-200 px-5 py-2 flex items-center gap-4 shrink-0">
-      <button
-        onClick={onRegisterEquip}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-        장비 등록
-      </button>
       <button
         onClick={onAddEquip}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-700 text-white transition-colors shrink-0"
@@ -1022,7 +1050,7 @@ function ControlsBar({ search, setSearch, catFilter, setCatFilter, categories, o
         )}
       </div>
       <div className="flex items-center gap-1">
-        {[{id:'all',label:'전체'},...categories.map(c=>({id:c.id,label:c.name}))].map(tab=>(
+        {[{id:'all',label:'전체'},...filterTabs.map(c=>({id:c.id,label:c.name}))].map(tab=>(
           <button
             key={tab.id}
             onClick={()=>setCatFilter(tab.id)}
@@ -1977,497 +2005,193 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
   );
 }
 
+
 /* ============================================================
-   EQUIPMENT REGISTER PAGE
+   EQUIPMENT MANAGE PAGE (통합: 장비목록 + 장비등록 + 카테고리관리)
    ============================================================ */
-// Equipment 저장소는 Supabase로 대체됨 (dbLoadEquip / dbSaveEquip / dbDeleteEquip)
-
-const BUILTIN_CATS = [
-  { id:'imaging', name:'영상진단 장비' },
-  { id:'pt',      name:'물리치료기기' },
-  { id:'manual',  name:'도수치료 장비' },
+const CAT_COLORS = [
+  { id:'blue',    label:'파랑' },
+  { id:'emerald', label:'초록' },
+  { id:'amber',   label:'주황' },
+  { id:'purple',  label:'보라' },
+  { id:'rose',    label:'빨강' },
+  { id:'sky',     label:'하늘' },
 ];
+const CAT_COLOR_DOT = { blue:'bg-blue-500', emerald:'bg-emerald-500', amber:'bg-amber-500', purple:'bg-purple-500', rose:'bg-rose-500', sky:'bg-sky-500' };
 
-function EquipmentRegisterPage({ onBack, onEquipChange }) {
-  const emptySpec  = () => ({ l:'', v:'' });
-  const emptyForm  = () => ({
-    catId:'imaging', catCustom:'', itemName:'', modelName:'', manufacturer:'',
-    price:'', altText:'', image:null,
-    desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'',
-  });
-
-  const [equips, setEquips]     = React.useState([]);
-  const [loadingEquips, setLoadingEquips] = React.useState(true);
-  const [form, setForm]         = React.useState(emptyForm);
-  const [editId, setEditId]     = React.useState(null);
-  const [confirmDel, setConfirmDel] = React.useState(null);
-  const [saved, setSaved]       = React.useState(false);
-  const [saving, setSaving]     = React.useState(false);
-  const imgRef = React.useRef(null);
-
-  React.useEffect(() => {
-    dbLoadEquip().then(data => { setEquips(data); setLoadingEquips(false); });
-  }, []);
-
-  const setF = (k, v) => setForm(p => ({...p, [k]: v}));
-
-  const handleImage = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setF('image', ev.target.result);
-    reader.readAsDataURL(file);
-  };
-
-  const addSpec   = () => setF('specs', [...form.specs, emptySpec()]);
-  const removeSpec = (i) => setF('specs', form.specs.filter((_,idx) => idx !== i));
-  const setSpec   = (i, k, v) => setF('specs', form.specs.map((s, idx) => idx===i ? {...s,[k]:v} : s));
-
-  const handleSubmit = async () => {
-    if (!form.itemName.trim() || !form.modelName.trim()) return;
-    setSaving(true);
-    const catId   = form.catId === 'custom' ? 'custom' : form.catId;
-    const catName = form.catId === 'custom' ? (form.catCustom.trim() || '기타') : (BUILTIN_CATS.find(c=>c.id===form.catId)?.name || '기타');
-    const entry = {
-      id: editId || null,
-      catId, catName,
-      itemName: form.itemName.trim(),
-      model: {
-        id: editId ? equips.find(e=>e.id===editId)?.model.id : ('cm-' + Date.now()),
-        name: form.modelName.trim(),
-        manufacturer: form.manufacturer.trim(),
-        price: parseInt(form.price.replace(/[^0-9]/g,'')) || null,
-        notes: form.notes.trim(),
-      },
-      altText: form.altText.trim(),
-      image: form.image,
-      spec: {
-        desc: form.desc.trim(),
-        specs: form.specs.filter(s => s.l.trim()),
-        origin: form.origin.trim(),
-        cert: form.cert.trim(),
-        as: form.as.trim(),
-        warranty: form.warranty.trim(),
-      },
-      createdAt: new Date().toLocaleDateString('ko-KR'),
-    };
-    try {
-      const savedId = await dbSaveEquip(entry);
-      entry.id = savedId;
-      const next = editId
-        ? equips.map(e => e.id === editId ? entry : e)
-        : [entry, ...equips];
-      setEquips(next);
-      setForm(emptyForm());
-      setEditId(null);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      onEquipChange?.();
-    } catch(e) {
-      console.error('장비 저장 오류:', e);
-      alert('저장 중 오류가 발생했습니다.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startEdit = (e) => {
-    setEditId(e.id);
-    const isCustom = !BUILTIN_CATS.find(c=>c.id===e.catId);
-    setForm({
-      catId: isCustom ? 'custom' : e.catId,
-      catCustom: isCustom ? e.catName : '',
-      itemName: e.itemName,
-      modelName: e.model.name,
-      manufacturer: e.model.manufacturer,
-      price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
-      altText: e.altText || '',
-      image: e.image || null,
-      desc: e.spec?.desc || '',
-      specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
-      origin: e.spec?.origin || '',
-      cert: e.spec?.cert || '',
-      as: e.spec?.as || '',
-      warranty: e.spec?.warranty || '',
-      notes: e.model.notes || '',
-    });
-    window.scrollTo(0,0);
-  };
-
-  const handleDelete = async (id) => {
-    try {
-      await dbDeleteEquip(id);
-      setEquips(p => p.filter(e => e.id !== id));
-      setConfirmDel(null);
-      onEquipChange?.();
-    } catch(e) {
-      console.error('장비 삭제 오류:', e);
-      alert('삭제 중 오류가 발생했습니다.');
-    }
-  };
-
-  const cancelEdit = () => { setEditId(null); setForm(emptyForm()); };
-
+function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsChange, onItemsChange }) {
+  const [activeTab, setActiveTab] = useState('list'); // 'list' | 'register' | 'catmgr'
+  const emptySpec = () => ({ l:'', v:'' });
   const inputCls = "w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400";
   const labelCls = "block text-xs font-semibold text-slate-600 mb-1";
 
-  return (
-    <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
-      {/* Header */}
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <div className="flex items-center gap-2 mr-2">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">MQ</div>
-          <span className="font-bold text-sm text-slate-100">MediQuote Pro</span>
-        </div>
-        <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">장비 등록 관리</span>
-        <div className="ml-auto">
-          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            견적 작성으로 돌아가기
-          </button>
-        </div>
-      </div>
+  /* ── 장비 목록 state ── */
+  const [equips, setEquips]           = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [search, setSearch]           = useState('');
+  const [catFilter, setCatFilter]     = useState('all');
+  const [editTarget, setEditTarget]   = useState(null);
+  const [editForm, setEditForm]       = useState(null);
+  const [confirmDel, setConfirmDel]   = useState(null);
+  const [saving, setSaving]           = useState(false);
+  const editImgRef                    = useRef(null);
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto flex flex-col gap-6">
+  /* ── 장비 등록 state ── */
+  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', price:'', altText:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
+  const [regForm, setRegForm]         = useState(emptyRegForm);
+  const [regSaving, setRegSaving]     = useState(false);
+  const [regSaved, setRegSaved]       = useState(false);
+  const regImgRef                     = useRef(null);
 
-          {/* ── 등록 폼 ── */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <div className="font-bold text-slate-900 text-base">{editId ? '장비 수정' : '새 장비 등록'}</div>
-                <div className="text-xs text-slate-400 mt-0.5">등록된 장비는 견적서 장비 추가 시 검색·선택할 수 있습니다</div>
-              </div>
-              {editId && (
-                <button onClick={cancelEdit} className="text-xs text-slate-500 hover:text-slate-700 underline">취소</button>
-              )}
-            </div>
-
-            <div className="p-6 flex flex-col gap-6">
-              {/* Row 1: 카테고리 / 품목명 / 모델명 / 제조사 */}
-              <div className="grid grid-cols-4 gap-4">
-                <div>
-                  <label className={labelCls}>카테고리 <span className="text-red-400">*</span></label>
-                  <select value={form.catId} onChange={e=>setF('catId',e.target.value)} className={inputCls}>
-                    {BUILTIN_CATS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                    <option value="custom">직접 입력</option>
-                  </select>
-                  {form.catId === 'custom' && (
-                    <input type="text" placeholder="카테고리명 입력" value={form.catCustom} onChange={e=>setF('catCustom',e.target.value)} className={`${inputCls} mt-1`}/>
-                  )}
-                </div>
-                <div>
-                  <label className={labelCls}>품목명 <span className="text-red-400">*</span></label>
-                  <input type="text" placeholder="예: X-Ray (DR System)" value={form.itemName} onChange={e=>setF('itemName',e.target.value)} className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>모델명 <span className="text-red-400">*</span></label>
-                  <input type="text" placeholder="예: Xvision HF 525R" value={form.modelName} onChange={e=>setF('modelName',e.target.value)} className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>제조사</label>
-                  <input type="text" placeholder="예: Gemss healthcare" value={form.manufacturer} onChange={e=>setF('manufacturer',e.target.value)} className={inputCls}/>
-                </div>
-              </div>
-
-              {/* Row 2: 단가 / 대체품 메모 / 기타 특이사항 */}
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className={labelCls}>단가 (원)</label>
-                  <input type="text" inputMode="numeric" placeholder="0" value={form.price}
-                    onChange={e=>setF('price', (parseInt(e.target.value.replace(/[^0-9]/g,''))||'').toLocaleString('ko-KR').replace('NaN',''))}
-                    className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>대체품 메모</label>
-                  <input type="text" placeholder="예: KMC-650과 교체 가능" value={form.altText} onChange={e=>setF('altText',e.target.value)} className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>기타 특이사항</label>
-                  <input type="text" placeholder="예: 콘덴서 포함" value={form.notes} onChange={e=>setF('notes',e.target.value)} className={inputCls}/>
-                </div>
-              </div>
-
-              {/* 이미지 + 제품소개 */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>제품 이미지</label>
-                  <div
-                    className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-400 transition-colors bg-slate-50"
-                    onClick={()=>imgRef.current?.click()}
-                  >
-                    {form.image ? (
-                      <div className="relative w-full">
-                        <img src={form.image} alt="preview" className="w-full h-32 object-contain rounded"/>
-                        <button onClick={e=>{e.stopPropagation();setF('image',null);}} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center hover:bg-red-400">×</button>
-                      </div>
-                    ) : (
-                      <>
-                        <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                        <span className="text-xs text-slate-400">클릭하여 이미지 업로드</span>
-                        <span className="text-xs text-slate-300">JPG, PNG, WEBP</span>
-                      </>
-                    )}
-                  </div>
-                  <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImage}/>
-                </div>
-                <div>
-                  <label className={labelCls}>제품 소개</label>
-                  <textarea placeholder="제품 특징 및 소개를 입력하세요" value={form.desc} onChange={e=>setF('desc',e.target.value)}
-                    rows={5} className={`${inputCls} resize-none`}/>
-                </div>
-              </div>
-
-              {/* 주요 사양 */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className={labelCls + ' mb-0'}>주요 사양</label>
-                  <button onClick={addSpec} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-                    항목 추가
-                  </button>
-                </div>
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <div className="bg-slate-50 grid grid-cols-2 text-xs font-semibold text-slate-500 px-3 py-2 border-b border-slate-200">
-                    <span>항목명</span><span>값</span>
-                  </div>
-                  {form.specs.map((s, i) => (
-                    <div key={i} className="grid grid-cols-2 gap-0 border-b border-slate-100 last:border-0">
-                      <input type="text" placeholder="예: 관전압" value={s.l} onChange={e=>setSpec(i,'l',e.target.value)}
-                        className="px-3 py-2 text-xs border-r border-slate-100 focus:outline-none focus:bg-blue-50"/>
-                      <div className="flex items-center">
-                        <input type="text" placeholder="예: 40~150 kVp" value={s.v} onChange={e=>setSpec(i,'v',e.target.value)}
-                          className="flex-1 px-3 py-2 text-xs focus:outline-none focus:bg-blue-50"/>
-                        {form.specs.length > 1 && (
-                          <button onClick={()=>removeSpec(i)} className="px-2 text-slate-300 hover:text-red-400 text-sm">×</button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 인증·원산지 / 보증 */}
-              <div className="grid grid-cols-4 gap-4">
-                <div>
-                  <label className={labelCls}>원산지</label>
-                  <input type="text" placeholder="예: 대한민국" value={form.origin} onChange={e=>setF('origin',e.target.value)} className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>인증 (쉼표 구분)</label>
-                  <input type="text" placeholder="예: 식약처 허가, CE, FDA" value={form.cert} onChange={e=>setF('cert',e.target.value)} className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>A/S 기간</label>
-                  <input type="text" placeholder="예: 2년" value={form.as} onChange={e=>setF('as',e.target.value)} className={inputCls}/>
-                </div>
-                <div>
-                  <label className={labelCls}>제품 보증</label>
-                  <input type="text" placeholder="예: 설치 후 1년" value={form.warranty} onChange={e=>setF('warranty',e.target.value)} className={inputCls}/>
-                </div>
-              </div>
-
-              {/* 저장 버튼 */}
-              <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
-                <button
-                  onClick={handleSubmit}
-                  disabled={!form.itemName.trim() || !form.modelName.trim() || saving}
-                  className="flex items-center gap-2 px-5 py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                  {saving ? '저장 중...' : editId ? '수정 저장' : '장비 등록'}
-                </button>
-                {saved && <span className="text-xs text-emerald-600 font-medium">✓ 저장되었습니다</span>}
-                <span className="text-xs text-slate-400 ml-auto">* 품목명, 모델명은 필수 항목입니다</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ── 등록된 장비 목록 ── */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <div className="font-bold text-slate-900 text-base">등록된 장비 목록</div>
-              <div className="text-xs text-slate-400 mt-0.5">총 {equips.length}개 · 견적서 [장비 추가] 에서 검색 가능</div>
-            </div>
-            {loadingEquips ? (
-              <div className="py-14 text-center text-slate-400">
-                <div className="text-sm">불러오는 중...</div>
-              </div>
-            ) : equips.length === 0 ? (
-              <div className="py-14 text-center text-slate-400">
-                <div className="text-2xl mb-2">📦</div>
-                <div className="text-sm font-medium">등록된 장비가 없습니다</div>
-                <div className="text-xs mt-1">위 폼에서 장비를 등록해 보세요</div>
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">카테고리</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">품목명</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">모델명</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">제조사</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">단가</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">등록일</th>
-                    <th className="px-4 py-3 w-36"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {equips.map((e, idx) => (
-                    <tr key={e.id} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${editId===e.id?'bg-blue-50':''}`}>
-                      <td className="px-4 py-3">
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded font-medium">{e.catName}</span>
-                      </td>
-                      <td className="px-4 py-3 text-xs font-medium text-slate-800">{e.itemName}</td>
-                      <td className="px-4 py-3 text-xs text-slate-700">
-                        <div>{e.model.name}</div>
-                        {e.model.notes && <div className="text-slate-400 text-xs">{e.model.notes}</div>}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{e.model.manufacturer}</td>
-                      <td className="px-4 py-3 text-right text-xs tnum font-medium text-slate-800">
-                        {e.model.price != null ? e.model.price.toLocaleString('ko-KR')+'원' : <span className="text-orange-600">문의</span>}
-                      </td>
-                      <td className="px-4 py-3 text-center text-xs text-slate-400">{e.createdAt}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 justify-end">
-                          <button onClick={()=>startEdit(e)} className="px-2.5 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-100 transition-colors">수정</button>
-                          {confirmDel === e.id ? (
-                            <div className="flex items-center gap-1">
-                              <button onClick={()=>handleDelete(e.id)} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-500">확인</button>
-                              <button onClick={()=>setConfirmDel(null)} className="px-2 py-1 text-xs border border-slate-300 text-slate-500 rounded hover:bg-slate-50">취소</button>
-                            </div>
-                          ) : (
-                            <button onClick={()=>setConfirmDel(e.id)} className="px-2.5 py-1 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors">삭제</button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================
-   EQUIPMENT MANAGE PAGE
-   ============================================================ */
-function EquipmentManagePage({ onBack, onEquipChange }) {
-  const emptySpec = () => ({ l:'', v:'' });
-  const [equips, setEquips]       = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [search, setSearch]       = useState('');
-  const [catFilter, setCatFilter] = useState('all');
-  const [editTarget, setEditTarget] = useState(null);
-  const [form, setForm]           = useState(null);
-  const [confirmDel, setConfirmDel] = useState(null);
-  const [saving, setSaving]       = useState(false);
-  const imgRef = useRef(null);
+  /* ── 카테고리 관리 state ── */
+  const [newCatName, setNewCatName]   = useState('');
+  const [newCatColor, setNewCatColor] = useState('blue');
+  const [catSaving, setCatSaving]     = useState(false);
+  const [expandedCat, setExpandedCat] = useState(null);
+  const [newItemName, setNewItemName] = useState('');
+  const [itemSaving, setItemSaving]   = useState(false);
+  const [confirmDelCat, setConfirmDelCat]   = useState(null);
+  const [confirmDelItem, setConfirmDelItem] = useState(null);
 
   useEffect(() => {
     dbLoadEquip().then(d => { setEquips(d); setLoading(false); }).catch(e => { console.error(e); setLoading(false); });
   }, []);
 
+  useEffect(() => {
+    if (dynCats.length > 0 && !regForm.catId) setRegForm(p => ({ ...p, catId: dynCats[0].id }));
+  }, [dynCats]);
+
+  /* ── 장비 목록 helpers ── */
   const openEdit = (e) => {
-    const isCustomCat = !BUILTIN_CATS.find(c => c.id === e.catId);
-    setForm({
-      catId: isCustomCat ? 'custom' : e.catId,
-      catCustom: isCustomCat ? e.catName : '',
-      itemName: e.itemName,
-      modelName: e.model.name,
-      manufacturer: e.model.manufacturer,
+    setEditForm({
+      catId: e.catId || dynCats[0]?.id || '',
+      itemName: e.itemName, modelName: e.model.name, manufacturer: e.model.manufacturer,
       price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
-      altText: e.altText || '',
-      image: e.image || null,
-      desc: e.spec?.desc || '',
-      specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
-      origin: e.spec?.origin || '',
-      cert: e.spec?.cert || '',
-      as: e.spec?.as || '',
-      warranty: e.spec?.warranty || '',
-      notes: e.model.notes || '',
+      altText: e.altText || '', image: e.image || null,
+      desc: e.spec?.desc || '', specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
+      origin: e.spec?.origin || '', cert: e.spec?.cert || '', as: e.spec?.as || '', warranty: e.spec?.warranty || '', notes: e.model.notes || '',
     });
     setEditTarget(e);
   };
-  const closeEdit = () => { setEditTarget(null); setForm(null); };
-  const setF = (k, v) => setForm(p => ({...p, [k]: v}));
-  const addSpec    = () => setF('specs', [...form.specs, emptySpec()]);
-  const removeSpec = (i) => setF('specs', form.specs.filter((_,idx) => idx !== i));
-  const setSpec    = (i, k, v) => setF('specs', form.specs.map((s, idx) => idx===i ? {...s,[k]:v} : s));
+  const closeEdit = () => { setEditTarget(null); setEditForm(null); };
+  const setEF = (k, v) => setEditForm(p => ({ ...p, [k]: v }));
+  const addEditSpec    = () => setEF('specs', [...editForm.specs, emptySpec()]);
+  const removeEditSpec = (i) => setEF('specs', editForm.specs.filter((_,idx)=>idx!==i));
+  const setEditSpec    = (i,k,v) => setEF('specs', editForm.specs.map((s,idx)=>idx===i?{...s,[k]:v}:s));
 
-  const handleImage = (ev) => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => setF('image', e.target.result);
-    reader.readAsDataURL(file);
+  const handleEditImage = (ev) => {
+    const file = ev.target.files?.[0]; if (!file) return;
+    const r = new FileReader(); r.onload = (e) => setEF('image', e.target.result); r.readAsDataURL(file);
   };
 
   const handleSave = async () => {
-    if (!form.itemName.trim() || !form.modelName.trim()) return;
+    if (!editForm.itemName.trim() || !editForm.modelName.trim()) return;
     setSaving(true);
-    const catId   = form.catId === 'custom' ? 'custom' : form.catId;
-    const catName = form.catId === 'custom' ? (form.catCustom.trim() || '기타') : (BUILTIN_CATS.find(c=>c.id===form.catId)?.name || '기타');
+    const catObj = dynCats.find(c=>c.id===editForm.catId) || dynCats[0];
     const entry = {
       id: editTarget.id,
-      catId, catName,
-      itemName: form.itemName.trim(),
-      model: {
-        id: editTarget.model.id,
-        name: form.modelName.trim(),
-        manufacturer: form.manufacturer.trim(),
-        price: parseInt(form.price.replace(/[^0-9]/g,'')) || null,
-        notes: form.notes.trim(),
-      },
-      altText: form.altText.trim(),
-      image: form.image,
-      spec: {
-        desc: form.desc.trim(),
-        specs: form.specs.filter(s => s.l.trim()),
-        origin: form.origin.trim(),
-        cert: form.cert.trim(),
-        as: form.as.trim(),
-        warranty: form.warranty.trim(),
-      },
+      catId: catObj?.id || editForm.catId, catName: catObj?.name || editForm.catId,
+      itemName: editForm.itemName.trim(),
+      model: { id: editTarget.model.id, name: editForm.modelName.trim(), manufacturer: editForm.manufacturer.trim(), price: parseInt(editForm.price.replace(/[^0-9]/g,''))||null, notes: editForm.notes.trim() },
+      altText: editForm.altText.trim(), image: editForm.image,
+      spec: { desc: editForm.desc.trim(), specs: editForm.specs.filter(s=>s.l.trim()), origin: editForm.origin.trim(), cert: editForm.cert.trim(), as: editForm.as.trim(), warranty: editForm.warranty.trim() },
       createdAt: editTarget.createdAt,
     };
     try {
       await dbSaveEquip(entry);
-      setEquips(p => p.map(e => e.id === editTarget.id ? entry : e));
-      closeEdit();
-      onEquipChange?.();
-    } catch(e) {
-      console.error('저장 오류:', e);
-      alert('저장 중 오류가 발생했습니다.');
-    } finally { setSaving(false); }
+      setEquips(p => p.map(e => e.id===editTarget.id ? entry : e));
+      closeEdit(); onEquipChange?.();
+    } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); } finally { setSaving(false); }
   };
 
   const handleDelete = async (id) => {
-    try {
-      await dbDeleteEquip(id);
-      setEquips(p => p.filter(e => e.id !== id));
-      setConfirmDel(null);
-      onEquipChange?.();
-    } catch(e) { console.error(e); alert('삭제 중 오류가 발생했습니다.'); }
+    try { await dbDeleteEquip(id); setEquips(p=>p.filter(e=>e.id!==id)); setConfirmDel(null); onEquipChange?.(); }
+    catch(e) { console.error(e); alert('삭제 중 오류가 발생했습니다.'); }
   };
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return equips.filter(e => {
-      const matchCat = catFilter === 'all' || e.catId === catFilter;
-      const matchQ   = !q || e.itemName.toLowerCase().includes(q) || e.model.name.toLowerCase().includes(q) || e.model.manufacturer.toLowerCase().includes(q);
+      const matchCat = catFilter==='all' || e.catId===catFilter;
+      const matchQ = !q || e.itemName.toLowerCase().includes(q) || e.model.name.toLowerCase().includes(q) || e.model.manufacturer.toLowerCase().includes(q);
       return matchCat && matchQ;
     });
   }, [equips, search, catFilter]);
 
-  const inputCls = "w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400";
-  const labelCls = "block text-xs font-semibold text-slate-600 mb-1";
+  /* ── 장비 등록 helpers ── */
+  const setRF = (k, v) => setRegForm(p => ({ ...p, [k]: v }));
+  const addRegSpec    = () => setRF('specs', [...regForm.specs, emptySpec()]);
+  const removeRegSpec = (i) => setRF('specs', regForm.specs.filter((_,idx)=>idx!==i));
+  const setRegSpec    = (i,k,v) => setRF('specs', regForm.specs.map((s,idx)=>idx===i?{...s,[k]:v}:s));
+  const handleRegImage = (ev) => {
+    const file = ev.target.files?.[0]; if (!file) return;
+    const r = new FileReader(); r.onload = (e) => setRF('image', e.target.result); r.readAsDataURL(file);
+  };
+  const regItemOptions = useMemo(() => dynItems.filter(it=>it.catId===regForm.catId), [dynItems, regForm.catId]);
+
+  const handleRegSubmit = async () => {
+    if (!regForm.itemName || !regForm.modelName.trim()) return;
+    setRegSaving(true);
+    const catObj = dynCats.find(c=>c.id===regForm.catId);
+    const entry = {
+      id: null, catId: catObj?.id || regForm.catId, catName: catObj?.name || regForm.catId,
+      itemName: regForm.itemName,
+      model: { id:'cm-'+Date.now(), name: regForm.modelName.trim(), manufacturer: regForm.manufacturer.trim(), price: parseInt(regForm.price.replace(/[^0-9]/g,''))||null, notes: regForm.notes.trim() },
+      altText: regForm.altText.trim(), image: regForm.image,
+      spec: { desc: regForm.desc.trim(), specs: regForm.specs.filter(s=>s.l.trim()), origin: regForm.origin.trim(), cert: regForm.cert.trim(), as: regForm.as.trim(), warranty: regForm.warranty.trim() },
+      createdAt: new Date().toLocaleDateString('ko-KR'),
+    };
+    try {
+      const savedId = await dbSaveEquip(entry); entry.id = savedId;
+      setEquips(p => [entry, ...p]);
+      setRegForm(emptyRegForm()); setRegSaved(true); setTimeout(()=>setRegSaved(false),2000);
+      onEquipChange?.();
+    } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); } finally { setRegSaving(false); }
+  };
+
+  /* ── 카테고리 관리 helpers ── */
+  const handleAddCat = async () => {
+    if (!newCatName.trim()) return;
+    setCatSaving(true);
+    try {
+      const newCat = await dbSaveDynCat({ name: newCatName.trim(), colorKey: newCatColor, sortOrder: dynCats.length + 1 });
+      onCatsChange?.([...dynCats, newCat]);
+      setNewCatName(''); setNewCatColor('blue');
+    } catch(e) { console.error(e); alert('카테고리 추가 중 오류가 발생했습니다.'); } finally { setCatSaving(false); }
+  };
+
+  const handleDeleteCat = async (cat) => {
+    try {
+      await dbDeleteDynCat(cat.dbId);
+      onCatsChange?.(dynCats.filter(c=>c.dbId!==cat.dbId));
+      onItemsChange?.(dynItems.filter(it=>it.catId!==cat.id));
+      setConfirmDelCat(null);
+    } catch(e) { console.error(e); alert('카테고리 삭제 중 오류가 발생했습니다.'); }
+  };
+
+  const handleAddItem = async (catId) => {
+    if (!newItemName.trim()) return;
+    setItemSaving(true);
+    try {
+      const newItem = await dbSaveDynItem({ catId, name: newItemName.trim() });
+      onItemsChange?.([...dynItems, newItem]);
+      setNewItemName('');
+    } catch(e) { console.error(e); alert('품목 추가 중 오류가 발생했습니다.'); } finally { setItemSaving(false); }
+  };
+
+  const handleDeleteItem = async (id) => {
+    try {
+      await dbDeleteDynItem(id);
+      onItemsChange?.(dynItems.filter(it=>it.id!==id));
+      setConfirmDelItem(null);
+    } catch(e) { console.error(e); alert('품목 삭제 중 오류가 발생했습니다.'); }
+  };
+
+  const TABS = [
+    { id:'list',    label:'장비 목록',        icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+    { id:'register',label:'장비 등록',        icon:'M12 4v16m8-8H4' },
+    { id:'catmgr',  label:'카테고리·품목 관리', icon:'M4 6h16M4 12h16M4 18h7' },
+  ];
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
@@ -2488,122 +2212,362 @@ function EquipmentManagePage({ onBack, onEquipChange }) {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3 shrink-0">
-        <div className="relative flex-1 max-w-xs">
-          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
-          <input type="text" placeholder="품목명, 모델명, 제조사 검색..." value={search} onChange={e=>setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"/>
-          {search && <button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg>
-          </button>}
-        </div>
-        <div className="flex gap-1">
-          {[{id:'all',label:'전체'},...BUILTIN_CATS.map(c=>({id:c.id,label:c.name}))].map(c=>(
-            <button key={c.id} onClick={()=>setCatFilter(c.id)}
-              className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${catFilter===c.id?'bg-slate-900 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs text-slate-400">검색결과 {filtered.length}개</span>
+      {/* Tab bar */}
+      <div className="bg-white border-b border-slate-200 px-6 flex items-center gap-0 shrink-0">
+        {TABS.map(t => (
+          <button key={t.id} onClick={()=>setActiveTab(t.id)}
+            className={`flex items-center gap-1.5 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab===t.id?'border-blue-600 text-blue-700':'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={t.icon}/></svg>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto p-6">
-        {loading ? (
-          <div className="flex items-center justify-center h-40 text-slate-400 text-sm">
-            <svg className="w-5 h-5 animate-spin mr-2 text-blue-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-            로딩 중...
+      {/* ═══════════════ 장비 목록 탭 ═══════════════ */}
+      {activeTab === 'list' && (
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3 shrink-0">
+            <div className="relative flex-1 max-w-xs">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+              <input type="text" placeholder="품목명, 모델명, 제조사 검색..." value={search} onChange={e=>setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"/>
+              {search && <button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg></button>}
+            </div>
+            <div className="flex gap-1">
+              {[{id:'all',name:'전체'},...dynCats].map(c=>(
+                <button key={c.id} onClick={()=>setCatFilter(c.id)}
+                  className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${catFilter===c.id?'bg-slate-900 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                  {c.name}
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto text-xs text-slate-400">검색결과 {filtered.length}개</span>
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-slate-400">
-            <div className="text-3xl mb-2">📦</div>
-            <div className="text-sm font-medium">등록된 장비가 없습니다</div>
-            <div className="text-xs mt-1">장비 등록 페이지에서 새 장비를 추가해주세요</div>
+          <div className="flex-1 overflow-auto p-6">
+            {loading ? (
+              <div className="flex items-center justify-center h-40 text-slate-400 text-sm">
+                <svg className="w-5 h-5 animate-spin mr-2 text-blue-500" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>로딩 중...
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 text-slate-400">
+                <div className="text-3xl mb-2">📦</div>
+                <div className="text-sm font-medium">등록된 장비가 없습니다</div>
+                <div className="text-xs mt-1">장비 등록 탭에서 새 장비를 추가해주세요</div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-16">이미지</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-28">카테고리</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">품목명</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">모델명</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">제조사</th>
+                      <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">단가</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">A/S</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">보증</th>
+                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-24">작업</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(e => (
+                      <tr key={e.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors group">
+                        <td className="px-3 py-2.5 text-center">
+                          {e.image ? <img src={e.image} alt={e.model.name} className="w-11 h-11 object-cover rounded-lg border border-slate-200 mx-auto shadow-sm"/> : (
+                            <div className="w-11 h-11 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center mx-auto">
+                              <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            </div>)}
+                        </td>
+                        <td className="px-3 py-2.5"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-xs whitespace-nowrap">{e.catName}</span></td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800">{e.itemName}</td>
+                        <td className="px-3 py-2.5 text-slate-700">{e.model.name}</td>
+                        <td className="px-3 py-2.5 text-slate-600">{e.model.manufacturer}</td>
+                        <td className="px-3 py-2.5 text-right tnum font-medium text-slate-800">{e.model.price!=null?e.model.price.toLocaleString('ko-KR')+'원':<span className="text-slate-400 font-normal">문의</span>}</td>
+                        <td className="px-3 py-2.5 text-slate-500">{e.spec?.as||'—'}</td>
+                        <td className="px-3 py-2.5 text-slate-500">{e.spec?.warranty||'—'}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button onClick={()=>openEdit(e)} className="px-2.5 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 rounded font-medium transition-colors">수정</button>
+                            <button onClick={()=>setConfirmDel(e.id)} className="px-2.5 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded font-medium transition-colors">삭제</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-16">이미지</th>
-                  <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-28">카테고리</th>
-                  <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">품목명</th>
-                  <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">모델명</th>
-                  <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">제조사</th>
-                  <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">단가</th>
-                  <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">A/S</th>
-                  <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">보증</th>
-                  <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-24">작업</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(e => (
-                  <tr key={e.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors group">
-                    <td className="px-3 py-2.5 text-center">
-                      {e.image ? (
-                        <img src={e.image} alt={e.model.name} className="w-11 h-11 object-cover rounded-lg border border-slate-200 mx-auto shadow-sm"/>
-                      ) : (
-                        <div className="w-11 h-11 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center mx-auto">
-                          <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+      )}
+
+      {/* ═══════════════ 장비 등록 탭 ═══════════════ */}
+      {activeTab === 'register' && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-slate-900 text-base">새 장비 등록</div>
+                  <div className="text-xs text-slate-400 mt-0.5">등록된 장비는 견적서 장비 추가 시 검색·선택할 수 있습니다</div>
+                </div>
+                {regSaved && <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">✓ 저장 완료</span>}
+              </div>
+              <div className="p-6 flex flex-col gap-5">
+                {/* Row 1: 카테고리 / 품목명 / 모델명 / 제조사 */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className={labelCls}>카테고리 <span className="text-red-400">*</span></label>
+                    <select value={regForm.catId} onChange={e=>{setRF('catId',e.target.value);setRF('itemName','');}} className={inputCls}>
+                      {dynCats.length===0 && <option value="">카테고리 없음</option>}
+                      {dynCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>품목명 <span className="text-red-400">*</span></label>
+                    <select value={regForm.itemName} onChange={e=>setRF('itemName',e.target.value)} className={inputCls}>
+                      <option value="">품목 선택</option>
+                      {regItemOptions.map(it=><option key={it.id} value={it.name}>{it.name}</option>)}
+                    </select>
+                    {regItemOptions.length===0 && <div className="text-xs text-amber-600 mt-1">카테고리·품목 관리 탭에서 품목을 먼저 등록하세요</div>}
+                  </div>
+                  <div>
+                    <label className={labelCls}>모델명 <span className="text-red-400">*</span></label>
+                    <input type="text" placeholder="예: Xvision HF 525R" value={regForm.modelName} onChange={e=>setRF('modelName',e.target.value)} className={inputCls}/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>제조사</label>
+                    <input type="text" placeholder="예: Gemss healthcare" value={regForm.manufacturer} onChange={e=>setRF('manufacturer',e.target.value)} className={inputCls}/>
+                  </div>
+                </div>
+                {/* Row 2: 단가 / 대체품 / 특이사항 */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className={labelCls}>단가 (원)</label>
+                    <input type="text" inputMode="numeric" placeholder="0" value={regForm.price}
+                      onChange={e=>setRF('price',(parseInt(e.target.value.replace(/[^0-9]/g,''))||'').toLocaleString('ko-KR').replace('NaN',''))} className={inputCls}/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>대체품 메모</label>
+                    <input type="text" placeholder="예: KMC-650과 교체 가능" value={regForm.altText} onChange={e=>setRF('altText',e.target.value)} className={inputCls}/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>기타 특이사항</label>
+                    <input type="text" placeholder="예: 콘덴서 포함" value={regForm.notes} onChange={e=>setRF('notes',e.target.value)} className={inputCls}/>
+                  </div>
+                </div>
+                {/* 이미지 + 제품소개 */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>제품 이미지</label>
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-blue-400 transition-colors bg-slate-50"
+                      onClick={()=>regImgRef.current?.click()}>
+                      {regForm.image ? (
+                        <div className="relative w-full">
+                          <img src={regForm.image} alt="preview" className="w-full h-32 object-contain rounded"/>
+                          <button onClick={e=>{e.stopPropagation();setRF('image',null);}} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center hover:bg-red-400">×</button>
                         </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-xs whitespace-nowrap">{e.catName}</span>
-                    </td>
-                    <td className="px-3 py-2.5 font-semibold text-slate-800">{e.itemName}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{e.model.name}</td>
-                    <td className="px-3 py-2.5 text-slate-600">{e.model.manufacturer}</td>
-                    <td className="px-3 py-2.5 text-right tnum font-medium text-slate-800">
-                      {e.model.price != null ? e.model.price.toLocaleString('ko-KR')+'원' : <span className="text-slate-400 font-normal">문의</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-500">{e.spec?.as || '—'}</td>
-                    <td className="px-3 py-2.5 text-slate-500">{e.spec?.warranty || '—'}</td>
-                    <td className="px-3 py-2.5 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button onClick={() => openEdit(e)}
-                          className="px-2.5 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 rounded font-medium transition-colors">
-                          수정
-                        </button>
-                        <button onClick={() => setConfirmDel(e.id)}
-                          className="px-2.5 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded font-medium transition-colors">
-                          삭제
-                        </button>
+                      ) : (<>
+                        <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        <span className="text-xs text-slate-400">클릭하여 이미지 업로드</span>
+                        <span className="text-xs text-slate-300">JPG, PNG, WEBP</span>
+                      </>)}
+                    </div>
+                    <input ref={regImgRef} type="file" accept="image/*" className="hidden" onChange={handleRegImage}/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>제품소개</label>
+                    <textarea placeholder="제품에 대한 간단한 소개..." value={regForm.desc} onChange={e=>setRF('desc',e.target.value)}
+                      className={`${inputCls} h-[calc(100%-1.5rem)] resize-none`} rows={5}/>
+                  </div>
+                </div>
+                {/* 주요사양 */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className={labelCls + ' mb-0'}>주요 사양</label>
+                    <button onClick={addRegSpec} className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ 항목 추가</button>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {regForm.specs.map((s,i)=>(
+                      <div key={i} className="flex items-center gap-2">
+                        <input type="text" placeholder="항목명 (예: 해상도)" value={s.l} onChange={e=>setRegSpec(i,'l',e.target.value)} className={`${inputCls} w-36`}/>
+                        <input type="text" placeholder="값 (예: 43lp/mm)" value={s.v} onChange={e=>setRegSpec(i,'v',e.target.value)} className={inputCls}/>
+                        {regForm.specs.length>1 && <button onClick={()=>removeRegSpec(i)} className="text-slate-400 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>}
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    ))}
+                  </div>
+                </div>
+                {/* 인증/보증 */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div><label className={labelCls}>원산지</label><input type="text" value={regForm.origin} onChange={e=>setRF('origin',e.target.value)} className={inputCls}/></div>
+                  <div><label className={labelCls}>인증</label><input type="text" placeholder="예: 의료기기 2등급" value={regForm.cert} onChange={e=>setRF('cert',e.target.value)} className={inputCls}/></div>
+                  <div><label className={labelCls}>A/S 기간</label><input type="text" placeholder="예: 2년" value={regForm.as} onChange={e=>setRF('as',e.target.value)} className={inputCls}/></div>
+                  <div><label className={labelCls}>제품 보증</label><input type="text" placeholder="예: 1년" value={regForm.warranty} onChange={e=>setRF('warranty',e.target.value)} className={inputCls}/></div>
+                </div>
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button onClick={handleRegSubmit} disabled={regSaving||!regForm.itemName||!regForm.modelName.trim()}
+                    className="px-6 py-2 text-sm font-semibold rounded-lg bg-slate-900 hover:bg-slate-700 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                    {regSaving ? '저장 중...' : '장비 등록'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Delete confirm modal */}
+      {/* ═══════════════ 카테고리·품목 관리 탭 ═══════════════ */}
+      {activeTab === 'catmgr' && (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-3xl mx-auto flex flex-col gap-5">
+            {/* 새 카테고리 추가 */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="font-bold text-slate-800 text-sm mb-4">새 카테고리 추가</div>
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label className={labelCls}>카테고리명</label>
+                  <input type="text" placeholder="예: 안과 장비" value={newCatName} onChange={e=>setNewCatName(e.target.value)}
+                    className={inputCls} onKeyDown={e=>e.key==='Enter'&&handleAddCat()}/>
+                </div>
+                <div>
+                  <label className={labelCls}>색상</label>
+                  <div className="flex items-center gap-1.5">
+                    {CAT_COLORS.map(c=>(
+                      <button key={c.id} onClick={()=>setNewCatColor(c.id)}
+                        className={`w-6 h-6 rounded-full ${CAT_COLOR_DOT[c.id]} ${newCatColor===c.id?'ring-2 ring-offset-1 ring-slate-600':''} transition-all`}
+                        title={c.label}/>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={handleAddCat} disabled={catSaving||!newCatName.trim()}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 hover:bg-slate-700 text-white transition-colors disabled:opacity-40 shrink-0">
+                  {catSaving ? '추가 중...' : '+ 추가'}
+                </button>
+              </div>
+            </div>
+
+            {/* 카테고리 목록 */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 font-bold text-slate-800 text-sm">카테고리 목록 ({dynCats.length})</div>
+              {dynCats.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-sm">카테고리가 없습니다</div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {dynCats.map(cat => {
+                    const catItemList = dynItems.filter(it=>it.catId===cat.id);
+                    const isExpanded = expandedCat === cat.id;
+                    return (
+                      <div key={cat.id}>
+                        {/* Category row */}
+                        <div className="px-5 py-3 flex items-center gap-3">
+                          <div className={`w-3 h-3 rounded-full ${CAT_COLOR_DOT[cat.colorKey]||'bg-blue-500'}`}/>
+                          <span className="font-semibold text-slate-800 text-sm flex-1">{cat.name}</span>
+                          <span className="text-xs text-slate-400">{catItemList.length}개 품목</span>
+                          <button onClick={()=>setExpandedCat(isExpanded?null:cat.id)}
+                            className="px-3 py-1 text-xs rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                            {isExpanded ? '닫기' : '품목 관리'}
+                          </button>
+                          <button onClick={()=>setConfirmDelCat(cat)}
+                            className="px-3 py-1 text-xs rounded-md bg-red-50 text-red-600 hover:bg-red-100 transition-colors">
+                            삭제
+                          </button>
+                        </div>
+                        {/* Expanded items */}
+                        {isExpanded && (
+                          <div className="bg-slate-50 border-t border-slate-100 px-5 py-4">
+                            {/* Item list */}
+                            {catItemList.length === 0 ? (
+                              <div className="text-xs text-slate-400 mb-3">등록된 품목이 없습니다</div>
+                            ) : (
+                              <div className="flex flex-wrap gap-2 mb-3">
+                                {catItemList.map(it=>(
+                                  <div key={it.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-full text-xs text-slate-700 shadow-sm">
+                                    <span>{it.name}</span>
+                                    <button onClick={()=>setConfirmDelItem(it)} className="text-slate-300 hover:text-red-500 transition-colors">
+                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Add new item */}
+                            <div className="flex items-center gap-2">
+                              <input type="text" placeholder="새 품목명 입력 (예: X-Ray (DR System))" value={newItemName}
+                                onChange={e=>setNewItemName(e.target.value)}
+                                onKeyDown={e=>e.key==='Enter'&&handleAddItem(cat.id)}
+                                className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 bg-white"/>
+                              <button onClick={()=>handleAddItem(cat.id)} disabled={itemSaving||!newItemName.trim()}
+                                className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-40">
+                                {itemSaving ? '...' : '+ 추가'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete equip confirm */}
       {confirmDel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmDel(null)}/>
+          <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDel(null)}/>
           <div className="relative bg-white rounded-xl p-6 shadow-2xl w-80 animate-fs text-center">
             <div className="text-3xl mb-3">🗑️</div>
             <div className="font-bold text-slate-800 mb-1">장비를 삭제할까요?</div>
             <div className="text-xs text-slate-500 mb-5">삭제 후 복구가 불가능합니다.</div>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmDel(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
-              <button onClick={() => handleDelete(confirmDel)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+              <button onClick={()=>setConfirmDel(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
+              <button onClick={()=>handleDelete(confirmDel)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete category confirm */}
+      {confirmDelCat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDelCat(null)}/>
+          <div className="relative bg-white rounded-xl p-6 shadow-2xl w-80 animate-fs text-center">
+            <div className="text-3xl mb-3">⚠️</div>
+            <div className="font-bold text-slate-800 mb-1">카테고리를 삭제할까요?</div>
+            <div className="text-xs text-slate-500 mb-1">「{confirmDelCat.name}」 카테고리와</div>
+            <div className="text-xs text-slate-500 mb-5">소속 품목 목록도 함께 삭제됩니다.</div>
+            <div className="flex gap-2">
+              <button onClick={()=>setConfirmDelCat(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
+              <button onClick={()=>handleDeleteCat(confirmDelCat)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete item confirm */}
+      {confirmDelItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDelItem(null)}/>
+          <div className="relative bg-white rounded-xl p-6 shadow-2xl w-72 animate-fs text-center">
+            <div className="text-3xl mb-3">🗑️</div>
+            <div className="font-bold text-slate-800 mb-1">품목을 삭제할까요?</div>
+            <div className="text-xs text-slate-500 mb-5">「{confirmDelItem.name}」</div>
+            <div className="flex gap-2">
+              <button onClick={()=>setConfirmDelItem(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
+              <button onClick={()=>handleDeleteItem(confirmDelItem.id)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
             </div>
           </div>
         </div>
       )}
 
       {/* Edit Modal */}
-      {editTarget && form && (
+      {editTarget && editForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeEdit}/>
           <div className="relative bg-white rounded-xl shadow-2xl animate-fs flex flex-col" style={{width:'780px', maxHeight:'92vh'}}>
-
-            {/* Modal Header */}
             <div className="bg-slate-900 text-white px-5 py-3.5 rounded-t-xl flex items-center justify-between shrink-0">
               <div>
                 <div className="font-bold text-sm">장비 정보 수정</div>
@@ -2613,138 +2577,86 @@ function EquipmentManagePage({ onBack, onEquipChange }) {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
-
-            {/* Modal Body */}
             <div className="overflow-y-auto flex-1 p-5">
               <div className="grid grid-cols-2 gap-5">
-
-                {/* Left */}
                 <div className="space-y-3">
                   <div>
                     <label className={labelCls}>카테고리</label>
-                    <select value={form.catId} onChange={e=>setF('catId',e.target.value)} className={inputCls}>
-                      {BUILTIN_CATS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                      <option value="custom">직접입력</option>
+                    <select value={editForm.catId} onChange={e=>setEF('catId',e.target.value)} className={inputCls}>
+                      {dynCats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
-                    {form.catId==='custom' && <input type="text" value={form.catCustom} onChange={e=>setF('catCustom',e.target.value)} placeholder="카테고리명 입력" className={`${inputCls} mt-1`}/>}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className={labelCls}>품목명 <span className="text-red-500">*</span></label>
-                      <input type="text" value={form.itemName} onChange={e=>setF('itemName',e.target.value)} className={inputCls}/>
+                      <select value={editForm.itemName} onChange={e=>setEF('itemName',e.target.value)} className={inputCls}>
+                        <option value={editForm.itemName}>{editForm.itemName}</option>
+                        {dynItems.filter(it=>it.catId===editForm.catId&&it.name!==editForm.itemName).map(it=><option key={it.id} value={it.name}>{it.name}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label className={labelCls}>모델명 <span className="text-red-500">*</span></label>
-                      <input type="text" value={form.modelName} onChange={e=>setF('modelName',e.target.value)} className={inputCls}/>
+                      <input type="text" value={editForm.modelName} onChange={e=>setEF('modelName',e.target.value)} className={inputCls}/>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className={labelCls}>제조사</label>
-                      <input type="text" value={form.manufacturer} onChange={e=>setF('manufacturer',e.target.value)} className={inputCls}/>
-                    </div>
-                    <div>
-                      <label className={labelCls}>단가</label>
-                      <input type="text" value={form.price}
-                        onChange={e=>setF('price', e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))}
-                        className={inputCls} placeholder="숫자 입력 (문의는 빈칸)"/>
-                    </div>
+                    <div><label className={labelCls}>제조사</label><input type="text" value={editForm.manufacturer} onChange={e=>setEF('manufacturer',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>단가</label><input type="text" value={editForm.price} onChange={e=>setEF('price',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력 (문의는 빈칸)"/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className={labelCls}>원산지</label>
-                      <input type="text" value={form.origin} onChange={e=>setF('origin',e.target.value)} className={inputCls}/>
-                    </div>
-                    <div>
-                      <label className={labelCls}>인증</label>
-                      <input type="text" value={form.cert} onChange={e=>setF('cert',e.target.value)} className={inputCls}/>
-                    </div>
+                    <div><label className={labelCls}>원산지</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>인증</label><input type="text" value={editForm.cert} onChange={e=>setEF('cert',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className={labelCls}>A/S 기간</label>
-                      <input type="text" value={form.as} onChange={e=>setF('as',e.target.value)} className={inputCls} placeholder="예: 1년"/>
-                    </div>
-                    <div>
-                      <label className={labelCls}>보증기간</label>
-                      <input type="text" value={form.warranty} onChange={e=>setF('warranty',e.target.value)} className={inputCls} placeholder="예: 2년"/>
-                    </div>
+                    <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>제품 보증</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
                   </div>
+                  <div><label className={labelCls}>대체품 메모</label><input type="text" value={editForm.altText} onChange={e=>setEF('altText',e.target.value)} className={inputCls}/></div>
+                  <div><label className={labelCls}>기타 특이사항</label><input type="text" value={editForm.notes} onChange={e=>setEF('notes',e.target.value)} className={inputCls}/></div>
                   <div>
-                    <label className={labelCls}>대체품</label>
-                    <input type="text" value={form.altText} onChange={e=>setF('altText',e.target.value)} className={inputCls} placeholder="대체 가능한 장비"/>
-                  </div>
-                  <div>
-                    <label className={labelCls}>특이사항 메모</label>
-                    <input type="text" value={form.notes} onChange={e=>setF('notes',e.target.value)} className={inputCls} placeholder="기타 메모"/>
+                    <label className={labelCls}>이미지</label>
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-3 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 bg-slate-50"
+                      onClick={()=>editImgRef.current?.click()}>
+                      {editForm.image ? (
+                        <div className="relative w-full">
+                          <img src={editForm.image} alt="preview" className="w-full h-28 object-contain rounded"/>
+                          <button onClick={e=>{e.stopPropagation();setEF('image',null);}} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">×</button>
+                        </div>
+                      ) : <span className="text-xs text-slate-400">클릭하여 이미지 교체</span>}
+                    </div>
+                    <input ref={editImgRef} type="file" accept="image/*" className="hidden" onChange={handleEditImage}/>
                   </div>
                 </div>
-
-                {/* Right */}
                 <div className="space-y-3">
                   <div>
-                    <label className={labelCls}>제품 이미지</label>
-                    <input type="file" accept="image/*" ref={imgRef} onChange={handleImage} className="hidden"/>
-                    {form.image ? (
-                      <div className="relative rounded-lg overflow-hidden border border-slate-200">
-                        <img src={form.image} alt="제품" className="w-full h-40 object-cover"/>
-                        <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
-                          <button onClick={()=>imgRef.current?.click()} className="px-3 py-1.5 bg-white text-xs font-semibold text-slate-700 rounded shadow mr-2">교체</button>
-                          <button onClick={()=>setF('image',null)} className="px-3 py-1.5 bg-red-500 text-xs font-semibold text-white rounded shadow">삭제</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={()=>imgRef.current?.click()}
-                        className="w-full h-40 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-400 transition-colors">
-                        <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                        <span className="text-xs font-medium">클릭하여 이미지 업로드</span>
-                        <span className="text-xs text-slate-300 mt-0.5">PNG, JPG, WEBP</span>
-                      </button>
-                    )}
+                    <label className={labelCls}>제품소개</label>
+                    <textarea value={editForm.desc} onChange={e=>setEF('desc',e.target.value)} className={`${inputCls} resize-none`} rows={4}/>
                   </div>
                   <div>
-                    <label className={labelCls}>제품 소개</label>
-                    <textarea rows={3} value={form.desc} onChange={e=>setF('desc',e.target.value)}
-                      className={`${inputCls} resize-none`} placeholder="제품 소개를 입력하세요"/>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className={`${labelCls} mb-0`}>주요 사양</label>
-                      <button onClick={addSpec} className="text-xs text-blue-600 hover:text-blue-700 font-medium">+ 항목 추가</button>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className={labelCls + ' mb-0'}>주요 사양</label>
+                      <button onClick={addEditSpec} className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ 추가</button>
                     </div>
-                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                      {form.specs.map((sp, i) => (
-                        <div key={i} className="flex gap-1.5 items-center">
-                          <input type="text" value={sp.l} onChange={e=>setSpec(i,'l',e.target.value)} placeholder="항목명"
-                            className="w-28 px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400"/>
-                          <input type="text" value={sp.v} onChange={e=>setSpec(i,'v',e.target.value)} placeholder="값"
-                            className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400"/>
-                          {form.specs.length > 1 && (
-                            <button onClick={()=>removeSpec(i)} className="text-red-400 hover:text-red-600 shrink-0">
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                          )}
+                    <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto">
+                      {editForm.specs.map((s,i)=>(
+                        <div key={i} className="flex items-center gap-2">
+                          <input type="text" placeholder="항목명" value={s.l} onChange={e=>setEditSpec(i,'l',e.target.value)} className={`${inputCls} w-28`}/>
+                          <input type="text" placeholder="값" value={s.v} onChange={e=>setEditSpec(i,'v',e.target.value)} className={inputCls}/>
+                          {editForm.specs.length>1 && <button onClick={()=>removeEditSpec(i)} className="text-slate-400 hover:text-red-500"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>}
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
-
               </div>
             </div>
-
-            {/* Modal Footer */}
-            <div className="px-5 py-3.5 border-t border-slate-200 flex items-center justify-between shrink-0">
-              <p className="text-xs text-slate-400">* 필수 항목</p>
-              <div className="flex gap-2">
-                <button onClick={closeEdit} className="px-4 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
-                <button onClick={handleSave} disabled={saving || !form?.itemName?.trim() || !form?.modelName?.trim()}
-                  className="px-5 py-2 text-xs rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold disabled:opacity-50 transition-colors">
-                  {saving ? '저장 중...' : '수정 저장'}
-                </button>
-              </div>
+            <div className="px-5 py-3.5 border-t border-slate-100 flex justify-end gap-2 shrink-0">
+              <button onClick={closeEdit} className="px-4 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-5 py-2 text-xs rounded-lg bg-slate-900 hover:bg-slate-700 text-white font-semibold transition-colors disabled:opacity-40">
+                {saving ? '저장 중...' : '수정 저장'}
+              </button>
             </div>
-
           </div>
         </div>
       )}
@@ -2892,12 +2804,16 @@ function App() {
   const [productModal, setProductModal] = useState(null);   // { modelId, modelName, manufacturer, catName, catColorKey }
   const [mfrModal, setMfrModal] = useState(null);           // manufacturerName string
   const [toasts, setToasts] = useState([]);
-  const [view, setView] = useState('editor'); // 'editor' | 'list'
+  const [view, setView] = useState('editor'); // 'editor' | 'list' | 'manage'
   const [customEquips, setCustomEquips] = useState([]);
+  const [dynCats, setDynCats] = useState([]);
+  const [dynItems, setDynItems] = useState([]);
 
-  // Supabase에서 등록 장비 로드
+  // Supabase에서 등록 장비 + 동적 카테고리 로드
   useEffect(() => {
     dbLoadEquip().then(setCustomEquips).catch(console.error);
+    dbLoadDynCats().then(setDynCats).catch(console.error);
+    dbLoadDynItems().then(setDynItems).catch(console.error);
   }, []);
 
   const addToast = useCallback((msg, type='success') => {
@@ -2990,12 +2906,15 @@ function App() {
     return offsets;
   }, [categories]);
 
-  if (view === 'register') {
-    return <EquipmentRegisterPage onBack={() => setView('editor')} onEquipChange={() => dbLoadEquip().then(setCustomEquips).catch(console.error)} />;
-  }
-
   if (view === 'manage') {
-    return <EquipmentManagePage onBack={() => setView('editor')} onEquipChange={() => dbLoadEquip().then(setCustomEquips).catch(console.error)} />;
+    return <EquipmentManagePage
+      onBack={() => setView('editor')}
+      onEquipChange={() => dbLoadEquip().then(setCustomEquips).catch(console.error)}
+      dynCats={dynCats}
+      dynItems={dynItems}
+      onCatsChange={setDynCats}
+      onItemsChange={setDynItems}
+    />;
   }
 
   if (view === 'list') {
@@ -3010,7 +2929,7 @@ function App() {
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
       <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')}/>
-      <ControlsBar search={search} setSearch={setSearch} catFilter={catFilter} setCatFilter={setCatFilter} categories={categories} onAddEquip={()=>setAddEquipOpen(true)} onRegisterEquip={()=>setView('register')}/>
+      <ControlsBar search={search} setSearch={setSearch} catFilter={catFilter} setCatFilter={setCatFilter} categories={categories} dynCats={dynCats} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
         {/* Main table area */}
@@ -3108,6 +3027,7 @@ function App() {
         <AddEquipmentModal
           categories={categories}
           customEquips={customEquips}
+          dynCats={dynCats}
           onAdd={(data) => { handleAddEquip(data); }}
           onClose={() => setAddEquipOpen(false)}
           onViewProduct={(modelId, modelName, manufacturer, catName, catColorKey) => { setAddEquipOpen(false); setProductModal({modelId, modelName, manufacturer, catName, catColorKey}); }}
