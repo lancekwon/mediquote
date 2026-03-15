@@ -118,7 +118,8 @@ async function dbLoadQuotes() {
     doctor: r.doctor,
     savedAt: new Date(r.created_at).toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).replace(/\.\s*/g,'.').replace(',',''),
     finalAmt: r.final_amt,
-    quoteInfo: { hospital: r.hospital, doctor: r.doctor, quoteNo: r.quote_no, date: r.date, validity: r.validity },
+    dept: r.dept || '',
+    quoteInfo: { hospital: r.hospital, doctor: r.doctor, dept: r.dept || '', quoteNo: r.quote_no, date: r.date, validity: r.validity },
     categories: r.categories,
     globalDiscount: r.global_discount,
     vatIncluded: r.vat_included,
@@ -130,6 +131,7 @@ async function dbSaveQuote(entry) {
     quote_no: entry.quoteNo,
     hospital: entry.quoteInfo.hospital,
     doctor: entry.quoteInfo.doctor,
+    dept: entry.quoteInfo.dept || '',
     date: entry.quoteInfo.date,
     validity: entry.quoteInfo.validity,
     categories: entry.categories,
@@ -446,8 +448,10 @@ function Toast({ toasts }) {
 /* ============================================================
    HEADER
    ============================================================ */
+const DEPT_LIST = ['정형외과','내과','가정의학과','재활의학과','산부인과','피부과','응급의학과','영상의학과','안과','흉부외과','성형외과','비뇨기과','이비인후과','소아과','신경외과','정신건강의학과','마취통증의학과','직업의학과','신경과','외과'];
+
 function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage }) {
-  const fields = [
+  const textFields = [
     { key:'hospital', label:'병원명', w:'w-36' },
     { key:'doctor', label:'원장명', w:'w-28' },
     { key:'quoteNo', label:'견적번호', w:'w-32' },
@@ -461,17 +465,28 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage }) {
         <span className="font-bold text-sm tracking-tight text-slate-100">MediQuote Pro</span>
       </div>
       <div className="flex items-center gap-3 flex-1 overflow-x-auto">
-        {fields.map(f => (
+        {textFields.map(f => (
           <div key={f.key} className="flex items-center gap-1.5 shrink-0">
             <label className="text-slate-400 text-xs whitespace-nowrap">{f.label}</label>
             <input
               type={f.type||'text'}
-              value={quoteInfo[f.key]}
+              value={quoteInfo[f.key]||''}
               onChange={e => setQuoteInfo(p=>({...p,[f.key]:e.target.value}))}
               className={`${f.w} bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500`}
             />
           </div>
         ))}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <label className="text-slate-400 text-xs whitespace-nowrap">진료과</label>
+          <select
+            value={quoteInfo.dept||''}
+            onChange={e => setQuoteInfo(p=>({...p, dept:e.target.value}))}
+            className="w-32 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">선택</option>
+            {DEPT_LIST.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <button onClick={onManage} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
@@ -1623,6 +1638,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       <div class="cover-info">
         <table>
           <tr><td>수신</td><td>${quoteInfo.hospital} ${quoteInfo.doctor} 원장님</td></tr>
+          ${quoteInfo.dept ? `<tr><td>진료과</td><td>${quoteInfo.dept}</td></tr>` : ''}
           <tr><td>견적번호</td><td>${quoteInfo.quoteNo}</td></tr>
           <tr><td>견적일자</td><td>${quoteInfo.date}</td></tr>
           <tr><td>유효기간</td><td>${quoteInfo.validity}</td></tr>
@@ -2803,7 +2819,8 @@ function SavedQuotesList({ onLoad, onBack }) {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">견적번호</th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-40">병원명</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-32">원장명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">원장명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">진료과</th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">저장일시</th>
                     <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">최종금액</th>
                     <th className="px-5 py-3 w-40"></th>
@@ -2818,6 +2835,7 @@ function SavedQuotesList({ onLoad, onBack }) {
                       </td>
                       <td className="px-5 py-3.5 font-medium text-slate-800">{s.hospital}</td>
                       <td className="px-5 py-3.5 text-slate-600">{s.doctor}</td>
+                      <td className="px-5 py-3.5 text-slate-500">{s.dept || <span className="text-slate-300">—</span>}</td>
                       <td className="px-5 py-3.5 text-slate-500 text-xs">{s.savedAt}</td>
                       <td className="px-5 py-3.5 text-right font-semibold tnum text-slate-800">
                         {s.finalAmt != null ? s.finalAmt.toLocaleString('ko-KR') + '원' : '—'}
@@ -2857,6 +2875,7 @@ function App() {
   const [quoteInfo, setQuoteInfo] = useState({
     hospital: '○○○○ 의원',
     doctor: '홍길동',
+    dept: '',
     quoteNo: 'QT-2025-001',
     date: getToday(),
     validity: getValidity(),
