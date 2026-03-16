@@ -136,6 +136,7 @@ async function dbLoadQuotes() {
     categories: r.categories,
     globalDiscount: r.global_discount,
     vatIncluded: r.vat_included,
+    author: r.author || '',
   }));
 }
 
@@ -151,9 +152,19 @@ async function dbSaveQuote(entry) {
     global_discount: entry.globalDiscount,
     vat_included: entry.vatIncluded,
     final_amt: entry.finalAmt,
+    author: entry.author || null,
   };
   const { error } = await sb.from('quotes').insert(row);
-  if (error) throw error;
+  if (error) {
+    // author 컬럼이 아직 없는 경우 fallback (컬럼 추가 전 호환성)
+    if (error.message && error.message.includes('author')) {
+      const { author: _, ...rowWithoutAuthor } = row;
+      const { error: err2 } = await sb.from('quotes').insert(rowWithoutAuthor);
+      if (err2) throw err2;
+    } else {
+      throw error;
+    }
+  }
 }
 
 async function dbDeleteQuote(id) {
@@ -536,7 +547,87 @@ function Toast({ toasts }) {
    ============================================================ */
 const DEPT_LIST = ['정형외과','내과','가정의학과','재활의학과','산부인과','피부과','응급의학과','영상의학과','안과','흉부외과','성형외과','비뇨기과','이비인후과','소아과','신경외과','정신건강의학과','마취통증의학과','직업의학과','신경과','외과'];
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome }) {
+/* ============================================================
+   LOGIN PAGE
+   ============================================================ */
+function LoginPage({ onLogin }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const { data, error: authErr } = await sb.auth.signInWithPassword({ email, password });
+      if (authErr) throw authErr;
+      onLogin(data.user);
+    } catch(err) {
+      setError(err.message === 'Invalid login credentials'
+        ? '이메일 또는 비밀번호가 올바르지 않습니다.'
+        : (err.message || '로그인에 실패했습니다.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{minHeight:'100vh', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center'}}>
+      <div className="bg-white rounded-2xl shadow-2xl p-10 w-full animate-fs" style={{maxWidth:'400px'}}>
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 mb-8">
+          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-sm">DW</div>
+          <div>
+            <div className="font-bold text-slate-900 text-base leading-tight">DWmedi</div>
+            <div className="text-xs text-slate-400 leading-tight">의료장비 견적 시스템</div>
+          </div>
+        </div>
+
+        <h2 className="text-xl font-bold text-slate-900 mb-1">로그인</h2>
+        <p className="text-sm text-slate-500 mb-6">이메일과 비밀번호를 입력해 주세요</p>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1.5 block">이메일</label>
+            <input
+              type="email" value={email}
+              onChange={e => setEmail(e.target.value)}
+              required autoFocus
+              placeholder="example@email.com"
+              className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-600 mb-1.5 block">비밀번호</label>
+            <input
+              type="password" value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              placeholder="••••••••"
+              className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+            />
+          </div>
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 flex items-center gap-2">
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>
+              {error}
+            </div>
+          )}
+          <button
+            type="submit" disabled={loading}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-semibold rounded-lg text-sm transition-colors mt-1"
+          >
+            {loading ? '로그인 중...' : '로그인'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, user, onLogout }) {
   const textFields = [
     { key:'hospital', label:'병원명', w:'w-36' },
     { key:'doctor', label:'원장명', w:'w-28' },
@@ -587,6 +678,23 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome }) {
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
           견적 저장
         </button>
+        {/* 유저 정보 + 로그아웃 */}
+        <div className="flex items-center gap-2 pl-2 ml-1 border-l border-slate-700">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-slate-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+              {user?.email?.[0]?.toUpperCase() || '?'}
+            </div>
+            <span className="text-xs text-slate-400 max-w-[120px] truncate">{user?.email || ''}</span>
+          </div>
+          <button
+            onClick={onLogout}
+            title="로그아웃"
+            className="flex items-center gap-1 px-2 py-1.5 text-xs rounded border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+            로그아웃
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -3015,6 +3123,7 @@ function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
                       <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">원장명</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-28">진료과</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">저장일시</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">작성자</th>
                       <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide w-36">최종금액</th>
                       <th className="px-5 py-3 w-52"></th>
                     </tr>
@@ -3030,6 +3139,9 @@ function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
                         <td className="px-5 py-3.5 text-slate-600">{s.doctor}</td>
                         <td className="px-5 py-3.5 text-slate-500">{s.dept || <span className="text-slate-300">—</span>}</td>
                         <td className="px-5 py-3.5 text-slate-500 text-xs">{s.savedAt}</td>
+                        <td className="px-5 py-3.5 text-slate-500 text-xs truncate max-w-[140px]" title={s.author}>
+                          {s.author || <span className="text-slate-300">—</span>}
+                        </td>
                         <td className="px-5 py-3.5 text-right font-semibold tnum text-slate-800">
                           {s.finalAmt != null ? s.finalAmt.toLocaleString('ko-KR') + '원' : '—'}
                         </td>
@@ -3294,6 +3406,24 @@ function App() {
   const [customEquips, setCustomEquips] = useState([]);
   const [dynCats, setDynCats] = useState([]);
   const [dynItems, setDynItems] = useState([]);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // 인증 초기화
+  useEffect(() => {
+    sb.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await sb.auth.signOut();
+  }, []);
 
   // Supabase에서 등록 장비 + 동적 카테고리 로드
   useEffect(() => {
@@ -3320,6 +3450,7 @@ function App() {
         categories: JSON.parse(JSON.stringify(categories)),
         globalDiscount: { ...globalDiscount },
         vatIncluded,
+        author: user?.email || null,
       };
       await dbSaveQuote(entry);
       setQuoteInfo(p => ({ ...p, quoteNo }));
@@ -3398,6 +3529,20 @@ function App() {
     return offsets;
   }, [categories]);
 
+  // 인증 로딩 중
+  if (authLoading) {
+    return (
+      <div style={{minHeight:'100vh', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center'}}>
+        <div className="text-slate-400 text-sm">로딩 중...</div>
+      </div>
+    );
+  }
+
+  // 미인증 → 로그인 페이지
+  if (!user) {
+    return <LoginPage onLogin={setUser} />;
+  }
+
   if (view === 'manage') {
     return <EquipmentManagePage
       onBack={() => setView('editor')}
@@ -3422,7 +3567,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
