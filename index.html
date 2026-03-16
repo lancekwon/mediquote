@@ -256,6 +256,8 @@ async function dbDeleteDynItem(id) {
    INITIAL DATA
    ============================================================ */
 const INITIAL_CATEGORIES = [
+  /* 더미 데이터 제거 완료 — 실제 데이터는 Supabase에서 로드 */
+  /*
   {
     id: 'imaging', name: '영상진단 장비', colorKey: 'blue',
     items: [
@@ -447,46 +449,21 @@ const INITIAL_CATEGORIES = [
         ]},
     ]
   }
+  */
 ];
 
 /* ============================================================
-   DUMMY PRODUCT SPECS
+   PRODUCT SPECS (더미 제거 — DB spec 데이터 우선, 미등록 시 _default 사용)
    ============================================================ */
 const PRODUCT_SPECS = {
-  'xvision-hf-525r': { specs:[{l:'관전압',v:'40 ~ 150 kVp'},{l:'관전류',v:'100 ~ 500 mA'},{l:'촬영 방식',v:'DR (Flat Panel Detector)'},{l:'이미지 센서',v:'43×43 cm FPD'},{l:'해상도',v:'3.4 lp/mm'},{l:'그리드',v:'착탈식 그리드 포함'},{l:'인터페이스',v:'DICOM 3.0, HL7'},{l:'전원',v:'AC 200V, 50/60Hz'}], as:'2년 (부품 보증 5년)', warranty:'설치 후 1년', origin:'대한민국', cert:['식약처 허가','CE','ISO 13485'], desc:'Gemss healthcare의 고주파 DR X-Ray 시스템으로, 빠른 촬영 속도와 높은 이미지 품질을 자랑합니다. 의원급 및 병원급 모두에 적합한 범용 DR 시스템입니다.' },
-  'kmc-650':          { specs:[{l:'관전압',v:'40 ~ 110 kVp'},{l:'관전류',v:'0.1 ~ 6.3 mA'},{l:'이미지 증배관',v:'9인치 II'},{l:'모니터',v:'17인치 LCD × 2'},{l:'회전 범위',v:'C자 회전 190°'},{l:'아암 이동',v:'수평/수직 독립 제어'},{l:'인터페이스',v:'DICOM 3.0'},{l:'중량',v:'약 145 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'Gemss healthcare의 대표 C-Arm 제품. 정형외과, 척추외과, 통증의학과 등 다양한 시술에 최적화된 고해상도 C-Arm 영상 시스템입니다.' },
-  'versana-balance':  { specs:[{l:'스캔 방식',v:'Digital Beamforming'},{l:'탐촉자 채널',v:'128ch'},{l:'이미지 모드',v:'B, M, Color Doppler, PW, CW'},{l:'모니터',v:'15.6인치 LED'},{l:'저장',v:'SSD 500GB'},{l:'무게',v:'약 28 kg'},{l:'전원',v:'AC 100~240V'},{l:'인터페이스',v:'DICOM, USB, HDMI'}], as:'1년 (옵션 연장 가능)', warranty:'1년', origin:'미국 (GE Healthcare)', cert:['식약처 허가','FDA','CE'], desc:'GE Healthcare의 Versana Balance는 선명한 화질과 사용 편의성을 갖춘 보급형 초음파진단기로, 일반의원 및 내과·산부인과에 최적화된 모델입니다.' },
-  'dexino':           { specs:[{l:'측정 방식',v:'DEXA (Dual Energy X-Ray Absorptiometry)'},{l:'측정 부위',v:'요추, 대퇴골, 전신'},{l:'측정 시간',v:'요추 30초, 대퇴 45초'},{l:'정밀도',v:'CV < 1.0%'},{l:'방사선량',v:'< 1 μSv/scan'},{l:'디스플레이',v:'17인치 LCD'},{l:'소프트웨어',v:'T-score, Z-score 자동 산출'},{l:'크기',v:'W 900 × D 680 × H 800 mm'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE','ISO 13485'], desc:'J-One Medical System의 Dexino는 소형 클리닉에 적합한 정밀 골밀도 측정 시스템입니다. 짧은 검사 시간과 낮은 방사선량으로 환자 편의성이 뛰어납니다.' },
-  'lambda-yag':       { specs:[{l:'레이저 종류',v:'Nd:YAG'},{l:'파장',v:'1064 nm'},{l:'최대 출력',v:'12 W'},{l:'주파수',v:'1 ~ 40 Hz'},{l:'펄스 에너지',v:'최대 500 mJ'},{l:'조사 면적',v:'Ø 2 ~ 35 mm'},{l:'냉각 방식',v:'수냉식'},{l:'화면',v:'7인치 터치스크린'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'AITIS Korea의 Lambda Yag는 고강도 Nd:YAG 레이저 치료기로 근골격계 통증, 힘줄염, 관절염 등 다양한 물리치료 적응증에 적용 가능합니다.' },
-  'zeus-wave-pr':     { specs:[{l:'충격파 종류',v:'Piezo + Radial'},{l:'에너지 범위',v:'0.01 ~ 0.45 mJ/mm²'},{l:'주파수',v:'1 ~ 22 Hz'},{l:'충격수',v:'최대 5,000회/세션'},{l:'화면',v:'10.1인치 터치스크린'},{l:'핸드피스',v:'Piezo 1개 + Radial 1개'},{l:'전원',v:'AC 100~240V'},{l:'중량',v:'약 12 kg'}], as:'2년', warranty:'1년', origin:'독일 (OEM)', cert:['식약처 허가','CE','FDA'], desc:'Wever Instrument의 Zeus Wave는 피에조 + 방사형 충격파를 동시에 지원하는 복합 ESWT 시스템으로, 족저근막염·석회성건염·테니스엘보우 등에 탁월한 효과를 보입니다.' },
-  'cryo-master':      { specs:[{l:'냉각 방식',v:'압축 공기 (CO₂ 불사용)'},{l:'온도 범위',v:'-30°C ~ +5°C'},{l:'분사 거리',v:'5 ~ 15 cm'},{l:'냉각 면적',v:'조절 가능'},{l:'전원',v:'AC 220V, 50Hz'},{l:'컴프레서',v:'내장 오일-프리'},{l:'디스플레이',v:'디지털 LCD'},{l:'중량',v:'약 18 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'Mesh의 Cryo Master는 CO₂를 사용하지 않는 친환경 냉각치료기로, 운동 후 회복 및 통증 완화에 효과적입니다.' },
-  'spine-balance':    { specs:[{l:'견인 방식',v:'전동 견인 (경추/요추)'},{l:'최대 견인력',v:'경추 30 kgf, 요추 60 kgf'},{l:'견인 각도',v:'0 ~ 30° 조절'},{l:'프로그램',v:'간헐적/지속적/사용자 정의'},{l:'테이블',v:'전동 승강 포함'},{l:'디스플레이',v:'7인치 컬러 터치'},{l:'전원',v:'AC 220V'},{l:'중량',v:'약 80 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가'], desc:'에이원의 Spine Balance는 경추와 요추 모두 지원하는 통합 견인치료기로, 디스크 탈출증 및 척추협착증 환자에 널리 사용됩니다.' },
-  'raphael-707':      { specs:[{l:'조절 방식',v:'전동 3-섹션'},{l:'하중 용량',v:'최대 180 kg'},{l:'높이 조절',v:'45 ~ 85 cm'},{l:'테이블 크기',v:'W 700 × L 1900 mm'},{l:'틸트 범위',v:'±15°'},{l:'머리 받침',v:'탈착식 도넛 쿠션'},{l:'전원',v:'AC 220V'},{l:'중량',v:'약 95 kg'}], as:'2년', warranty:'1년', origin:'대한민국', cert:['식약처 허가','CE'], desc:'01M의 Raphael 707은 도수치료 및 카이로프랙틱 전용으로 설계된 3섹션 전동 테이블입니다. 정밀한 자세 조절이 가능해 치료 효율을 높여줍니다.' },
-  '_default':         { specs:[{l:'전원',v:'AC 220V, 50/60Hz'},{l:'인터페이스',v:'표준 의료기기 인터페이스'},{l:'동작 온도',v:'10 ~ 40°C'},{l:'보관 온도',v:'-20 ~ 60°C'},{l:'습도',v:'30 ~ 75% RH'},{l:'안전 등급',v:'Class II, Type BF'}], as:'1년', warranty:'1년', origin:'정보 없음', cert:['식약처 허가'], desc:'상세 스펙 정보는 제조사에 문의하거나 카탈로그를 참고해 주세요.' },
+  '_default': { specs:[], as:'—', warranty:'—', origin:'—', cert:[], desc:'상세 스펙 정보는 제조사에 문의하거나 카탈로그를 참고해 주세요.' },
 };
 
 /* ============================================================
-   DUMMY MANUFACTURER INFO
+   MANUFACTURER INFO (더미 제거 — 미등록 제조사는 _default 표시)
    ============================================================ */
 const MANUFACTURER_INFO = {
-  'Gemss healthcare':      { founded:'1999', country:'대한민국', hq:'서울특별시 금천구', website:'www.gemss.co.kr', tel:'02-2102-4700', category:'영상진단장비', desc:'Gemss healthcare는 X-Ray, C-Arm 등 의료 영상진단 장비 전문 기업으로, 국내 최고 수준의 기술력과 A/S 네트워크를 갖추고 있습니다. 국내 400여 개 대리점과 40여 개국 수출 실적을 보유하고 있습니다.' },
-  'DRgem':                 { founded:'2003', country:'대한민국', hq:'경기도 성남시', website:'www.drgem.com', tel:'031-628-5300', category:'DR 영상장비', desc:'DRgem은 디지털 방사선 촬영 시스템(DR) 전문 기업으로 전 세계 70여 개국에 제품을 수출하고 있습니다. 고화질 FPD 기술로 의료 영상 품질을 혁신하고 있습니다.' },
-  'DK Medical System':     { founded:'2008', country:'대한민국', hq:'서울특별시 강남구', website:'www.dkmedicalsystem.com', tel:'02-3452-7000', category:'X-Ray·영상장비', desc:'DK Medical System은 의료 영상 장비 개발 및 유통 전문 기업으로, X-Ray DR 시스템과 영상 솔루션을 공급합니다.' },
-  'Listem':                { founded:'1991', country:'대한민국', hq:'서울특별시 영등포구', website:'www.listem.co.kr', tel:'02-2635-8853', category:'X-Ray·의료기기', desc:'Listem Corporation은 30년 이상의 역사를 가진 국내 의료기기 전문 기업으로, X-Ray, 방사선 측정기, 의료 소프트웨어 등을 제조·공급합니다.' },
-  'Genoray':               { founded:'2003', country:'대한민국', hq:'경기도 성남시', website:'www.genoray.com', tel:'031-628-1900', category:'C-Arm·X-Ray', desc:'Genoray는 C-Arm 및 디지털 X-Ray 시스템 전문 기업입니다. 혁신적인 설계와 경쟁력 있는 가격으로 국내외 시장에서 빠르게 성장하고 있습니다.' },
-  'GE Healthcare':         { founded:'1892', country:'미국', hq:'Chicago, Illinois, USA', website:'www.gehealthcare.com', tel:'1-800-558-3282', category:'의료기기 전반', desc:'GE Healthcare는 GE 그룹의 의료 부문으로, 초음파·MRI·CT·X-Ray 등 전 분야에 걸쳐 세계 최고 수준의 의료기기를 제조합니다. 전 세계 160개국에 제품과 서비스를 제공합니다.' },
-  'Alpinion':              { founded:'2010', country:'대한민국', hq:'경기도 성남시', website:'www.alpinion.com', tel:'031-627-9150', category:'초음파진단기', desc:'Alpinion은 삼성 출신 연구진이 설립한 초음파 전문 기업으로, 독자 개발한 SonixTouch 및 XC 시리즈로 국내외에서 호평을 받고 있습니다.' },
-  'Samsung Medison':       { founded:'1985', country:'대한민국', hq:'서울특별시 강남구', website:'www.samsungmedison.com', tel:'02-1588-5885', category:'초음파진단기', desc:'Samsung Medison은 삼성그룹 계열의 의료기기 전문 기업으로, 초음파진단기 분야 글로벌 Top 5 기업 중 하나입니다. RS85, V7, V8 등 하이엔드 제품군을 보유하고 있습니다.' },
-  'Siemens Healthineers':  { founded:'1847', country:'독일', hq:'Erlangen, Germany', website:'www.siemens-healthineers.com', tel:'+49-9131-84-0', category:'의료기기 전반', desc:'Siemens Healthineers는 150년 이상의 역사를 가진 글로벌 의료기기 기업으로, 영상진단·임상검사·치료장비 등 전 영역에서 세계 최고 수준의 기술을 보유합니다.' },
-  'J-One Medical System':  { founded:'2005', country:'대한민국', hq:'경기도 의왕시', website:'www.j-one.co.kr', tel:'031-455-3701', category:'골밀도진단기', desc:'J-One Medical System은 DEXA 기반 골밀도 측정 시스템 전문 기업입니다. 국내 골밀도 장비 시장 점유율 1위 기업으로, 정밀도와 내구성이 검증된 제품을 공급합니다.' },
-  'Wever Instrument':      { founded:'2012', country:'대한민국', hq:'서울특별시 구로구', website:'www.weverinstrument.com', tel:'02-858-1234', category:'ESWT·재활장비', desc:'Wever Instrument는 체외충격파(ESWT)와 자기장치료기 전문 기업으로, Zeus Wave 시리즈를 통해 도수치료 및 재활의학 분야에서 높은 인지도를 가지고 있습니다.' },
-  'AITIS Korea':           { founded:'2009', country:'대한민국', hq:'서울특별시 서초구', website:'www.aitis.co.kr', tel:'02-3446-5500', category:'레이저치료기', desc:'AITIS Korea는 고강도 레이저 치료기(HILT) 전문 기업입니다. Lambda Yag 시리즈로 물리치료·재활의학 분야 고강도 레이저 치료기 시장을 선도하고 있습니다.' },
-  '01M':                   { founded:'2001', country:'대한민국', hq:'서울특별시 강서구', website:'www.01m.co.kr', tel:'02-2655-0011', category:'치료용 테이블·재활장비', desc:'01M은 도수치료 테이블, 카이로프랙틱 장비, 근육타진기 등 재활·도수치료 분야 전문 의료기기 기업입니다. 국내 도수치료 장비 시장의 선두 업체로 품질과 A/S로 정평이 나 있습니다.' },
-  'Goodple':               { founded:'2000', country:'대한민국', hq:'경기도 파주시', website:'www.goodple.co.kr', tel:'031-944-5555', category:'물리치료기기', desc:'Goodple은 ICT 간섭파, Microwave, 수치료기 등 물리치료 장비 전문 기업으로, 합리적인 가격과 우수한 품질로 국내 의원급 의료기관에 널리 공급되고 있습니다.' },
-  'Wever':                 { founded:'2010', country:'대한민국', hq:'서울특별시 구로구', website:'www.wever.co.kr', tel:'02-858-4567', category:'자기장치료기·ESWT', desc:'Wever는 자기장치료기와 체외충격파 장비를 전문으로 하는 의료기기 기업입니다. Tesla 3000 시리즈는 국내 자기장치료기 시장에서 높은 인지도를 보유하고 있습니다.' },
-  'Mesh':                  { founded:'2007', country:'대한민국', hq:'서울특별시 강남구', website:'www.meshmedical.co.kr', tel:'02-545-1234', category:'냉각치료기', desc:'Mesh는 냉각치료기(크라이오테라피) 전문 기업으로, Cryo Master 시리즈는 CO₂를 사용하지 않는 친환경 냉각치료 솔루션을 제공합니다.' },
-  '에이원':                 { founded:'1998', country:'대한민국', hq:'서울특별시 금천구', website:'www.aonemed.co.kr', tel:'02-803-0100', category:'견인치료기', desc:'에이원은 견인치료기 전문 기업으로, Spine Balance 시리즈는 경추·요추 통합 견인 기능으로 척추 질환 치료 분야에서 널리 사용되고 있습니다.' },
-  '_default':              { founded:'—', country:'—', hq:'—', website:'—', tel:'—', category:'의료기기', desc:'상세 제조사 정보는 담당 영업사원에게 문의해 주세요.' },
+  '_default': { founded:'—', country:'—', hq:'—', website:'—', tel:'—', category:'의료기기', desc:'상세 제조사 정보는 담당 영업사원에게 문의해 주세요.' },
 };
 
 const NEUTRAL_COLORS = {
@@ -3384,15 +3361,15 @@ function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
    ============================================================ */
 function App() {
   const [quoteInfo, setQuoteInfo] = useState({
-    hospital: '○○○○ 의원',
-    doctor: '홍길동',
+    hospital: '',
+    doctor: '',
     dept: '',
-    quoteNo: 'QT-2025-001',
+    quoteNo: '',
     date: getToday(),
     validity: getValidity(),
   });
-  const [categories, setCategories] = useState(() => JSON.parse(JSON.stringify(INITIAL_CATEGORIES)));
-  const [globalDiscount, setGlobalDiscount] = useState({ type:'rate', value:5 });
+  const [categories, setCategories] = useState([]);
+  const [globalDiscount, setGlobalDiscount] = useState({ type:'rate', value:0 });
   const [vatIncluded, setVatIncluded] = useState(false);
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
@@ -3402,7 +3379,7 @@ function App() {
   const [productModal, setProductModal] = useState(null);   // { modelId, modelName, manufacturer, catName, catColorKey }
   const [mfrModal, setMfrModal] = useState(null);           // manufacturerName string
   const [toasts, setToasts] = useState([]);
-  const [view, setView] = useState('editor'); // 'editor' | 'list' | 'manage'
+  const [view, setView] = useState('list'); // 'editor' | 'list' | 'manage'
   const [customEquips, setCustomEquips] = useState([]);
   const [dynCats, setDynCats] = useState([]);
   const [dynItems, setDynItems] = useState([]);
