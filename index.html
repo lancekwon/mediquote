@@ -252,6 +252,62 @@ async function dbDeleteDynItem(id) {
   if (error) throw error;
 }
 
+/* ---------- Hospitals DB ---------- */
+async function dbLoadHospitals() {
+  const { data, error } = await sb.from('hospitals').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('dbLoadHospitals:', error); return []; }
+  return data;
+}
+async function dbSaveHospital(h) {
+  const { data, error } = await sb.from('hospitals').insert(h).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbUpdateHospital(id, h) {
+  const { error } = await sb.from('hospitals').update(h).eq('id', id);
+  if (error) throw error;
+}
+async function dbDeleteHospital(id) {
+  const { error } = await sb.from('hospitals').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------- Contracts DB ---------- */
+async function dbLoadContracts(hospitalId = null) {
+  let q = sb.from('contracts').select('*').order('created_at', { ascending: false });
+  if (hospitalId) q = q.eq('hospital_id', hospitalId);
+  const { data, error } = await q;
+  if (error) { console.error('dbLoadContracts:', error); return []; }
+  return data;
+}
+async function dbSaveContract(c) {
+  const { data, error } = await sb.from('contracts').insert(c).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbUpdateContract(id, c) {
+  const { error } = await sb.from('contracts').update(c).eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------- Service Requests DB ---------- */
+async function dbLoadServiceRequests(hospitalId = null) {
+  let q = sb.from('service_requests').select('*').order('created_at', { ascending: false });
+  if (hospitalId) q = q.eq('hospital_id', hospitalId);
+  const { data, error } = await q;
+  if (error) { console.error('dbLoadServiceRequests:', error); return []; }
+  return data;
+}
+async function dbSaveServiceRequest(sr) {
+  const { data, error } = await sb.from('service_requests').insert(sr).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbUpdateServiceRequest(id, sr) {
+  const { error } = await sb.from('service_requests').update(sr).eq('id', id);
+  if (error) throw error;
+}
+
 /* ============================================================
    INITIAL DATA
    ============================================================ */
@@ -604,7 +660,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, onHospitals, onService, user, onLogout }) {
   const textFields = [
     { key:'hospital', label:'병원명', w:'w-36' },
     { key:'doctor', label:'원장명', w:'w-28' },
@@ -646,6 +702,14 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, use
         <button onClick={onManage} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
           장비 관리
+        </button>
+        <button onClick={onHospitals} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          병원 관리
+        </button>
+        <button onClick={onService} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          A/S 관리
         </button>
         <button onClick={onLoad} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
@@ -2807,10 +2871,702 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
 /* ============================================================
    SAVED QUOTES LIST PAGE
    ============================================================ */
-function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
+/* ============================================================
+   CONTRACT FORM MODAL
+   ============================================================ */
+function ContractFormModal({ quote, onClose, onSaved }) {
+  const [hospitalName, setHospitalName] = React.useState(quote?.quoteInfo?.hospital || '');
+  const [contractDate, setContractDate] = React.useState(getToday());
+  const [amount, setAmount] = React.useState(quote?.finalAmt || '');
+  const [status, setStatus] = React.useState('진행중');
+  const [notes, setNotes] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [hospitals, setHospitals] = React.useState([]);
+  const [suggestions, setSuggestions] = React.useState([]);
+
+  React.useEffect(() => { dbLoadHospitals().then(setHospitals); }, []);
+  React.useEffect(() => {
+    if (hospitalName.length < 1) { setSuggestions([]); return; }
+    setSuggestions(hospitals.filter(h => h.name.includes(hospitalName)).slice(0, 5));
+  }, [hospitalName, hospitals]);
+
+  const handleSave = async () => {
+    if (!hospitalName.trim()) { alert('병원명을 입력해주세요.'); return; }
+    setSaving(true);
+    try {
+      let hosp = hospitals.find(h => h.name === hospitalName.trim());
+      let hospitalId;
+      if (hosp) {
+        hospitalId = hosp.id;
+      } else {
+        hospitalId = await dbSaveHospital({ name: hospitalName.trim() });
+      }
+      await dbSaveContract({
+        hospital_id: hospitalId,
+        hospital_name: hospitalName.trim(),
+        quote_name: quote?.quoteNo || '',
+        contract_date: contractDate,
+        amount: typeof amount === 'string' ? (parseInt(amount.replace(/,/g, '')) || null) : (amount || null),
+        status,
+        categories: quote?.categories || [],
+        notes,
+      });
+      onSaved && onSaved();
+      onClose();
+    } catch(e) { console.error('계약 등록 오류:', e); alert('저장 중 오류가 발생했습니다.'); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <div className="font-bold text-slate-900">계약 등록</div>
+            <div className="text-xs text-slate-400 mt-0.5">{quote?.quoteNo} 기반 계약</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="relative">
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">병원명 *</label>
+            <input value={hospitalName} onChange={e => setHospitalName(e.target.value)}
+              placeholder="병원명 입력 또는 검색"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+            {suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 z-10 overflow-hidden">
+                {suggestions.map(h => (
+                  <button key={h.id} onClick={() => { setHospitalName(h.name); setSuggestions([]); }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors">
+                    {h.name}{h.region && <span className="text-slate-400 text-xs ml-2">· {h.region}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">견적번호</label>
+            <input value={quote?.quoteNo || ''} readOnly className="w-full border border-slate-100 bg-slate-50 rounded-lg px-3 py-2 text-sm text-slate-500"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">계약일자</label>
+            <input type="date" value={contractDate} onChange={e => setContractDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">계약금액 (원)</label>
+            <input type="number" value={amount || ''} onChange={e => setAmount(e.target.value)}
+              placeholder="자동입력 (수정 가능)"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">계약상태</label>
+            <select value={status} onChange={e => setStatus(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="진행중">진행중</option>
+              <option value="완료">완료</option>
+              <option value="취소">취소</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">메모</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              placeholder="계약 관련 메모"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50">
+            {saving ? '저장 중...' : '계약 등록'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   HOSPITALS PAGE
+   ============================================================ */
+function HospitalsPage({ onBack }) {
+  const [hospitals, setHospitals] = React.useState([]);
+  const [contracts, setContracts] = React.useState([]);
+  const [serviceReqs, setServiceReqs] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [selectedHosp, setSelectedHosp] = React.useState(null);
+  const [detailTab, setDetailTab] = React.useState('info');
+  const [showNewHospForm, setShowNewHospForm] = React.useState(false);
+  const [editingHosp, setEditingHosp] = React.useState(null);
+  const [newHosp, setNewHosp] = React.useState({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'' });
+  const [savingHosp, setSavingHosp] = React.useState(false);
+  const [showNewSRForm, setShowNewSRForm] = React.useState(false);
+  const [newSR, setNewSR] = React.useState({ equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), engineer:'', notes:'' });
+  const [savingSR, setSavingSR] = React.useState(false);
+
+  const STATUS_COLORS = { '진행중':'bg-blue-100 text-blue-700', '완료':'bg-emerald-100 text-emerald-700', '취소':'bg-slate-100 text-slate-500', '접수':'bg-amber-100 text-amber-700', '처리중':'bg-blue-100 text-blue-700' };
+
+  const loadAll = async () => {
+    setLoading(true);
+    try {
+      const [h, c, s] = await Promise.all([dbLoadHospitals(), dbLoadContracts(), dbLoadServiceRequests()]);
+      setHospitals(h); setContracts(c); setServiceReqs(s);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  };
+  React.useEffect(() => { loadAll(); }, []);
+
+  const openNewHospForm = () => {
+    setEditingHosp(null);
+    setNewHosp({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'' });
+    setShowNewHospForm(true);
+  };
+  const openEditHospForm = (h) => {
+    setEditingHosp(h);
+    setNewHosp({ name:h.name||'', region:h.region||'', address:h.address||'', phone:h.phone||'', contact_name:h.contact_name||'', contact_phone:h.contact_phone||'', contact_email:h.contact_email||'', notes:h.notes||'' });
+    setShowNewHospForm(true);
+  };
+
+  const handleSaveHosp = async () => {
+    if (!newHosp.name.trim()) { alert('병원명을 입력해주세요.'); return; }
+    setSavingHosp(true);
+    try {
+      if (editingHosp) {
+        await dbUpdateHospital(editingHosp.id, newHosp);
+        setHospitals(p => p.map(h => h.id === editingHosp.id ? { ...h, ...newHosp } : h));
+        if (selectedHosp?.id === editingHosp.id) setSelectedHosp(p => ({ ...p, ...newHosp }));
+      } else {
+        const id = await dbSaveHospital(newHosp);
+        setHospitals(p => [{ id, ...newHosp, created_at: new Date().toISOString() }, ...p]);
+      }
+      setShowNewHospForm(false); setEditingHosp(null);
+    } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); }
+    setSavingHosp(false);
+  };
+
+  const handleSaveSR = async () => {
+    setSavingSR(true);
+    try {
+      const sr = { ...newSR, hospital_id: selectedHosp.id, hospital_name: selectedHosp.name };
+      await dbSaveServiceRequest(sr);
+      await loadAll();
+      setShowNewSRForm(false);
+      setNewSR({ equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), engineer:'', notes:'' });
+    } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); }
+    setSavingSR(false);
+  };
+
+  const hospContracts = contracts.filter(c => c.hospital_id === selectedHosp?.id);
+  const hospSRs = serviceReqs.filter(s => s.hospital_id === selectedHosp?.id);
+
+  return (
+    <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
+      {/* 헤더 */}
+      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
+        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
+          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
+          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+        </button>
+        <span className="text-slate-400 text-xs">·</span>
+        <span className="text-slate-200 text-sm font-semibold">병원 관리</span>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={openNewHospForm}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+            새 병원 등록
+          </button>
+          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            돌아가기
+          </button>
+        </div>
+      </div>
+
+      {/* 바디 — 좌우 패널 */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* 좌: 병원 목록 */}
+        <div className={`${selectedHosp ? 'w-80' : 'flex-1'} border-r border-slate-200 overflow-y-auto bg-white shrink-0`}>
+          {loading ? (
+            <div className="p-10 text-center text-slate-400 text-sm">불러오는 중...</div>
+          ) : hospitals.length === 0 ? (
+            <div className="p-10 text-center text-slate-400">
+              <div className="text-sm font-medium">등록된 병원이 없습니다</div>
+              <div className="text-xs mt-1">"새 병원 등록" 버튼으로 추가하세요</div>
+            </div>
+          ) : (
+            <div>
+              <div className="px-5 py-3 border-b border-slate-100 text-xs text-slate-400 font-medium sticky top-0 bg-white">총 {hospitals.length}개 병원</div>
+              {hospitals.map(h => {
+                const hC = contracts.filter(c => c.hospital_id === h.id).length;
+                const hS = serviceReqs.filter(s => s.hospital_id === h.id).length;
+                const isSel = selectedHosp?.id === h.id;
+                return (
+                  <div key={h.id} onClick={() => { setSelectedHosp(h); setDetailTab('info'); }}
+                    className={`px-5 py-3.5 cursor-pointer border-b border-slate-50 hover:bg-slate-50 transition-colors ${isSel ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'border-l-4 border-l-transparent'}`}>
+                    <div className="font-semibold text-slate-800 text-sm">{h.name}</div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {h.region && <span className="text-xs text-slate-400">{h.region}</span>}
+                      {h.contact_name && <span className="text-xs text-slate-400">{h.contact_name}</span>}
+                      <span className="text-xs text-slate-300">계약 {hC} · A/S {hS}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 우: 병원 상세 */}
+        {selectedHosp && (
+          <div className="flex-1 overflow-y-auto bg-slate-50 min-w-0">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-start justify-between">
+              <div>
+                <div className="font-bold text-slate-900 text-base">{selectedHosp.name}</div>
+                {selectedHosp.region && <div className="text-xs text-slate-400 mt-0.5">{selectedHosp.region}</div>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => openEditHospForm(selectedHosp)}
+                  className="px-3 py-1.5 text-xs border border-slate-200 text-slate-600 rounded hover:bg-slate-50">수정</button>
+                <button onClick={() => setSelectedHosp(null)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+            </div>
+            <div className="bg-white border-b border-slate-200 px-6">
+              {[{key:'info',label:'기본 정보'},{key:'contracts',label:`계약 이력 (${hospContracts.length})`},{key:'service',label:`A/S 이력 (${hospSRs.length})`}].map(tab => (
+                <button key={tab.key} onClick={() => setDetailTab(tab.key)}
+                  className={`px-4 py-3 text-sm font-semibold border-b-2 mr-1 transition-colors ${detailTab===tab.key ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-700'}`}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="p-6">
+              {/* 기본 정보 탭 */}
+              {detailTab === 'info' && (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  {[{label:'병원명',value:selectedHosp.name},{label:'지역',value:selectedHosp.region},{label:'주소',value:selectedHosp.address},{label:'병원 전화',value:selectedHosp.phone},{label:'담당자',value:selectedHosp.contact_name},{label:'담당자 연락처',value:selectedHosp.contact_phone},{label:'담당자 이메일',value:selectedHosp.contact_email},{label:'메모',value:selectedHosp.notes}].map(row => (
+                    <div key={row.label} className="flex px-5 py-3 border-b border-slate-50 last:border-0">
+                      <div className="w-36 text-xs font-semibold text-slate-500 shrink-0 pt-0.5">{row.label}</div>
+                      <div className="text-sm text-slate-800">{row.value || <span className="text-slate-300">—</span>}</div>
+                    </div>
+                  ))}
+                  <div className="flex px-5 py-3">
+                    <div className="w-36 text-xs font-semibold text-slate-500 shrink-0">등록일</div>
+                    <div className="text-sm text-slate-500">{selectedHosp.created_at ? new Date(selectedHosp.created_at).toLocaleDateString('ko-KR') : '—'}</div>
+                  </div>
+                </div>
+              )}
+              {/* 계약 이력 탭 */}
+              {detailTab === 'contracts' && (
+                hospContracts.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+                    <div className="text-sm font-medium">등록된 계약이 없습니다</div>
+                    <div className="text-xs mt-1">견적서 목록에서 "계약 등록" 버튼을 사용하세요</div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">견적번호</th>
+                          <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">계약일</th>
+                          <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500">계약금액</th>
+                          <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500">상태</th>
+                          <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">메모</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hospContracts.map(c => (
+                          <tr key={c.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                            <td className="px-5 py-3 font-mono text-blue-700 text-xs font-semibold">{c.quote_name}</td>
+                            <td className="px-5 py-3 text-slate-500 text-xs">{c.contract_date}</td>
+                            <td className="px-5 py-3 text-right text-slate-700 text-xs font-mono">{c.amount ? c.amount.toLocaleString('ko-KR')+'원' : '—'}</td>
+                            <td className="px-5 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[c.status]||'bg-slate-100 text-slate-500'}`}>{c.status}</span></td>
+                            <td className="px-5 py-3 text-slate-400 text-xs">{c.notes||'—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+              {/* A/S 이력 탭 */}
+              {detailTab === 'service' && (
+                <div>
+                  <div className="flex justify-end mb-3">
+                    <button onClick={() => { setShowNewSRForm(true); setNewSR({ equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), engineer:'', notes:'' }); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded font-semibold hover:bg-blue-500 transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                      A/S 등록
+                    </button>
+                  </div>
+                  {hospSRs.length === 0 ? (
+                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+                      <div className="text-sm font-medium">등록된 A/S 요청이 없습니다</div>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">장비명</th>
+                            <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">모델명</th>
+                            <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">증상</th>
+                            <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500">상태</th>
+                            <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">접수일</th>
+                            <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">엔지니어</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {hospSRs.map(s => (
+                            <tr key={s.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                              <td className="px-5 py-3 font-medium text-slate-800">{s.equipment_name||'—'}</td>
+                              <td className="px-5 py-3 text-slate-500 text-xs">{s.model_name||'—'}</td>
+                              <td className="px-5 py-3 text-slate-500 text-xs max-w-[160px] truncate">{s.issue||'—'}</td>
+                              <td className="px-5 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[s.status]||'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
+                              <td className="px-5 py-3 text-slate-500 text-xs">{s.requested_at||'—'}</td>
+                              <td className="px-5 py-3 text-slate-500 text-xs">{s.engineer||'—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 병원 등록/수정 모달 */}
+      {showNewHospForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="font-bold text-slate-900">{editingHosp ? '병원 정보 수정' : '새 병원 등록'}</div>
+              <button onClick={() => { setShowNewHospForm(false); setEditingHosp(null); }} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-3 max-h-[70vh] overflow-y-auto">
+              {[{key:'name',label:'병원명 *',placeholder:'○○○○ 의원'},{key:'region',label:'지역',placeholder:'서울 강남구'},{key:'address',label:'주소',placeholder:'상세 주소'},{key:'phone',label:'병원 전화',placeholder:'02-0000-0000'},{key:'contact_name',label:'담당자',placeholder:'홍길동 원장'},{key:'contact_phone',label:'담당자 연락처',placeholder:'010-0000-0000'},{key:'contact_email',label:'담당자 이메일',placeholder:'email@hospital.com'}].map(f => (
+                <div key={f.key}>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{f.label}</label>
+                  <input value={newHosp[f.key]} onChange={e => setNewHosp(p => ({...p,[f.key]:e.target.value}))}
+                    placeholder={f.placeholder}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+              ))}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">메모</label>
+                <textarea value={newHosp.notes} onChange={e => setNewHosp(p => ({...p,notes:e.target.value}))} rows={2}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
+              <button onClick={() => { setShowNewHospForm(false); setEditingHosp(null); }} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+              <button onClick={handleSaveHosp} disabled={savingHosp}
+                className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50">
+                {savingHosp ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* A/S 등록 모달 */}
+      {showNewSRForm && selectedHosp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-slate-900">A/S 등록</div>
+                <div className="text-xs text-slate-400 mt-0.5">{selectedHosp.name}</div>
+              </div>
+              <button onClick={() => setShowNewSRForm(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              {[{key:'equipment_name',label:'장비명',placeholder:'X-Ray DR System'},{key:'model_name',label:'모델명',placeholder:'Xvision HF 525R'},{key:'engineer',label:'담당 엔지니어',placeholder:'홍길동'}].map(f => (
+                <div key={f.key}>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{f.label}</label>
+                  <input value={newSR[f.key]} onChange={e => setNewSR(p => ({...p,[f.key]:e.target.value}))}
+                    placeholder={f.placeholder}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+              ))}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">증상/문제</label>
+                <textarea value={newSR.issue} onChange={e => setNewSR(p => ({...p,issue:e.target.value}))} rows={3}
+                  placeholder="증상 및 문제 상황을 입력하세요"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">접수일</label>
+                  <input type="date" value={newSR.requested_at} onChange={e => setNewSR(p => ({...p,requested_at:e.target.value}))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">상태</label>
+                  <select value={newSR.status} onChange={e => setNewSR(p => ({...p,status:e.target.value}))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="접수">접수</option><option value="처리중">처리중</option><option value="완료">완료</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">메모</label>
+                <textarea value={newSR.notes} onChange={e => setNewSR(p => ({...p,notes:e.target.value}))} rows={2}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
+              <button onClick={() => setShowNewSRForm(false)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+              <button onClick={handleSaveSR} disabled={savingSR}
+                className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50">
+                {savingSR ? '저장 중...' : 'A/S 등록'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   SERVICE REQUESTS PAGE (전체 A/S 관리)
+   ============================================================ */
+function ServiceRequestsPage({ onBack }) {
+  const [serviceReqs, setServiceReqs] = React.useState([]);
+  const [hospitals, setHospitals] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [filter, setFilter] = React.useState('all');
+  const [showForm, setShowForm] = React.useState(false);
+  const [editingSR, setEditingSR] = React.useState(null);
+  const [form, setForm] = React.useState({ hospital_name:'', equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), resolved_at:'', engineer:'', notes:'' });
+  const [saving, setSaving] = React.useState(false);
+  const [hospSuggestions, setHospSuggestions] = React.useState([]);
+
+  const STATUS_COLORS = { '접수':'bg-amber-100 text-amber-700', '처리중':'bg-blue-100 text-blue-700', '완료':'bg-emerald-100 text-emerald-700' };
+
+  const loadAll = async () => {
+    setLoading(true);
+    try {
+      const [s, h] = await Promise.all([dbLoadServiceRequests(), dbLoadHospitals()]);
+      setServiceReqs(s); setHospitals(h);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  };
+  React.useEffect(() => { loadAll(); }, []);
+
+  React.useEffect(() => {
+    if (form.hospital_name.length < 1) { setHospSuggestions([]); return; }
+    setHospSuggestions(hospitals.filter(h => h.name.includes(form.hospital_name)).slice(0, 5));
+  }, [form.hospital_name, hospitals]);
+
+  const openNew = () => {
+    setEditingSR(null);
+    setForm({ hospital_name:'', equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), resolved_at:'', engineer:'', notes:'' });
+    setShowForm(true);
+  };
+  const openEdit = (sr) => {
+    setEditingSR(sr);
+    setForm({ hospital_name:sr.hospital_name||'', equipment_name:sr.equipment_name||'', model_name:sr.model_name||'', issue:sr.issue||'', status:sr.status||'접수', requested_at:sr.requested_at||getToday(), resolved_at:sr.resolved_at||'', engineer:sr.engineer||'', notes:sr.notes||'' });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const hosp = hospitals.find(h => h.name === form.hospital_name.trim());
+      const sr = { ...form, hospital_id: hosp?.id || null };
+      if (editingSR) {
+        await dbUpdateServiceRequest(editingSR.id, sr);
+      } else {
+        await dbSaveServiceRequest(sr);
+      }
+      await loadAll();
+      setShowForm(false); setEditingSR(null);
+    } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); }
+    setSaving(false);
+  };
+
+  const filtered = filter === 'all' ? serviceReqs : serviceReqs.filter(s => s.status === filter);
+  const counts = { all: serviceReqs.length, '접수': serviceReqs.filter(s=>s.status==='접수').length, '처리중': serviceReqs.filter(s=>s.status==='처리중').length, '완료': serviceReqs.filter(s=>s.status==='완료').length };
+
+  return (
+    <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
+      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
+        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
+          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
+          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+        </button>
+        <span className="text-slate-400 text-xs">·</span>
+        <span className="text-slate-200 text-sm font-semibold">A/S 관리</span>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={openNew}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+            A/S 등록
+          </button>
+          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            돌아가기
+          </button>
+        </div>
+      </div>
+
+      {/* 상태 필터 바 */}
+      <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center gap-3 shrink-0">
+        {[{key:'all',label:'전체',count:counts.all},{key:'접수',label:'접수',count:counts['접수']},{key:'처리중',label:'처리중',count:counts['처리중']},{key:'완료',label:'완료',count:counts['완료']}].map(f => (
+          <button key={f.key} onClick={() => setFilter(f.key)}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${filter===f.key ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-800'}`}>
+            {f.label}
+            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${filter===f.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>{f.count}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-8">
+        <div className="max-w-6xl mx-auto">
+          {loading ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400 text-sm">불러오는 중...</div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400">
+              <div className="text-sm font-medium">등록된 A/S 요청이 없습니다</div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">병원명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">장비명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">모델명</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">증상</th>
+                    <th className="px-5 py-3 text-center text-xs font-semibold text-slate-500">상태</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">접수일</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">엔지니어</th>
+                    <th className="px-4 py-3 w-16"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(s => (
+                    <tr key={s.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                      <td className="px-5 py-3 font-medium text-slate-800">{s.hospital_name||'—'}</td>
+                      <td className="px-5 py-3 text-slate-700">{s.equipment_name||'—'}</td>
+                      <td className="px-5 py-3 text-slate-500 text-xs">{s.model_name||'—'}</td>
+                      <td className="px-5 py-3 text-slate-500 text-xs max-w-[180px] truncate" title={s.issue}>{s.issue||'—'}</td>
+                      <td className="px-5 py-3 text-center"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[s.status]||'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
+                      <td className="px-5 py-3 text-slate-500 text-xs">{s.requested_at||'—'}</td>
+                      <td className="px-5 py-3 text-slate-500 text-xs">{s.engineer||'—'}</td>
+                      <td className="px-4 py-3">
+                        <button onClick={() => openEdit(s)} className="px-2.5 py-1 text-xs border border-slate-200 text-slate-500 rounded hover:bg-slate-50 transition-colors">수정</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 등록/수정 모달 */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="font-bold text-slate-900">{editingSR ? 'A/S 수정' : 'A/S 등록'}</div>
+              <button onClick={() => { setShowForm(false); setEditingSR(null); }} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-3 max-h-[70vh] overflow-y-auto">
+              <div className="relative">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">병원명</label>
+                <input value={form.hospital_name} onChange={e => setForm(p => ({...p,hospital_name:e.target.value}))}
+                  placeholder="병원명 입력"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                {hospSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 z-10 overflow-hidden">
+                    {hospSuggestions.map(h => (
+                      <button key={h.id} onClick={() => { setForm(p => ({...p,hospital_name:h.name})); setHospSuggestions([]); }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors">{h.name}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {[{key:'equipment_name',label:'장비명',placeholder:'X-Ray DR System'},{key:'model_name',label:'모델명',placeholder:'Xvision HF 525R'},{key:'engineer',label:'담당 엔지니어',placeholder:'홍길동'}].map(f => (
+                <div key={f.key}>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{f.label}</label>
+                  <input value={form[f.key]} onChange={e => setForm(p => ({...p,[f.key]:e.target.value}))}
+                    placeholder={f.placeholder}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+              ))}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">증상/문제</label>
+                <textarea value={form.issue} onChange={e => setForm(p => ({...p,issue:e.target.value}))} rows={3}
+                  placeholder="증상 및 문제 상황"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">접수일</label>
+                  <input type="date" value={form.requested_at} onChange={e => setForm(p => ({...p,requested_at:e.target.value}))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">상태</label>
+                  <select value={form.status} onChange={e => setForm(p => ({...p,status:e.target.value}))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="접수">접수</option><option value="처리중">처리중</option><option value="완료">완료</option>
+                  </select>
+                </div>
+              </div>
+              {editingSR && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">처리 완료일</label>
+                  <input type="date" value={form.resolved_at} onChange={e => setForm(p => ({...p,resolved_at:e.target.value}))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">메모</label>
+                <textarea value={form.notes} onChange={e => setForm(p => ({...p,notes:e.target.value}))} rows={2}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
+              <button onClick={() => { setShowForm(false); setEditingSR(null); }} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50">
+                {saving ? '저장 중...' : (editingSR ? '수정 완료' : 'A/S 등록')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   SAVED QUOTES LIST
+   ============================================================ */
+function SavedQuotesList({ onLoad, onBack, onHospitals, onService, customEquips = [], dynCats = [] }) {
   const [saves, setSaves] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [confirmId, setConfirmId] = React.useState(null);
+  const [contractModalQuote, setContractModalQuote] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState('saved');
   const [selectedDept, setSelectedDept] = React.useState(null);
   const [selectedTier, setSelectedTier] = React.useState(null);
@@ -3042,11 +3798,23 @@ function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
           <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
         </button>
         <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">견적서 불러오기</span>
-        <div className="ml-auto">
+        <span className="text-slate-200 text-sm font-semibold">견적서 관리</span>
+        <div className="ml-auto flex items-center gap-2">
+          {onHospitals && (
+            <button onClick={onHospitals} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+              병원 관리
+            </button>
+          )}
+          {onService && (
+            <button onClick={onService} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              A/S 관리
+            </button>
+          )}
           <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            견적 작성으로 돌아가기
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            견적 작성
           </button>
         </div>
       </div>
@@ -3128,6 +3896,10 @@ function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
                               onClick={() => onLoad(s)}
                               className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded font-semibold hover:bg-slate-700 transition-colors whitespace-nowrap"
                             >불러오기</button>
+                            <button
+                              onClick={() => setContractModalQuote(s)}
+                              className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-500 transition-colors whitespace-nowrap"
+                            >계약 등록</button>
                             {confirmId === s.id ? (
                               <div className="flex items-center gap-1">
                                 <button onClick={() => handleDelete(s.id)} className="px-2 py-1.5 text-xs bg-red-600 text-white rounded font-semibold hover:bg-red-500 transition-colors whitespace-nowrap">삭제확인</button>
@@ -3352,6 +4124,15 @@ function SavedQuotesList({ onLoad, onBack, customEquips = [], dynCats = [] }) {
           onViewManufacturer={() => {}}
         />
       )}
+
+      {/* 계약 등록 모달 */}
+      {contractModalQuote && (
+        <ContractFormModal
+          quote={contractModalQuote}
+          onClose={() => setContractModalQuote(null)}
+          onSaved={() => setContractModalQuote(null)}
+        />
+      )}
     </div>
   );
 }
@@ -3531,11 +4312,21 @@ function App() {
     />;
   }
 
+  if (view === 'hospitals') {
+    return <HospitalsPage onBack={() => setView('list')} />;
+  }
+
+  if (view === 'service') {
+    return <ServiceRequestsPage onBack={() => setView('list')} />;
+  }
+
   if (view === 'list') {
     return (
       <SavedQuotesList
         onLoad={handleLoadEntry}
         onBack={() => setView('editor')}
+        onHospitals={() => setView('hospitals')}
+        onService={() => setView('service')}
         customEquips={customEquips}
         dynCats={dynCats}
       />
@@ -3544,7 +4335,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
