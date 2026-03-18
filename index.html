@@ -3067,10 +3067,10 @@ function LeadsPage({ onBack, onCreateQuote }) {
               {filter === 'all' && <div className="text-xs mt-1">"새 리드" 버튼으로 추가하세요</div>}
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200 overflow-visible" style={{minHeight:'400px'}}>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
+                  <tr className="bg-slate-50 border-b border-slate-200 rounded-t-xl">
                     <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">이름</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">연락처</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">진료과</th>
@@ -3110,7 +3110,7 @@ function LeadsPage({ onBack, onCreateQuote }) {
                           {lead.stage} ▾
                         </button>
                         {stagePopup === lead.id && (
-                          <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden w-32" onClick={e => e.stopPropagation()}>
+                          <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 w-32" onClick={e => e.stopPropagation()}>
                             {LEAD_STAGES.map(s => (
                               <button key={s} onClick={() => handleStageChange(lead, s)}
                                 className={`w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 transition-colors ${lead.stage === s ? 'text-blue-600 bg-blue-50' : 'text-slate-700'}`}>
