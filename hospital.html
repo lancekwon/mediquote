@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DWmedi — 병원 포털</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #f1f5f9; font-family: 'Noto Sans KR', system-ui, sans-serif; font-size: 13px; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+const SUPABASE_URL = 'https://dmqzixpappullrnyospj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_UcusGk4UNMVEp82y_2jSdA_dQGjd1bH';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/* ── URL에서 token 추출 ── */
+function getTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('token') || '';
+}
+
+/* ============================================================
+   PIN 입력 화면
+   ============================================================ */
+function PinScreen({ token, onSuccess }) {
+  const [pin, setPin] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!pin.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const { data, error: err } = await sb
+        .from('hospitals')
+        .select('*')
+        .eq('token', token)
+        .eq('access_pin', pin.trim())
+        .single();
+      if (err || !data) {
+        setError('접속 코드가 올바르지 않습니다. 다시 확인해 주세요.');
+      } else {
+        onSuccess(data);
+      }
+    } catch(e) {
+      setError('오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:'100vh', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}}>
+      <div style={{width:'100%', maxWidth:'400px'}}>
+        {/* 로고 */}
+        <div style={{textAlign:'center', marginBottom:'32px'}}>
+          <div style={{width:'48px', height:'48px', background:'#3b82f6', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px', fontSize:'18px', fontWeight:'700', color:'white'}}>DW</div>
+          <div style={{color:'white', fontSize:'20px', fontWeight:'700', letterSpacing:'-0.5px'}}>DWmedi</div>
+          <div style={{color:'#64748b', fontSize:'13px', marginTop:'4px'}}>병원 관리 포털</div>
+        </div>
+
+        {/* 카드 */}
+        <div style={{background:'#1e293b', borderRadius:'16px', padding:'32px', border:'1px solid #334155'}}>
+          <div style={{color:'white', fontSize:'16px', fontWeight:'600', marginBottom:'6px'}}>접속 코드 입력</div>
+          <div style={{color:'#94a3b8', fontSize:'12px', marginBottom:'24px'}}>담당 영업사원에게 받은 접속 코드를 입력하세요</div>
+
+          <form onSubmit={handleSubmit}>
+            <input
+              type="text"
+              value={pin}
+              onChange={e => { setPin(e.target.value); setError(''); }}
+              placeholder="접속 코드"
+              autoFocus
+              style={{
+                width:'100%', background:'#0f172a', border:'1px solid #334155', borderRadius:'10px',
+                padding:'12px 14px', color:'white', fontSize:'15px', outline:'none',
+                letterSpacing:'2px', textAlign:'center', marginBottom:'12px',
+                boxSizing:'border-box',
+              }}
+              onFocus={e => e.target.style.borderColor = '#3b82f6'}
+              onBlur={e => e.target.style.borderColor = '#334155'}
+            />
+            {error && (
+              <div style={{color:'#f87171', fontSize:'12px', textAlign:'center', marginBottom:'12px', background:'#450a0a', padding:'8px 12px', borderRadius:'8px'}}>
+                {error}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading || !pin.trim()}
+              style={{
+                width:'100%', background: loading || !pin.trim() ? '#334155' : '#3b82f6',
+                color: loading || !pin.trim() ? '#64748b' : 'white',
+                border:'none', borderRadius:'10px', padding:'12px',
+                fontSize:'14px', fontWeight:'600', cursor: loading || !pin.trim() ? 'not-allowed' : 'pointer',
+                transition:'background 0.15s',
+              }}
+            >
+              {loading ? '확인 중...' : '입장하기'}
+            </button>
+          </form>
+        </div>
+
+        <div style={{color:'#475569', fontSize:'11px', textAlign:'center', marginTop:'20px'}}>
+          문의: DWmedi 담당 영업사원에게 연락해 주세요
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   병원 대시보드
+   ============================================================ */
+function HospitalDashboard({ hospital }) {
+  const [tab, setTab] = useState('equipment');
+  const [contracts, setContracts] = useState([]);
+  const [serviceReqs, setServiceReqs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showSRForm, setShowSRForm] = useState(false);
+  const [srForm, setSrForm] = useState({ equipment_name:'', model_name:'', issue:'', requested_at: getToday(), notes:'' });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitDone, setSubmitDone] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [{ data: c }, { data: s }] = await Promise.all([
+          sb.from('contracts').select('*').eq('hospital_id', hospital.id).order('created_at', { ascending: false }),
+          sb.from('service_requests').select('*').eq('hospital_id', hospital.id).order('created_at', { ascending: false }),
+        ]);
+        setContracts(c || []);
+        setServiceReqs(s || []);
+      } catch(e) { console.error(e); }
+      setLoading(false);
+    };
+    load();
+  }, [hospital.id]);
+
+  /* 모든 계약에서 장비 목록 수집 */
+  const allEquipment = React.useMemo(() => {
+    const items = [];
+    for (const contract of contracts) {
+      for (const cat of (contract.categories || [])) {
+        for (const item of (cat.items || [])) {
+          const model = (item.models || [])[0] || {};
+          items.push({
+            uid: item.id || Math.random(),
+            contractNo: contract.quote_name,
+            contractDate: contract.contract_date,
+            catName: cat.name,
+            itemName: item.name,
+            modelName: model.name || '',
+            manufacturer: model.manufacturer || '',
+            price: model.price,
+          });
+        }
+      }
+    }
+    return items;
+  }, [contracts]);
+
+  const handleSubmitSR = async () => {
+    if (!srForm.equipment_name.trim() && !srForm.issue.trim()) {
+      alert('장비명 또는 증상을 입력해주세요.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await sb.from('service_requests').insert({
+        hospital_id: hospital.id,
+        hospital_name: hospital.name,
+        equipment_name: srForm.equipment_name,
+        model_name: srForm.model_name,
+        issue: srForm.issue,
+        requested_at: srForm.requested_at,
+        notes: srForm.notes,
+        status: '접수',
+      });
+      setServiceReqs(prev => [{
+        id: Date.now(), hospital_id: hospital.id, hospital_name: hospital.name,
+        equipment_name: srForm.equipment_name, model_name: srForm.model_name,
+        issue: srForm.issue, requested_at: srForm.requested_at, status: '접수',
+      }, ...prev]);
+      setSubmitDone(true);
+      setShowSRForm(false);
+      setSrForm({ equipment_name:'', model_name:'', issue:'', requested_at: getToday(), notes:'' });
+      setTimeout(() => setSubmitDone(false), 4000);
+    } catch(e) {
+      console.error(e);
+      alert('접수 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+    setSubmitting(false);
+  };
+
+  const STATUS_COLORS = {
+    '접수': { bg: '#fef3c7', text: '#92400e' },
+    '처리중': { bg: '#dbeafe', text: '#1e40af' },
+    '완료': { bg: '#d1fae5', text: '#065f46' },
+  };
+
+  const TABS = [
+    { key: 'equipment', label: '계약 장비 현황', count: allEquipment.length },
+    { key: 'service', label: 'A/S 이력', count: serviceReqs.length },
+    { key: 'request', label: 'A/S 접수', count: null },
+  ];
+
+  return (
+    <div style={{minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column'}}>
+      {/* 헤더 */}
+      <div style={{background:'#0f172a', borderBottom:'1px solid #1e293b', padding:'12px 24px', display:'flex', alignItems:'center', gap:'12px'}}>
+        <div style={{width:'32px', height:'32px', background:'#3b82f6', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:'700', fontSize:'12px', flexShrink:0}}>DW</div>
+        <div>
+          <div style={{color:'white', fontWeight:'700', fontSize:'15px'}}>{hospital.name}</div>
+          <div style={{color:'#64748b', fontSize:'11px'}}>DWmedi 병원 관리 포털</div>
+        </div>
+      </div>
+
+      {/* 서브헤더 — 병원 연락처 요약 */}
+      {(hospital.phone || hospital.contact_name) && (
+        <div style={{background:'#1e293b', padding:'8px 24px', display:'flex', alignItems:'center', gap:'16px', flexWrap:'wrap'}}>
+          {hospital.contact_name && (
+            <span style={{color:'#94a3b8', fontSize:'12px'}}>담당자: <span style={{color:'#e2e8f0', fontWeight:'500'}}>{hospital.contact_name}</span></span>
+          )}
+          {hospital.phone && (
+            <span style={{color:'#94a3b8', fontSize:'12px'}}>전화: <span style={{color:'#e2e8f0', fontWeight:'500'}}>{hospital.phone}</span></span>
+          )}
+          {hospital.address && (
+            <span style={{color:'#94a3b8', fontSize:'12px'}}>{hospital.address}</span>
+          )}
+        </div>
+      )}
+
+      {/* 성공 알림 */}
+      {submitDone && (
+        <div style={{background:'#dcfce7', borderBottom:'1px solid #bbf7d0', padding:'10px 24px', display:'flex', alignItems:'center', gap:'8px'}}>
+          <svg style={{width:'16px', height:'16px', color:'#16a34a', flexShrink:0}} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span style={{color:'#15803d', fontSize:'13px', fontWeight:'500'}}>A/S 접수가 완료되었습니다. 담당자가 확인 후 연락드리겠습니다.</span>
+        </div>
+      )}
+
+      {/* 탭 */}
+      <div style={{background:'white', borderBottom:'1px solid #e2e8f0', padding:'0 24px', display:'flex', gap:'4px'}}>
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{
+              padding:'12px 16px', fontSize:'13px', fontWeight:'600', border:'none', background:'none', cursor:'pointer',
+              borderBottom: tab === t.key ? '2px solid #0f172a' : '2px solid transparent',
+              color: tab === t.key ? '#0f172a' : '#94a3b8',
+              display:'flex', alignItems:'center', gap:'6px', transition:'color 0.15s',
+            }}
+          >
+            {t.label}
+            {t.count !== null && (
+              <span style={{
+                background: tab === t.key ? '#0f172a' : '#f1f5f9',
+                color: tab === t.key ? 'white' : '#64748b',
+                borderRadius:'999px', padding:'1px 6px', fontSize:'11px', fontWeight:'700',
+              }}>{t.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* 콘텐츠 */}
+      <div style={{flex:1, padding:'24px', overflowY:'auto'}}>
+        <div style={{maxWidth:'900px', margin:'0 auto'}}>
+
+          {loading ? (
+            <div style={{background:'white', borderRadius:'12px', border:'1px solid #e2e8f0', padding:'60px', textAlign:'center', color:'#94a3b8', fontSize:'14px'}}>불러오는 중...</div>
+          ) : (
+            <>
+              {/* ── 탭 1: 계약 장비 현황 ── */}
+              {tab === 'equipment' && (
+                allEquipment.length === 0 ? (
+                  <div style={{background:'white', borderRadius:'12px', border:'1px solid #e2e8f0', padding:'60px', textAlign:'center', color:'#94a3b8'}}>
+                    <div style={{fontSize:'14px', fontWeight:'500'}}>등록된 계약 장비가 없습니다</div>
+                    <div style={{fontSize:'12px', marginTop:'4px'}}>계약 후 장비 목록이 표시됩니다</div>
+                  </div>
+                ) : (
+                  <div style={{background:'white', borderRadius:'12px', border:'1px solid #e2e8f0', overflow:'hidden'}}>
+                    <div style={{padding:'16px 20px', borderBottom:'1px solid #f1f5f9'}}>
+                      <div style={{fontWeight:'700', color:'#0f172a', fontSize:'14px'}}>계약 장비 목록</div>
+                      <div style={{color:'#94a3b8', fontSize:'12px', marginTop:'2px'}}>총 {allEquipment.length}개 장비</div>
+                    </div>
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{width:'100%', borderCollapse:'collapse', fontSize:'13px'}}>
+                        <thead>
+                          <tr style={{background:'#f8fafc', borderBottom:'1px solid #e2e8f0'}}>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.05em', whiteSpace:'nowrap'}}>카테고리</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.05em'}}>장비명</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.05em'}}>모델명</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.05em', whiteSpace:'nowrap'}}>제조사</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.05em', whiteSpace:'nowrap'}}>계약일</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allEquipment.map((item, i) => (
+                            <tr key={item.uid} style={{borderBottom:'1px solid #f8fafc', background: i % 2 === 0 ? 'white' : '#fafafa'}}>
+                              <td style={{padding:'10px 16px'}}>
+                                <span style={{background:'#f1f5f9', color:'#475569', borderRadius:'6px', padding:'2px 8px', fontSize:'11px', fontWeight:'500', whiteSpace:'nowrap'}}>{item.catName}</span>
+                              </td>
+                              <td style={{padding:'10px 16px', fontWeight:'500', color:'#0f172a'}}>{item.itemName}</td>
+                              <td style={{padding:'10px 16px', color:'#475569', fontSize:'12px'}}>{item.modelName || <span style={{color:'#cbd5e1'}}>—</span>}</td>
+                              <td style={{padding:'10px 16px', color:'#475569', fontSize:'12px', whiteSpace:'nowrap'}}>{item.manufacturer || <span style={{color:'#cbd5e1'}}>—</span>}</td>
+                              <td style={{padding:'10px 16px', color:'#94a3b8', fontSize:'12px', whiteSpace:'nowrap'}}>{item.contractDate || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {/* ── 탭 2: A/S 이력 ── */}
+              {tab === 'service' && (
+                serviceReqs.length === 0 ? (
+                  <div style={{background:'white', borderRadius:'12px', border:'1px solid #e2e8f0', padding:'60px', textAlign:'center', color:'#94a3b8'}}>
+                    <div style={{fontSize:'14px', fontWeight:'500'}}>A/S 이력이 없습니다</div>
+                    <div style={{fontSize:'12px', marginTop:'4px'}}>"A/S 접수" 탭에서 새로운 요청을 등록하세요</div>
+                  </div>
+                ) : (
+                  <div style={{background:'white', borderRadius:'12px', border:'1px solid #e2e8f0', overflow:'hidden'}}>
+                    <div style={{padding:'16px 20px', borderBottom:'1px solid #f1f5f9'}}>
+                      <div style={{fontWeight:'700', color:'#0f172a', fontSize:'14px'}}>A/S 요청 이력</div>
+                      <div style={{color:'#94a3b8', fontSize:'12px', marginTop:'2px'}}>총 {serviceReqs.length}건</div>
+                    </div>
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{width:'100%', borderCollapse:'collapse', fontSize:'13px'}}>
+                        <thead>
+                          <tr style={{background:'#f8fafc', borderBottom:'1px solid #e2e8f0'}}>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase'}}>장비명</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase'}}>증상</th>
+                            <th style={{padding:'10px 16px', textAlign:'center', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase'}}>상태</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase', whiteSpace:'nowrap'}}>접수일</th>
+                            <th style={{padding:'10px 16px', textAlign:'left', fontWeight:'600', color:'#64748b', fontSize:'11px', textTransform:'uppercase'}}>담당 엔지니어</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {serviceReqs.map((s, i) => {
+                            const sc = STATUS_COLORS[s.status] || { bg:'#f1f5f9', text:'#475569' };
+                            return (
+                              <tr key={s.id} style={{borderBottom:'1px solid #f8fafc', background: i % 2 === 0 ? 'white' : '#fafafa'}}>
+                                <td style={{padding:'10px 16px'}}>
+                                  <div style={{fontWeight:'500', color:'#0f172a'}}>{s.equipment_name || '—'}</div>
+                                  {s.model_name && <div style={{fontSize:'11px', color:'#94a3b8', marginTop:'1px'}}>{s.model_name}</div>}
+                                </td>
+                                <td style={{padding:'10px 16px', color:'#475569', fontSize:'12px', maxWidth:'200px'}}>
+                                  <div style={{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={s.issue}>{s.issue || '—'}</div>
+                                </td>
+                                <td style={{padding:'10px 16px', textAlign:'center'}}>
+                                  <span style={{background:sc.bg, color:sc.text, borderRadius:'999px', padding:'3px 10px', fontSize:'11px', fontWeight:'600', whiteSpace:'nowrap'}}>{s.status}</span>
+                                </td>
+                                <td style={{padding:'10px 16px', color:'#94a3b8', fontSize:'12px', whiteSpace:'nowrap'}}>{s.requested_at || '—'}</td>
+                                <td style={{padding:'10px 16px', color:'#475569', fontSize:'12px'}}>{s.engineer || <span style={{color:'#cbd5e1'}}>배정 예정</span>}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              )}
+
+              {/* ── 탭 3: A/S 접수 ── */}
+              {tab === 'request' && (
+                <div style={{background:'white', borderRadius:'12px', border:'1px solid #e2e8f0', overflow:'hidden'}}>
+                  <div style={{padding:'16px 20px', borderBottom:'1px solid #f1f5f9'}}>
+                    <div style={{fontWeight:'700', color:'#0f172a', fontSize:'14px'}}>A/S 접수</div>
+                    <div style={{color:'#94a3b8', fontSize:'12px', marginTop:'2px'}}>장비 이상이나 점검 요청을 등록해 주세요. 담당 엔지니어가 확인 후 연락드립니다.</div>
+                  </div>
+                  <div style={{padding:'24px', maxWidth:'560px'}}>
+                    {/* 장비 선택 힌트 */}
+                    {allEquipment.length > 0 && (
+                      <div style={{marginBottom:'20px'}}>
+                        <label style={{display:'block', fontSize:'12px', fontWeight:'600', color:'#374151', marginBottom:'8px'}}>계약 장비에서 선택</label>
+                        <div style={{display:'flex', flexWrap:'wrap', gap:'6px'}}>
+                          {[...new Map(allEquipment.map(e => [e.itemName, e])).values()].map(e => (
+                            <button key={e.uid}
+                              onClick={() => setSrForm(p => ({ ...p, equipment_name: e.itemName, model_name: e.modelName }))}
+                              style={{
+                                padding:'4px 10px', borderRadius:'999px', border:'1px solid #e2e8f0',
+                                background: srForm.equipment_name === e.itemName ? '#0f172a' : '#f8fafc',
+                                color: srForm.equipment_name === e.itemName ? 'white' : '#475569',
+                                fontSize:'12px', fontWeight:'500', cursor:'pointer', transition:'all 0.15s',
+                              }}
+                            >{e.itemName}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{display:'flex', flexDirection:'column', gap:'16px'}}>
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px'}}>
+                        <div>
+                          <label style={{display:'block', fontSize:'12px', fontWeight:'600', color:'#374151', marginBottom:'6px'}}>장비명</label>
+                          <input value={srForm.equipment_name} onChange={e => setSrForm(p => ({...p, equipment_name: e.target.value}))}
+                            placeholder="예: X-Ray, 초음파"
+                            style={{width:'100%', border:'1px solid #e2e8f0', borderRadius:'8px', padding:'10px 12px', fontSize:'13px', outline:'none', boxSizing:'border-box'}}
+                            onFocus={e => e.target.style.borderColor='#3b82f6'}
+                            onBlur={e => e.target.style.borderColor='#e2e8f0'}
+                          />
+                        </div>
+                        <div>
+                          <label style={{display:'block', fontSize:'12px', fontWeight:'600', color:'#374151', marginBottom:'6px'}}>모델명</label>
+                          <input value={srForm.model_name} onChange={e => setSrForm(p => ({...p, model_name: e.target.value}))}
+                            placeholder="선택 사항"
+                            style={{width:'100%', border:'1px solid #e2e8f0', borderRadius:'8px', padding:'10px 12px', fontSize:'13px', outline:'none', boxSizing:'border-box'}}
+                            onFocus={e => e.target.style.borderColor='#3b82f6'}
+                            onBlur={e => e.target.style.borderColor='#e2e8f0'}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{display:'block', fontSize:'12px', fontWeight:'600', color:'#374151', marginBottom:'6px'}}>증상 / 문제 상황 *</label>
+                        <textarea value={srForm.issue} onChange={e => setSrForm(p => ({...p, issue: e.target.value}))}
+                          rows={4} placeholder="어떤 문제가 발생했는지 자세히 설명해 주세요"
+                          style={{width:'100%', border:'1px solid #e2e8f0', borderRadius:'8px', padding:'10px 12px', fontSize:'13px', outline:'none', resize:'none', boxSizing:'border-box', fontFamily:'inherit'}}
+                          onFocus={e => e.target.style.borderColor='#3b82f6'}
+                          onBlur={e => e.target.style.borderColor='#e2e8f0'}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{display:'block', fontSize:'12px', fontWeight:'600', color:'#374151', marginBottom:'6px'}}>접수일</label>
+                        <input type="date" value={srForm.requested_at} onChange={e => setSrForm(p => ({...p, requested_at: e.target.value}))}
+                          style={{border:'1px solid #e2e8f0', borderRadius:'8px', padding:'10px 12px', fontSize:'13px', outline:'none'}}
+                          onFocus={e => e.target.style.borderColor='#3b82f6'}
+                          onBlur={e => e.target.style.borderColor='#e2e8f0'}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{display:'block', fontSize:'12px', fontWeight:'600', color:'#374151', marginBottom:'6px'}}>추가 메모</label>
+                        <textarea value={srForm.notes} onChange={e => setSrForm(p => ({...p, notes: e.target.value}))}
+                          rows={2} placeholder="추가로 전달할 내용이 있으면 입력해 주세요"
+                          style={{width:'100%', border:'1px solid #e2e8f0', borderRadius:'8px', padding:'10px 12px', fontSize:'13px', outline:'none', resize:'none', boxSizing:'border-box', fontFamily:'inherit'}}
+                          onFocus={e => e.target.style.borderColor='#3b82f6'}
+                          onBlur={e => e.target.style.borderColor='#e2e8f0'}
+                        />
+                      </div>
+
+                      <button onClick={handleSubmitSR} disabled={submitting}
+                        style={{
+                          padding:'12px 24px', background: submitting ? '#94a3b8' : '#3b82f6',
+                          color:'white', border:'none', borderRadius:'10px',
+                          fontSize:'14px', fontWeight:'600', cursor: submitting ? 'not-allowed' : 'pointer',
+                          display:'flex', alignItems:'center', gap:'8px', justifyContent:'center',
+                          transition:'background 0.15s', alignSelf:'flex-start',
+                        }}
+                      >
+                        {submitting ? (
+                          '접수 중...'
+                        ) : (
+                          <>
+                            <svg style={{width:'16px', height:'16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            A/S 접수 신청
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 푸터 */}
+      <div style={{background:'white', borderTop:'1px solid #e2e8f0', padding:'12px 24px', textAlign:'center', color:'#94a3b8', fontSize:'11px'}}>
+        © DWmedi — 의료장비 전문 · 문의: 담당 영업사원에게 연락해 주세요
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   메인 앱
+   ============================================================ */
+function App() {
+  const [phase, setPhase] = useState('loading'); // 'loading' | 'invalid' | 'pin' | 'dashboard'
+  const [hospital, setHospital] = useState(null);
+  const token = getTokenFromUrl();
+
+  useEffect(() => {
+    if (!token) {
+      setPhase('invalid');
+      return;
+    }
+    // 토큰이 존재하는지만 확인 (PIN은 아직 검증 안 함)
+    sb.from('hospitals').select('id').eq('token', token).single()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          setPhase('invalid');
+        } else {
+          setPhase('pin');
+        }
+      });
+  }, [token]);
+
+  if (phase === 'loading') {
+    return (
+      <div style={{minHeight:'100vh', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center'}}>
+        <div style={{color:'#64748b', fontSize:'14px'}}>로딩 중...</div>
+      </div>
+    );
+  }
+
+  if (phase === 'invalid') {
+    return (
+      <div style={{minHeight:'100vh', background:'#0f172a', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}}>
+        <div style={{textAlign:'center'}}>
+          <div style={{width:'48px', height:'48px', background:'#3b82f6', borderRadius:'12px', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', fontSize:'18px', fontWeight:'700', color:'white'}}>DW</div>
+          <div style={{color:'white', fontSize:'18px', fontWeight:'600', marginBottom:'8px'}}>유효하지 않은 링크입니다</div>
+          <div style={{color:'#64748b', fontSize:'13px'}}>담당 영업사원에게 올바른 링크를 요청해 주세요</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'pin') {
+    return <PinScreen token={token} onSuccess={(data) => { setHospital(data); setPhase('dashboard'); }} />;
+  }
+
+  return <HospitalDashboard hospital={hospital} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
