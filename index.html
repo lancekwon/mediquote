@@ -741,10 +741,6 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, onH
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
           견적관리
         </button>
-        <button onClick={onSave} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-          견적 저장
-        </button>
         {/* 유저 정보 + 로그아웃 */}
         <div className="flex items-center gap-2 pl-2 ml-1 border-l border-slate-700">
           <div className="flex items-center gap-1.5">
@@ -1554,7 +1550,7 @@ function CategorySection({ category, collapsed, onToggle, onUpdateItem, onOpenAl
 /* ============================================================
    SUMMARY PANEL
    ============================================================ */
-function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatIncluded, setVatIncluded, onPdfPreview }) {
+function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatIncluded, setVatIncluded, onPdfPreview, onSave }) {
   const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
   // VAT 별도: finalAmt에 10% 가산 / VAT 포함: finalAmt를 역산하여 공급가·부가세 분리
   const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
@@ -1716,6 +1712,15 @@ function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatInclud
 
         {/* PDF 버튼 */}
         <div className="mt-auto pt-2 flex flex-col gap-2">
+          {onSave && (
+            <button
+              onClick={onSave}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+              견적 저장
+            </button>
+          )}
           <button
             onClick={onPdfPreview}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-slate-800 text-slate-800 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors"
@@ -2920,7 +2925,7 @@ const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'
 function LeadsPage({ onBack, onCreateQuote }) {
   const [leads, setLeads] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  const [filter, setFilter] = React.useState('all');
+  const [filter, setFilter] = React.useState('신규문의');
   const [showForm, setShowForm] = React.useState(false);
   const [editingLead, setEditingLead] = React.useState(null);
   const [form, setForm] = React.useState(EMPTY_LEAD);
@@ -3125,8 +3130,8 @@ function LeadsPage({ onBack, onCreateQuote }) {
                       <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">
                         {lead.created_at ? new Date(lead.created_at).toLocaleDateString('ko-KR') : '—'}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 justify-end">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1 justify-end flex-nowrap">
                           {onCreateQuote && (
                             <button onClick={() => setQuoteOptionsLead(lead)}
                               className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded font-semibold hover:bg-blue-500 transition-colors whitespace-nowrap">
@@ -3134,16 +3139,16 @@ function LeadsPage({ onBack, onCreateQuote }) {
                             </button>
                           )}
                           <button onClick={() => openEdit(lead)}
-                            className="px-2.5 py-1 text-xs border border-slate-200 text-slate-500 rounded hover:bg-slate-50 transition-colors">
+                            className="px-2.5 py-1 text-xs border border-slate-200 text-slate-500 rounded hover:bg-slate-50 transition-colors whitespace-nowrap">
                             수정
                           </button>
                           {confirmDel === lead.id ? (
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => handleDelete(lead.id)} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-500 transition-colors">확인</button>
-                              <button onClick={() => setConfirmDel(null)} className="px-2 py-1 text-xs border border-slate-200 text-slate-500 rounded hover:bg-slate-50">취소</button>
+                            <div className="flex items-center gap-1 flex-nowrap">
+                              <button onClick={() => handleDelete(lead.id)} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-500 transition-colors whitespace-nowrap">확인</button>
+                              <button onClick={() => setConfirmDel(null)} className="px-2 py-1 text-xs border border-slate-200 text-slate-500 rounded hover:bg-slate-50 whitespace-nowrap">취소</button>
                             </div>
                           ) : (
-                            <button onClick={() => setConfirmDel(lead.id)} className="px-2.5 py-1 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors">삭제</button>
+                            <button onClick={() => setConfirmDel(lead.id)} className="px-2.5 py-1 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500 transition-colors whitespace-nowrap">삭제</button>
                           )}
                         </div>
                       </td>
@@ -5019,16 +5024,16 @@ function App() {
   }
 
   if (view === 'hospitals') {
-    return <HospitalsPage onBack={() => setView('list')} />;
+    return <HospitalsPage onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} />;
   }
 
   if (view === 'service') {
-    return <ServiceRequestsPage onBack={() => setView('list')} />;
+    return <ServiceRequestsPage onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} />;
   }
 
   if (view === 'leads') {
     return <LeadsPage
-      onBack={() => setView('list')}
+      onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }}
       onCreateQuote={(lead, type) => {
         if (type === 'standard') {
           setListInitialTab('standard');
@@ -5066,7 +5071,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => setView('list')} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
@@ -5137,6 +5142,7 @@ function App() {
           vatIncluded={vatIncluded}
           setVatIncluded={setVatIncluded}
           onPdfPreview={() => setPdfModal(true)}
+          onSave={handleSave}
         />
       </div>
 
