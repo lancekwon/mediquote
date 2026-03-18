@@ -739,7 +739,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, onH
         </button>
         <button onClick={onLoad} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-          불러오기
+          견적관리
         </button>
         <button onClick={onSave} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
@@ -1082,7 +1082,7 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-white rounded-xl shadow-2xl flex flex-col animate-fs" style={{width:'1200px', maxWidth:'96vw', maxHeight:'88vh'}}>
+      <div className="relative bg-white rounded-xl shadow-2xl flex flex-col animate-fs" style={{width:'1400px', maxWidth:'98vw', maxHeight:'96vh'}}>
 
         {/* Header */}
         <div className="bg-slate-900 text-white px-5 py-3.5 rounded-t-xl flex items-center justify-between shrink-0">
@@ -3340,7 +3340,7 @@ function ContractFormModal({ quote, onClose, onSaved }) {
             contact_name: linkedLead?.contact_name || '',
             contact_phone: linkedLead?.contact_phone || '',
             phone: linkedLead?.contact_phone || '',
-            notes: linkedLead ? `리드(${linkedLead.contact_name}) 계약 완료` : '',
+            notes: linkedLead ? `리드(${linkedLead.source || linkedLead.contact_name || '직접입력'}) 계약 완료 — ${linkedLead.contact_name || ''}${linkedLead.contact_phone ? ' · ' + linkedLead.contact_phone : ''}`.trim() : '',
           });
         } else {
           hospitalId = await dbSaveHospital({ name: hospitalName.trim() });
@@ -3723,21 +3723,70 @@ function HospitalsPage({ onBack }) {
                                     ) : (
                                       <div className="space-y-1">
                                         <div className="text-xs font-semibold text-slate-500 mb-2">장비 목록 ({allItems.length}개)</div>
-                                        <div className="grid grid-cols-1 gap-0.5">
+                                        <table className="w-full text-xs">
+                                          <thead>
+                                            <tr className="border-b border-blue-200">
+                                              <th className="text-left py-1 px-2 text-slate-400 font-semibold">카테고리</th>
+                                              <th className="text-left py-1 px-2 text-slate-400 font-semibold">장비명</th>
+                                              <th className="text-left py-1 px-2 text-slate-400 font-semibold">모델명</th>
+                                              <th className="text-center py-1 px-2 text-slate-400 font-semibold">수량</th>
+                                              <th className="text-right py-1 px-2 text-slate-400 font-semibold">금액</th>
+                                              <th className="text-center py-1 px-2 text-emerald-600 font-semibold">보증기간 만료</th>
+                                              <th className="text-center py-1 px-2 text-blue-600 font-semibold">A/S기간 만료</th>
+                                              <th className="text-center py-1 px-2 text-amber-600 font-semibold">연락 시점</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
                                           {allItems.map((row, i) => {
                                             const model = (row.item.models||[]).find(m => m.id === row.item.selectedModelId) || (row.item.models||[])[0] || {};
                                             const price = model.price != null ? model.price * (row.item.quantity || 1) : null;
+                                            const contractDate = c.contract_date ? new Date(c.contract_date) : null;
+                                            const warrantyMonths = row.item.warranty_months ?? 12;
+                                            const asMonths = row.item.as_months ?? 12;
+                                            const calcExpiry = (months) => {
+                                              if (!contractDate || !months) return null;
+                                              const d = new Date(contractDate);
+                                              d.setMonth(d.getMonth() + Number(months));
+                                              return d;
+                                            };
+                                            const warrantyExp = calcExpiry(warrantyMonths);
+                                            const asExp = calcExpiry(asMonths);
+                                            const contactDate = warrantyExp && asExp
+                                              ? new Date(Math.max(warrantyExp.getTime(), asExp.getTime()))
+                                              : (warrantyExp || asExp);
+                                            const today = new Date();
+                                            const fmtDate = d => d ? d.toLocaleDateString('ko-KR', {year:'2-digit', month:'2-digit', day:'2-digit'}) : '—';
+                                            const daysLeft = d => d ? Math.ceil((d - today) / (1000*60*60*24)) : null;
+                                            const urgency = d => {
+                                              const dl = daysLeft(d);
+                                              if (dl === null) return '';
+                                              if (dl < 0) return 'text-red-500 font-bold';
+                                              if (dl < 90) return 'text-amber-600 font-semibold';
+                                              return 'text-slate-500';
+                                            };
                                             return (
-                                              <div key={i} className="flex items-center gap-3 py-1 px-2 rounded hover:bg-blue-100/50 transition-colors">
-                                                <span className="px-1.5 py-0.5 bg-slate-200 text-slate-500 text-xs rounded shrink-0">{row.catName}</span>
-                                                <span className="text-xs font-medium text-slate-700 flex-1">{row.item.name}</span>
-                                                {model.name && <span className="text-xs text-slate-400">{model.name}</span>}
-                                                {row.item.quantity > 1 && <span className="text-xs text-slate-400">×{row.item.quantity}</span>}
-                                                {price != null && <span className="text-xs font-mono text-slate-600 ml-auto">{price.toLocaleString('ko-KR')}원</span>}
-                                              </div>
+                                              <tr key={i} className="border-b border-blue-50 last:border-0 hover:bg-blue-100/30 transition-colors">
+                                                <td className="py-1.5 px-2"><span className="px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded shrink-0">{row.catName}</span></td>
+                                                <td className="py-1.5 px-2 font-medium text-slate-700">{row.item.name}</td>
+                                                <td className="py-1.5 px-2 text-slate-400">{model.name || '—'}</td>
+                                                <td className="py-1.5 px-2 text-center text-slate-500">{row.item.quantity > 1 ? `×${row.item.quantity}` : '1'}</td>
+                                                <td className="py-1.5 px-2 text-right font-mono text-slate-600">{price != null ? price.toLocaleString('ko-KR')+'원' : '—'}</td>
+                                                <td className={`py-1.5 px-2 text-center ${urgency(warrantyExp)}`}>{fmtDate(warrantyExp)}{warrantyMonths ? <span className="ml-1 text-slate-300">({warrantyMonths}개월)</span> : ''}</td>
+                                                <td className={`py-1.5 px-2 text-center ${urgency(asExp)}`}>{fmtDate(asExp)}{asMonths ? <span className="ml-1 text-slate-300">({asMonths}개월)</span> : ''}</td>
+                                                <td className={`py-1.5 px-2 text-center font-semibold ${urgency(contactDate)}`}>
+                                                  {fmtDate(contactDate)}
+                                                  {daysLeft(contactDate) !== null && (
+                                                    <div className={`text-xs mt-0.5 ${daysLeft(contactDate) < 0 ? 'text-red-500' : daysLeft(contactDate) < 90 ? 'text-amber-500' : 'text-slate-300'}`}>
+                                                      {daysLeft(contactDate) < 0 ? `${Math.abs(daysLeft(contactDate))}일 초과` : `D-${daysLeft(contactDate)}`}
+                                                    </div>
+                                                  )}
+                                                </td>
+                                              </tr>
                                             );
                                           })}
-                                        </div>
+                                          </tbody>
+                                        </table>
+                                        <div className="mt-2 text-xs text-slate-300">* 보증기간/A/S기간은 견적서 작성 시 설정한 값 기준 (미설정 시 12개월 기본값)</div>
                                       </div>
                                     )}
                                   </td>
