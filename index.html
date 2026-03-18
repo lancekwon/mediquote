@@ -9,6 +9,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
     *, *::before, *::after { box-sizing: border-box; }
@@ -2900,6 +2901,292 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
 }
 
 /* ============================================================
+   LEADS DASHBOARD
+   ============================================================ */
+function LeadsDashboard({ leads, loading }) {
+  const [period, setPeriod] = React.useState('all');
+  const [deptSort, setDeptSort] = React.useState('문의');
+  const RC = window.Recharts || {};
+  const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+          LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer } = RC;
+
+  const now = new Date();
+
+  const fl = React.useMemo(() => {
+    if (period === 'month') {
+      return leads.filter(l => {
+        const d = new Date(l.created_at);
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      });
+    }
+    if (period === 'week') {
+      const ago = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return leads.filter(l => new Date(l.created_at) >= ago);
+    }
+    return leads;
+  }, [leads, period]);
+
+  const KPI_META = [
+    { stage:'신규문의', bg:'bg-slate-50',   border:'border-slate-200',   txt:'text-slate-600',   num:'text-slate-900'   },
+    { stage:'견적발송', bg:'bg-violet-50',  border:'border-violet-200',  txt:'text-violet-600',  num:'text-violet-900'  },
+    { stage:'상담중',   bg:'bg-blue-50',    border:'border-blue-200',    txt:'text-blue-600',    num:'text-blue-900'    },
+    { stage:'계약완료', bg:'bg-emerald-50', border:'border-emerald-200', txt:'text-emerald-600', num:'text-emerald-900' },
+    { stage:'타사계약', bg:'bg-red-50',     border:'border-red-200',     txt:'text-red-500',     num:'text-red-800'     },
+  ];
+
+  const stageCounts = React.useMemo(() =>
+    Object.fromEntries(KPI_META.map(m => [m.stage, fl.filter(l => l.stage === m.stage).length]))
+  , [fl]);
+
+  const convRate = React.useMemo(() => {
+    const done = fl.filter(l => l.stage === '계약완료').length;
+    return fl.length > 0 ? Math.round(done / fl.length * 100) : 0;
+  }, [fl]);
+
+  const sourceData = React.useMemo(() => {
+    const map = {};
+    fl.forEach(l => {
+      const src = l.source || '직접입력';
+      if (!map[src]) map[src] = { source: src, 문의: 0, 계약: 0 };
+      map[src].문의++;
+      if (l.stage === '계약완료') map[src].계약++;
+    });
+    return Object.values(map)
+      .map(r => ({ ...r, 전환율: r.문의 > 0 ? Math.round(r.계약 / r.문의 * 100) : 0 }))
+      .sort((a, b) => b.문의 - a.문의);
+  }, [fl]);
+
+  const deptData = React.useMemo(() => {
+    const map = {};
+    fl.forEach(l => {
+      const dept = l.dept || '미입력';
+      if (!map[dept]) map[dept] = { name: dept, 문의: 0, 계약: 0 };
+      map[dept].문의++;
+      if (l.stage === '계약완료') map[dept].계약++;
+    });
+    const arr = Object.values(map);
+    return (deptSort === '문의' ? arr.sort((a,b)=>b.문의-a.문의) : arr.sort((a,b)=>b.계약-a.계약)).slice(0,8);
+  }, [fl, deptSort]);
+
+  const monthlyData = React.useMemo(() => {
+    const result = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear(), m = d.getMonth();
+      const ml = leads.filter(l => { const ld = new Date(l.created_at); return ld.getFullYear()===y && ld.getMonth()===m; });
+      result.push({ month: `${String(m+1).padStart(2,'0')}월`, 문의: ml.length, 계약: ml.filter(l=>l.stage==='계약완료').length });
+    }
+    return result;
+  }, [leads]);
+
+  const assigneeData = React.useMemo(() => {
+    const map = {};
+    fl.forEach(l => {
+      const name = l.assignee || '미배정';
+      if (!map[name]) map[name] = { assignee: name, 상담중: 0, 계약완료: 0, total: 0 };
+      map[name].total++;
+      if (l.stage === '상담중') map[name].상담중++;
+      if (l.stage === '계약완료') map[name].계약완료++;
+    });
+    return Object.values(map)
+      .map(r => ({ ...r, 전환율: r.total > 0 ? Math.round(r.계약완료 / r.total * 100) : 0 }))
+      .sort((a,b) => b.전환율 - a.전환율);
+  }, [fl]);
+
+  const DONUT_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4','#ec4899','#84cc16'];
+
+  const Card = ({ title, children }) => (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">{title}</div>
+      {children}
+    </div>
+  );
+
+  const Empty = () => (
+    <div className="flex items-center justify-center h-28 text-slate-300 text-sm">데이터가 없습니다</div>
+  );
+
+  const Skeleton = () => (
+    <div className="space-y-5 animate-pulse">
+      <div className="grid grid-cols-5 gap-3">
+        {[...Array(5)].map((_,i) => <div key={i} className="h-20 bg-slate-100 rounded-xl"/>)}
+      </div>
+      <div className="h-10 bg-slate-100 rounded-xl"/>
+      <div className="grid grid-cols-2 gap-5">
+        <div className="h-52 bg-slate-100 rounded-xl"/>
+        <div className="h-52 bg-slate-100 rounded-xl"/>
+      </div>
+      <div className="h-52 bg-slate-100 rounded-xl"/>
+      <div className="h-36 bg-slate-100 rounded-xl"/>
+    </div>
+  );
+
+  if (loading) return <Skeleton />;
+  if (!ResponsiveContainer) return <div className="text-slate-400 text-sm text-center p-12">차트 라이브러리를 불러오는 중...</div>;
+
+  return (
+    <div className="space-y-5">
+      {/* 기간 탭 */}
+      <div className="flex items-center gap-2">
+        {[{k:'all',l:'전체'},{k:'month',l:'이번달'},{k:'week',l:'이번주'}].map(p => (
+          <button key={p.k} onClick={() => setPeriod(p.k)}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${period===p.k ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}>
+            {p.l}
+          </button>
+        ))}
+        <span className="ml-2 text-xs text-slate-400">총 {fl.length}건</span>
+      </div>
+
+      {/* KPI 카드 */}
+      <div className="grid grid-cols-5 gap-3">
+        {KPI_META.map(m => (
+          <div key={m.stage} className={`${m.bg} border ${m.border} rounded-xl p-4`}>
+            <div className={`text-xs font-semibold ${m.txt} mb-2`}>{m.stage}</div>
+            <div className={`text-3xl font-bold ${m.num} tnum`}>{stageCounts[m.stage] || 0}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 전환율 바 */}
+      <div className="bg-white border border-slate-200 rounded-xl px-5 py-3 flex items-center gap-4">
+        <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">전환율 (문의 → 계약)</span>
+        <div className="flex-1 bg-slate-100 rounded-full h-2">
+          <div className="bg-emerald-500 h-2 rounded-full transition-all duration-500" style={{width:`${convRate}%`}}/>
+        </div>
+        <span className="text-sm font-bold text-emerald-600 whitespace-nowrap">{convRate}%</span>
+        <span className="text-xs text-slate-400">({fl.filter(l=>l.stage==='계약완료').length} / {fl.length}건)</span>
+      </div>
+
+      {/* 유입경로 + 진료과 */}
+      <div className="grid grid-cols-2 gap-5">
+
+        {/* 유입경로 가로 바차트 */}
+        <Card title="유입경로별 문의 vs 계약">
+          {sourceData.length === 0 ? <Empty /> : (
+            <div>
+              <ResponsiveContainer width="100%" height={Math.max(sourceData.length * 52, 120)}>
+                <BarChart layout="vertical" data={sourceData} margin={{top:0,right:50,left:0,bottom:0}}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9"/>
+                  <XAxis type="number" tick={{fontSize:10}} axisLine={false} tickLine={false}/>
+                  <YAxis type="category" dataKey="source" tick={{fontSize:10}} width={110} axisLine={false} tickLine={false}/>
+                  <Tooltip
+                    contentStyle={{fontSize:'11px', borderRadius:'8px', border:'1px solid #e2e8f0'}}
+                    formatter={(v,n) => [v+'건', n]}/>
+                  <Legend iconSize={8} wrapperStyle={{fontSize:'11px', paddingTop:'8px'}}/>
+                  <Bar dataKey="문의" fill="#3b82f6" radius={[0,3,3,0]} barSize={12} name="문의"/>
+                  <Bar dataKey="계약" fill="#10b981" radius={[0,3,3,0]} barSize={12} name="계약"/>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="mt-3 border-t border-slate-100 pt-3 space-y-1.5">
+                {sourceData.map(r => (
+                  <div key={r.source} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 truncate max-w-[160px]">{r.source}</span>
+                    <span className={`font-bold ml-2 ${r.전환율>=50?'text-emerald-600':r.전환율>0?'text-amber-500':'text-slate-300'}`}>{r.전환율}% 전환</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* 진료과별 도넛 */}
+        <Card title="진료과별 분포">
+          <div className="flex items-center gap-2 mb-4">
+            {['문의 많은 순','계약 많은 순'].map(opt => {
+              const active = opt === '문의 많은 순' ? deptSort==='문의' : deptSort==='계약';
+              return (
+                <button key={opt} onClick={() => setDeptSort(opt==='문의 많은 순'?'문의':'계약')}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${active ? 'bg-slate-900 text-white' : 'text-slate-400 hover:bg-slate-100'}`}>
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+          {deptData.length === 0 ? <Empty /> : (
+            <div className="flex items-start gap-3">
+              <ResponsiveContainer width="45%" height={190}>
+                <PieChart>
+                  <Pie data={deptData} dataKey={deptSort} nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={78} paddingAngle={2}>
+                    {deptData.map((_,i) => <Cell key={i} fill={DONUT_COLORS[i%DONUT_COLORS.length]}/>)}
+                  </Pie>
+                  <Tooltip contentStyle={{fontSize:'11px',borderRadius:'8px',border:'1px solid #e2e8f0'}} formatter={(v,n)=>[v+'건',n]}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-1.5 pt-2">
+                {deptData.map((d,i) => (
+                  <div key={d.name} className="flex items-center gap-1.5 text-xs">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{background:DONUT_COLORS[i%DONUT_COLORS.length]}}/>
+                    <span className="text-slate-600 flex-1 truncate">{d.name}</span>
+                    <span className="font-semibold text-slate-800">{d[deptSort]}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* 월별 추이 라인차트 */}
+      <Card title="월별 추이 (최근 12개월)">
+        {leads.length === 0 ? <Empty /> : (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={monthlyData} margin={{top:5,right:20,left:0,bottom:5}}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+              <XAxis dataKey="month" tick={{fontSize:10}} axisLine={false} tickLine={false}/>
+              <YAxis tick={{fontSize:10}} allowDecimals={false} axisLine={false} tickLine={false}/>
+              <Tooltip contentStyle={{fontSize:'11px',borderRadius:'8px',border:'1px solid #e2e8f0'}} formatter={(v,n)=>[v+'건',n]}/>
+              <Legend iconSize={8} wrapperStyle={{fontSize:'11px'}}/>
+              <Line type="monotone" dataKey="문의" stroke="#3b82f6" strokeWidth={2.5} dot={{r:3,fill:'#3b82f6'}} activeDot={{r:5}} name="문의"/>
+              <Line type="monotone" dataKey="계약" stroke="#10b981" strokeWidth={2.5} dot={{r:3,fill:'#10b981'}} activeDot={{r:5}} name="계약완료"/>
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
+
+      {/* 담당자별 성과 */}
+      <Card title="담당자별 성과">
+        {assigneeData.length === 0 ? <Empty /> : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="py-2 px-3 text-left text-xs font-semibold text-slate-400">담당자</th>
+                <th className="py-2 px-3 text-center text-xs font-semibold text-slate-400">전체</th>
+                <th className="py-2 px-3 text-center text-xs font-semibold text-blue-400">상담중</th>
+                <th className="py-2 px-3 text-center text-xs font-semibold text-emerald-500">계약완료</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-slate-400">전환율</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assigneeData.map((r,i) => (
+                <tr key={r.assignee} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{i===0?'🥇':i===1?'🥈':i===2?'🥉':'　'}</span>
+                      <span className="text-xs font-semibold text-slate-700">{r.assignee}</span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-xs text-slate-500">{r.total}</td>
+                  <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-semibold">{r.상담중}</span></td>
+                  <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-semibold">{r.계약완료}</span></td>
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-20 bg-slate-100 rounded-full h-1.5">
+                        <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{width:`${r.전환율}%`}}/>
+                      </div>
+                      <span className={`text-xs font-bold ${r.전환율>=50?'text-emerald-600':r.전환율>0?'text-amber-500':'text-slate-300'}`}>{r.전환율}%</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ============================================================
    LEADS PAGE (영업 파이프라인)
    ============================================================ */
 const LEAD_STAGES = ['신규문의', '견적발송', '상담중', '계약완료', '타사계약'];
@@ -2924,6 +3211,7 @@ function LeadsPage({ onBack, onCreateQuote }) {
   const [leads, setLeads] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState('신규문의');
+  const [showDashboard, setShowDashboard] = React.useState(false);
   const [showForm, setShowForm] = React.useState(false);
   const [editingLead, setEditingLead] = React.useState(null);
   const [form, setForm] = React.useState(EMPTY_LEAD);
@@ -3000,11 +3288,18 @@ function LeadsPage({ onBack, onCreateQuote }) {
         <span className="text-slate-400 text-xs">·</span>
         <span className="text-slate-200 text-sm font-semibold">리드 관리</span>
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={openNew}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-            새 리드
+          <button onClick={() => setShowDashboard(p => !p)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            {showDashboard ? '목록 보기' : '대시보드'}
           </button>
+          {!showDashboard && (
+            <button onClick={openNew}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+              새 리드
+            </button>
+          )}
           <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
             돌아가기
@@ -3013,7 +3308,7 @@ function LeadsPage({ onBack, onCreateQuote }) {
       </div>
 
       {/* 영업 단계 필터 */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-2 shrink-0 overflow-x-auto">
+      {!showDashboard && <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-2 shrink-0 overflow-x-auto">
         <button onClick={() => setFilter('all')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors whitespace-nowrap ${filter==='all' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'}`}>
           전체 <span className={`px-1.5 py-0.5 rounded-full text-xs ${filter==='all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>{counts.all}</span>
@@ -3024,10 +3319,10 @@ function LeadsPage({ onBack, onCreateQuote }) {
             {s} <span className={`px-1.5 py-0.5 rounded-full text-xs ${filter===s ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>{counts[s]}</span>
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* 파이프라인 진행 바 */}
-      {filter === 'all' && leads.length > 0 && (
+      {!showDashboard && filter === 'all' && leads.length > 0 && (
         <div className="bg-white border-b border-slate-100 px-6 py-2.5 flex items-center gap-1 shrink-0 flex-wrap">
           {['신규문의','견적발송','상담중','계약완료'].map((s, i) => {
             const colors = ['bg-slate-400','bg-violet-400','bg-blue-400','bg-emerald-400'];
@@ -3055,9 +3350,12 @@ function LeadsPage({ onBack, onCreateQuote }) {
         </div>
       )}
 
-      {/* 테이블 */}
+      {/* 대시보드 or 테이블 */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-7xl mx-auto">
+          {showDashboard && <LeadsDashboard leads={leads} loading={loading} />}
+        </div>
+        <div className="max-w-7xl mx-auto" style={{display: showDashboard ? 'none' : 'block'}}>
           {loading ? (
             <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400 text-sm">불러오는 중...</div>
           ) : filtered.length === 0 ? (
