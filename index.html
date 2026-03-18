@@ -4988,7 +4988,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
                                     onClick={() => onLoad(row)}
                                     className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded font-semibold hover:bg-slate-700 transition-colors whitespace-nowrap"
                                   >불러오기</button>
-                                  {row.status === '진행중' && !row.contract && (
+                                  {row.status === '진행중' && (
                                     <button
                                       onClick={() => setContractModalQuote({ ...row, linkedLead })}
                                       className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-500 transition-colors whitespace-nowrap"
