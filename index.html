@@ -3813,7 +3813,7 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
     (async () => {
       setLoadingDash(true);
       try {
-        const { data } = await sb.from('deliveries').select('hospital_id, delivered_date, total_amount').order('delivered_date', { ascending: true });
+        const { data } = await sb.from('deliveries').select('id, hospital_id, delivered_date, total_amount').order('delivered_date', { ascending: true });
         setDeliveries(data || []);
       } catch(e) { console.error(e); }
       setLoadingDash(false);
@@ -3821,9 +3821,19 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
   }, []);
 
   const today = new Date();
+  today.setHours(0,0,0,0);
   const pad = n => String(n).padStart(2, '0');
   const fmtDate = d => `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}`;
-  const daysLeft = d => Math.ceil((new Date(d) - today) / (1000*60*60*24));
+  const daysDiff = d => Math.ceil((new Date(d) - today) / (1000*60*60*24));
+  const daysPast = d => Math.floor((today - new Date(d)) / (1000*60*60*24));
+
+  // 이번주 월~일
+  const dow = today.getDay();
+  const weekMon = new Date(today); weekMon.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+  const weekSun = new Date(weekMon); weekSun.setDate(weekMon.getDate() + 6);
+  const isThisWeek = d => { const dt = new Date(d); return dt >= weekMon && dt <= weekSun; };
+  // 이번달
+  const isThisMonth = d => { const dt = new Date(d); return dt.getFullYear() === today.getFullYear() && dt.getMonth() === today.getMonth(); };
 
   // KPI
   const totalDeliveryAmt = deliveries.reduce((s, d) => s + (d.total_amount || 0), 0);
@@ -3831,23 +3841,26 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
   const yearDeliveryAmt = deliveries.filter(d => d.delivered_date?.startsWith(String(thisYear))).reduce((s, d) => s + (d.total_amount || 0), 0);
   const activeContracts = contracts.filter(c => c.status === '진행중');
   const pendingSR = serviceReqs.filter(s => s.status === '접수' || s.status === '처리중');
-  const thisMonthHosps = hospitals.filter(h => {
-    if (!h.created_at) return false;
-    const d = new Date(h.created_at);
-    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+  const thisMonthHosps = hospitals.filter(h => h.created_at && isThisMonth(h.created_at));
+
+  const fmt = n => n >= 100000000 ? `${(n/100000000).toFixed(1)}억` : n >= 10000 ? `${Math.round(n/10000).toLocaleString()}만` : n.toLocaleString();
+
+  // ── 할 일 항목 생성 ──
+  const allTodoItems = [];
+
+  // A/S 미처리
+  serviceReqs.filter(s => s.status === '접수' || s.status === '처리중').forEach(s => {
+    const days = s.requested_at ? daysPast(s.requested_at) : 0;
+    const hosp = hospitals.find(h => h.id === s.hospital_id);
+    if (!hosp) return;
+    const item = { type: 'as', hosp, tab: 'service', detail: s.equipment_name || '장비 미상', days };
+    if (days >= 14) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'red' });
+    else if (days >= 7) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
+    else if (days >= 3) allTodoItems.push({ ...item, bucket: 'week', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
+    else if (days >= 1) allTodoItems.push({ ...item, bucket: 'month', label: `A/S 신규 접수 ${days}일`, urgency: 'blue' });
   });
 
-  // 오늘 할 일
-  const todos = [];
-  // A/S 미처리 7일 이상
-  serviceReqs.filter(s => s.status === '접수' || s.status === '처리중').forEach(s => {
-    const days = s.requested_at ? Math.floor((today - new Date(s.requested_at)) / (1000*60*60*24)) : 0;
-    if (days >= 7) {
-      const hosp = hospitals.find(h => h.id === s.hospital_id);
-      if (hosp) todos.push({ type: 'as', label: `A/S 미처리 ${days}일`, hosp, tab: 'service', detail: s.equipment_name || '장비 미상', urgency: days >= 14 ? 'red' : 'amber' });
-    }
-  });
-  // 계약 보증기간 만료 D-60 이내
+  // 보증기간 만료
   contracts.forEach(c => {
     if (!c.contract_date || !c.hospital_id) return;
     const cats = Array.isArray(c.categories) ? c.categories : [];
@@ -3855,56 +3868,82 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
       const months = item.warranty_months ?? 12;
       const exp = new Date(c.contract_date);
       exp.setMonth(exp.getMonth() + Number(months));
-      const dl = daysLeft(exp);
-      if (dl >= 0 && dl <= 60) {
-        const hosp = hospitals.find(h => h.id === c.hospital_id);
-        if (hosp) todos.push({ type: 'warranty', label: `보증만료 D-${dl}`, hosp, tab: 'contracts', detail: item.name || '장비', urgency: dl <= 14 ? 'red' : 'amber' });
-      }
+      const dl = daysDiff(exp);
+      const hosp = hospitals.find(h => h.id === c.hospital_id);
+      if (!hosp || dl < 0 || dl > 60) return;
+      const base = { type: 'warranty', hosp, tab: 'contracts', detail: item.name || '장비' };
+      if (dl <= 7)  allTodoItems.push({ ...base, bucket: 'today', label: `보증만료 D-${dl}`, urgency: dl <= 3 ? 'red' : 'amber' });
+      else if (dl <= 21) allTodoItems.push({ ...base, bucket: 'week',  label: `보증만료 D-${dl}`, urgency: 'amber' });
+      else          allTodoItems.push({ ...base, bucket: 'month', label: `보증만료 D-${dl}`, urgency: 'blue' });
     }));
   });
-  // 납품 후 30일 점검
+
+  // 납품 30일 점검
   deliveries.forEach(d => {
     if (!d.delivered_date || !d.hospital_id) return;
-    const dl = -daysLeft(d.delivered_date);
-    if (dl >= 28 && dl <= 35) {
-      const hosp = hospitals.find(h => h.id === d.hospital_id);
-      if (hosp) todos.push({ type: 'check', label: `납품 ${dl}일 점검`, hosp, tab: 'deliveries', detail: fmtDate(new Date(d.delivered_date)) + ' 납품', urgency: 'green' });
-    }
+    const elapsed = daysPast(d.delivered_date);
+    const hosp = hospitals.find(h => h.id === d.hospital_id);
+    if (!hosp) return;
+    const base = { type: 'check', hosp, tab: 'deliveries', detail: fmtDate(new Date(d.delivered_date)) + ' 납품' };
+    if (elapsed >= 28 && elapsed <= 32)      allTodoItems.push({ ...base, bucket: 'today', label: `납품 ${elapsed}일 점검`, urgency: 'green' });
+    else if (elapsed >= 23 && elapsed <= 27) allTodoItems.push({ ...base, bucket: 'week',  label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'green' });
+    else if (elapsed >= 18 && elapsed <= 22) allTodoItems.push({ ...base, bucket: 'month', label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'blue' });
   });
 
-  // 월별 납품 추이 (최근 12개월)
-  const monthlyMap = {};
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
-    monthlyMap[key] = { month: `${d.getMonth()+1}월`, amount: 0 };
-  }
-  deliveries.forEach(d => {
-    if (!d.delivered_date) return;
-    const key = d.delivered_date.substring(0, 7);
-    if (monthlyMap[key]) monthlyMap[key].amount += d.total_amount || 0;
+  const todayItems  = allTodoItems.filter(t => t.bucket === 'today');
+  const weekItems   = allTodoItems.filter(t => t.bucket === 'week');
+  const monthItems  = allTodoItems.filter(t => t.bucket === 'month');
+
+  const urgencyStyle = { red:'border-red-200 bg-red-50', amber:'border-amber-200 bg-amber-50', green:'border-emerald-100 bg-emerald-50', blue:'border-blue-100 bg-blue-50' };
+  const urgencyDot   = { red:'bg-red-500', amber:'bg-amber-400', green:'bg-emerald-500', blue:'bg-blue-400' };
+  const urgencyText  = { red:'text-red-700', amber:'text-amber-700', green:'text-emerald-700', blue:'text-blue-700' };
+
+  const TodoSection = ({ title, items, emptyMsg, badgeColor = 'bg-slate-100 text-slate-500' }) => (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">{title}</div>
+        <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${items.length > 0 ? badgeColor : 'bg-slate-100 text-slate-400'}`}>{items.length}</span>
+      </div>
+      {loadingDash ? <div className="text-xs text-slate-400">불러오는 중...</div>
+       : items.length === 0 ? <div className="text-xs text-slate-400 py-1">{emptyMsg}</div>
+       : <div className="space-y-1.5">
+           {items.map((t, i) => (
+             <div key={i} onClick={() => onSelectHosp(t.hosp, t.tab)}
+               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer hover:brightness-95 transition-all ${urgencyStyle[t.urgency]}`}>
+               <span className={`w-2 h-2 rounded-full shrink-0 ${urgencyDot[t.urgency]}`}/>
+               <span className={`text-xs font-bold w-28 shrink-0 ${urgencyText[t.urgency]}`}>{t.label}</span>
+               <span className="font-semibold text-slate-800 text-sm">{t.hosp.name}</span>
+               <span className="text-xs text-slate-400 ml-auto truncate max-w-[120px]">{t.detail}</span>
+               <svg className="w-3 h-3 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+             </div>
+           ))}
+         </div>}
+    </div>
+  );
+
+  // 월별 납품 추이 — 올해 1월~12월
+  const monthlyData = Array.from({length:12}, (_, i) => {
+    const key = `${thisYear}-${pad(i+1)}`;
+    const amt = deliveries.filter(d => d.delivered_date?.startsWith(key)).reduce((s,d) => s+(d.total_amount||0), 0);
+    return { month: `${i+1}월`, amount: amt, isCurrent: i === today.getMonth() };
   });
-  const monthlyData = Object.values(monthlyMap);
   const maxMonthly = Math.max(...monthlyData.map(m => m.amount), 1);
 
-  // 병원별 납품금액 Top 10
+  // 납품금액 Top 10
   const hospAmtMap = {};
-  deliveries.forEach(d => {
-    if (!d.hospital_id) return;
-    hospAmtMap[d.hospital_id] = (hospAmtMap[d.hospital_id] || 0) + (d.total_amount || 0);
-  });
-  const top10 = Object.entries(hospAmtMap)
-    .map(([hid, amt]) => ({ hosp: hospitals.find(h => h.id === hid), amt }))
-    .filter(x => x.hosp)
-    .sort((a, b) => b.amt - a.amt)
-    .slice(0, 10);
+  deliveries.forEach(d => { if (d.hospital_id) hospAmtMap[d.hospital_id] = (hospAmtMap[d.hospital_id] || 0) + (d.total_amount || 0); });
+  const top10 = Object.entries(hospAmtMap).map(([hid, amt]) => ({ hosp: hospitals.find(h => h.id === hid), amt }))
+    .filter(x => x.hosp).sort((a,b) => b.amt - a.amt).slice(0, 10);
   const maxTop = Math.max(...top10.map(x => x.amt), 1);
 
-  const urgencyStyle = { red: 'border-red-200 bg-red-50', amber: 'border-amber-200 bg-amber-50', green: 'border-emerald-200 bg-emerald-50' };
-  const urgencyDot = { red: 'bg-red-500', amber: 'bg-amber-400', green: 'bg-emerald-500' };
-  const urgencyText = { red: 'text-red-700', amber: 'text-amber-700', green: 'text-emerald-700' };
-
-  const fmt = n => n >= 100000000 ? `${(n/100000000).toFixed(1)}억` : n >= 10000 ? `${Math.round(n/10000).toLocaleString()}만` : n.toLocaleString();
+  // 재구매 많은 병원 (납품 건수 기준)
+  const hospCntMap = {};
+  deliveries.forEach(d => { if (d.hospital_id) hospCntMap[d.hospital_id] = (hospCntMap[d.hospital_id] || 0) + 1; });
+  const repeatTop = Object.entries(hospCntMap)
+    .filter(([, cnt]) => cnt >= 2)
+    .map(([hid, cnt]) => ({ hosp: hospitals.find(h => h.id === hid), cnt, amt: hospAmtMap[hid] || 0 }))
+    .filter(x => x.hosp).sort((a,b) => b.cnt - a.cnt).slice(0, 10);
+  const maxCnt = Math.max(...repeatTop.map(x => x.cnt), 1);
 
   return (
     <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
@@ -3913,11 +3952,11 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
         {/* KPI 카드 */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: '관리 병원', value: hospitals.length, sub: `이번달 +${thisMonthHosps.length}`, color: 'text-blue-600', bg: 'bg-blue-50' },
-            { label: '총 납품금액', value: fmt(totalDeliveryAmt)+'원', sub: `올해 ${fmt(yearDeliveryAmt)}원`, color: 'text-violet-600', bg: 'bg-violet-50' },
-            { label: '진행중 계약', value: activeContracts.length+'건', sub: `전체 ${contracts.length}건`, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { label: '미처리 A/S', value: pendingSR.length+'건', sub: `접수 ${serviceReqs.filter(s=>s.status==='접수').length} · 처리중 ${serviceReqs.filter(s=>s.status==='처리중').length}`, color: pendingSR.length > 0 ? 'text-red-600' : 'text-slate-600', bg: pendingSR.length > 0 ? 'bg-red-50' : 'bg-slate-50' },
-          ].map((k, i) => (
+            { label:'관리 병원', value:hospitals.length, sub:`이번달 +${thisMonthHosps.length}`, color:'text-blue-600' },
+            { label:'총 납품금액', value:fmt(totalDeliveryAmt)+'원', sub:`올해 ${fmt(yearDeliveryAmt)}원`, color:'text-violet-600' },
+            { label:'진행중 계약', value:activeContracts.length+'건', sub:`전체 ${contracts.length}건`, color:'text-emerald-600' },
+            { label:'미처리 A/S', value:pendingSR.length+'건', sub:`접수 ${serviceReqs.filter(s=>s.status==='접수').length} · 처리중 ${serviceReqs.filter(s=>s.status==='처리중').length}`, color:pendingSR.length > 0 ? 'text-red-600':'text-slate-600' },
+          ].map((k,i) => (
             <div key={i} className="bg-white rounded-xl border border-slate-200 p-5">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{k.label}</div>
               <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
@@ -3926,59 +3965,35 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
           ))}
         </div>
 
-        {/* 오늘 할 일 */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">오늘 할 일</div>
-            {todos.length > 0 && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs font-bold rounded-full">{todos.length}</span>}
-          </div>
-          {loadingDash ? (
-            <div className="text-xs text-slate-400">불러오는 중...</div>
-          ) : todos.length === 0 ? (
-            <div className="flex items-center gap-2 text-sm text-emerald-600 font-medium">
-              <span className="text-lg">✅</span> 오늘 처리할 항목이 없습니다
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {todos.map((t, i) => (
-                <div key={i} onClick={() => onSelectHosp(t.hosp, t.tab)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer hover:brightness-95 transition-all ${urgencyStyle[t.urgency]}`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${urgencyDot[t.urgency]}`}/>
-                  <span className={`text-xs font-bold w-32 shrink-0 ${urgencyText[t.urgency]}`}>{t.label}</span>
-                  <span className="font-semibold text-slate-800 text-sm hover:underline">{t.hosp.name}</span>
-                  <span className="text-xs text-slate-400 ml-auto">{t.detail}</span>
-                  <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* 할 일 3단계 */}
+        <TodoSection title="오늘 할 일" items={todayItems} emptyMsg="오늘 처리할 항목이 없습니다" badgeColor="bg-red-100 text-red-600" />
+        <TodoSection title="이번주 할 일" items={weekItems} emptyMsg="이번주 예정 항목이 없습니다" badgeColor="bg-amber-100 text-amber-700" />
+        <TodoSection title="이번달 할 일" items={monthItems} emptyMsg="이번달 예정 항목이 없습니다" badgeColor="bg-blue-100 text-blue-700" />
 
-        <div className="grid grid-cols-2 gap-5">
-          {/* 월별 납품 추이 */}
+        {/* 차트 영역 */}
+        <div className="grid grid-cols-3 gap-5">
+          {/* 월별 납품 추이 — 1월~12월 */}
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">월별 납품금액 추이 (12개월)</div>
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">{thisYear}년 월별 납품금액</div>
             {loadingDash ? <div className="text-xs text-slate-400">불러오는 중...</div> : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {monthlyData.map((m, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <div className="text-xs text-slate-400 w-8 shrink-0 text-right">{m.month}</div>
-                    <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-500 rounded-full transition-all"
-                        style={{width: `${m.amount > 0 ? Math.max((m.amount / maxMonthly) * 100, 2) : 0}%`}}/>
+                    <div className={`text-xs w-8 shrink-0 text-right font-medium ${m.isCurrent ? 'text-blue-600' : 'text-slate-400'}`}>{m.month}</div>
+                    <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${m.isCurrent ? 'bg-blue-500' : 'bg-blue-300'}`}
+                        style={{width:`${m.amount > 0 ? Math.max((m.amount/maxMonthly)*100, 2) : 0}%`}}/>
                     </div>
-                    <div className="text-xs font-mono text-slate-600 w-16 text-right shrink-0">
-                      {m.amount > 0 ? fmt(m.amount) : '—'}
-                    </div>
+                    <div className="text-xs font-mono text-slate-500 w-14 text-right shrink-0">{m.amount > 0 ? fmt(m.amount) : '—'}</div>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Top 10 병원 */}
+          {/* 납품금액 Top 10 */}
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">납품금액 Top 10 병원</div>
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">납품금액 Top 10</div>
             {loadingDash ? <div className="text-xs text-slate-400">불러오는 중...</div> : top10.length === 0 ? (
               <div className="text-xs text-slate-400">납품 데이터가 없습니다</div>
             ) : (
@@ -3986,14 +4001,42 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
                 {top10.map((x, i) => (
                   <div key={i} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-lg px-1 py-0.5 transition-colors"
                     onClick={() => onSelectHosp(x.hosp, 'deliveries')}>
-                    <div className={`text-xs font-bold w-5 text-center shrink-0 ${i < 3 ? 'text-amber-500' : 'text-slate-400'}`}>{i+1}</div>
+                    <div className={`text-xs font-bold w-4 text-center shrink-0 ${i < 3 ? 'text-amber-500':'text-slate-300'}`}>{i+1}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-slate-700 truncate hover:underline">{x.hosp.name}</div>
+                      <div className="text-xs font-semibold text-slate-700 truncate">{x.hosp.name}</div>
                       <div className="h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
                         <div className="h-full bg-violet-400 rounded-full" style={{width:`${(x.amt/maxTop)*100}%`}}/>
                       </div>
                     </div>
-                    <div className="text-xs font-mono text-slate-600 shrink-0">{fmt(x.amt)}원</div>
+                    <div className="text-xs font-mono text-slate-500 shrink-0">{fmt(x.amt)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 재구매 Top 10 */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">재구매 많은 병원</div>
+            <div className="text-xs text-slate-400 mb-4">납품 건수 기준</div>
+            {loadingDash ? <div className="text-xs text-slate-400">불러오는 중...</div> : repeatTop.length === 0 ? (
+              <div className="text-xs text-slate-400">재구매 데이터가 없습니다</div>
+            ) : (
+              <div className="space-y-2">
+                {repeatTop.map((x, i) => (
+                  <div key={i} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-lg px-1 py-0.5 transition-colors"
+                    onClick={() => onSelectHosp(x.hosp, 'deliveries')}>
+                    <div className={`text-xs font-bold w-4 text-center shrink-0 ${i < 3 ? 'text-emerald-500':'text-slate-300'}`}>{i+1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-slate-700 truncate">{x.hosp.name}</div>
+                      <div className="h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                        <div className="h-full bg-emerald-400 rounded-full" style={{width:`${(x.cnt/maxCnt)*100}%`}}/>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0">
+                      <div className="text-xs font-bold text-emerald-600">{x.cnt}회</div>
+                      <div className="text-xs font-mono text-slate-400">{fmt(x.amt)}</div>
+                    </div>
                   </div>
                 ))}
               </div>
