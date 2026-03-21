@@ -3857,7 +3857,7 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
     if (days >= 14) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'red' });
     else if (days >= 7) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
     else if (days >= 3) allTodoItems.push({ ...item, bucket: 'week', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
-    else if (days >= 1) allTodoItems.push({ ...item, bucket: 'month', label: `A/S 신규 접수 ${days}일`, urgency: 'blue' });
+    else allTodoItems.push({ ...item, bucket: 'month', label: days === 0 ? 'A/S 신규 접수 (오늘)' : `A/S 신규 접수 ${days}일`, urgency: 'blue' });
   });
 
   // 보증기간 만료
@@ -3870,11 +3870,11 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
       exp.setMonth(exp.getMonth() + Number(months));
       const dl = daysDiff(exp);
       const hosp = hospitals.find(h => h.id === c.hospital_id);
-      if (!hosp || dl < 0 || dl > 60) return;
+      if (!hosp || dl < 0 || dl > 90) return;
       const base = { type: 'warranty', hosp, tab: 'contracts', detail: item.name || '장비' };
       if (dl <= 7)  allTodoItems.push({ ...base, bucket: 'today', label: `보증만료 D-${dl}`, urgency: dl <= 3 ? 'red' : 'amber' });
       else if (dl <= 21) allTodoItems.push({ ...base, bucket: 'week',  label: `보증만료 D-${dl}`, urgency: 'amber' });
-      else          allTodoItems.push({ ...base, bucket: 'month', label: `보증만료 D-${dl}`, urgency: 'blue' });
+      else          allTodoItems.push({ ...base, bucket: 'month', label: `보증만료 D-${dl}`, urgency: dl <= 60 ? 'blue' : 'green' });
     }));
   });
 
@@ -3885,9 +3885,9 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
     const hosp = hospitals.find(h => h.id === d.hospital_id);
     if (!hosp) return;
     const base = { type: 'check', hosp, tab: 'deliveries', detail: fmtDate(new Date(d.delivered_date)) + ' 납품' };
-    if (elapsed >= 28 && elapsed <= 32)      allTodoItems.push({ ...base, bucket: 'today', label: `납품 ${elapsed}일 점검`, urgency: 'green' });
-    else if (elapsed >= 23 && elapsed <= 27) allTodoItems.push({ ...base, bucket: 'week',  label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'green' });
-    else if (elapsed >= 18 && elapsed <= 22) allTodoItems.push({ ...base, bucket: 'month', label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'blue' });
+    if (elapsed >= 28 && elapsed <= 35)      allTodoItems.push({ ...base, bucket: 'today', label: `납품 ${elapsed}일 점검`, urgency: 'green' });
+    else if (elapsed >= 21 && elapsed <= 27) allTodoItems.push({ ...base, bucket: 'week',  label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'green' });
+    else if (elapsed >= 7  && elapsed <= 20) allTodoItems.push({ ...base, bucket: 'month', label: `납품 ${elapsed}일 경과 (점검 예정)`, urgency: 'blue' });
   });
 
   const todayItems  = allTodoItems.filter(t => t.bucket === 'today');
