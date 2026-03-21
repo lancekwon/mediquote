@@ -3813,7 +3813,7 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
     (async () => {
       setLoadingDash(true);
       try {
-        const { data } = await sb.from('deliveries').select('id, hospital_id, delivered_date, total_amount').order('delivered_date', { ascending: true });
+        const { data } = await sb.from('deliveries').select('id, hospital_id, delivered_date, total_amount').order('delivered_date', { ascending: true }).limit(5000);
         setDeliveries(data || []);
       } catch(e) { console.error(e); }
       setLoadingDash(false);
