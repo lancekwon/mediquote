@@ -71,6 +71,7 @@ async function dbLoadEquip() {
     },
     altText:  r.alt_text   || '',
     altModels: Array.isArray(r.alt_models) ? r.alt_models : [],
+    homepage: r.homepage   || '',
     image:    r.image_data || null,
     spec: {
       desc:     r.description || '',
@@ -105,6 +106,7 @@ async function dbSaveEquip(entry) {
     model_notes: entry.model.notes || '',
     alt_text: entry.altText || '',
     alt_models: entry.altModels || [],
+    homepage: entry.homepage || '',
     raw_data: entry,
   };
   // 수정 (id가 있으면 Supabase UUID로 update)
@@ -1125,7 +1127,7 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-white rounded-xl shadow-2xl flex flex-col animate-fs" style={{width:'1400px', maxWidth:'98vw', maxHeight:'96vh'}}>
+      <div className="relative bg-white rounded-xl shadow-2xl flex flex-col animate-fs" style={{width:'1400px', maxWidth:'98vw', height:'90vh'}}>
 
         {/* Header */}
         <div className="bg-slate-900 text-white px-5 py-3.5 rounded-t-xl flex items-center justify-between shrink-0">
@@ -1213,7 +1215,7 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
                                 onClick={() => onViewProduct(row.model.id, row.model.name, row.model.manufacturer, row.catName, row.catColorKey)}
                                 className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium whitespace-nowrap transition-colors"
                               >{row.model.name}</button>
-                              {row.model.notes && <span className="px-1 py-0.5 bg-amber-50 text-amber-700 text-xs rounded border border-amber-200 whitespace-nowrap">{row.model.notes}</span>}
+                              {/* model.notes 태그 숨김 */}
                             </div>
                           </td>
                           <td className="px-3 py-2.5 whitespace-nowrap">
@@ -1429,9 +1431,7 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onOpenAlt, onViewProduct
             onClick={() => model && onViewProduct(model.id, model.name, model.manufacturer, catName, catColorKey)}
             className="font-medium text-xs text-blue-600 hover:text-blue-800 hover:underline leading-tight transition-colors"
           >{model?.name}</button>
-          {model?.notes && (
-            <span className="px-1 py-0.5 bg-amber-50 text-amber-700 text-xs rounded border border-amber-200 leading-tight">{model.notes}</span>
-          )}
+          {/* model.notes 태그 숨김 */}
         </div>
       </td>
       {/* 제조사 */}
@@ -2334,7 +2334,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   const editImgRef                    = useRef(null);
 
   /* ── 장비 등록 state ── */
-  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', price:'', altModels:[], image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
+  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
   const [regForm, setRegForm]         = useState(emptyRegForm);
   const [regSaving, setRegSaving]     = useState(false);
   const [regSaved, setRegSaved]       = useState(false);
@@ -2367,7 +2367,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       catId: e.catId || dynCats[0]?.id || '',
       itemName: e.itemName, modelName: e.model.name, manufacturer: e.model.manufacturer,
       price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
-      altText: e.altText || '', altModels: Array.isArray(e.altModels) ? e.altModels.map(m=>({...m, price: m.price != null ? String(m.price) : ''})) : [], image: e.image || null,
+      altText: e.altText || '', altModels: Array.isArray(e.altModels) ? e.altModels.map(m=>({...m, price: m.price != null ? String(m.price) : ''})) : [], homepage: e.homepage || '', image: e.image || null,
       desc: e.spec?.desc || '', specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
       origin: e.spec?.origin || '', cert: e.spec?.cert || '', as: e.spec?.as || '', warranty: e.spec?.warranty || '', notes: e.model.notes || '',
     });
@@ -2396,6 +2396,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       model: { id: editTarget.model.id, name: editForm.modelName.trim(), manufacturer: editForm.manufacturer.trim(), price: parseInt(editForm.price.replace(/[^0-9]/g,''))||null, notes: editForm.notes.trim() },
       altText: editForm.altText.trim(),
       altModels: editForm.altModels || [],
+      homepage: editForm.homepage?.trim() || '',
       image: editForm.image,
       spec: { desc: editForm.desc.trim(), specs: editForm.specs.filter(s=>s.l.trim()), origin: editForm.origin.trim(), cert: editForm.cert.trim(), as: editForm.as.trim(), warranty: editForm.warranty.trim() },
       createdAt: editTarget.createdAt,
@@ -2442,6 +2443,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       model: { id:'cm-'+Date.now(), name: regForm.modelName.trim(), manufacturer: regForm.manufacturer.trim(), price: parseInt(regForm.price.replace(/[^0-9]/g,''))||null, notes: regForm.notes.trim() },
       altText: '',
       altModels: regForm.altModels || [],
+      homepage: regForm.homepage?.trim() || '',
       image: regForm.image,
       spec: { desc: regForm.desc.trim(), specs: regForm.specs.filter(s=>s.l.trim()), origin: regForm.origin.trim(), cert: regForm.cert.trim(), as: regForm.as.trim(), warranty: regForm.warranty.trim() },
       createdAt: new Date().toLocaleDateString('ko-KR'),
@@ -2564,10 +2566,10 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-16">이미지</th>
+                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-24">이미지</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-28">카테고리</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">품목명</th>
-                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">모델명</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-32">모델명</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">제조사</th>
                       <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">단가</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">A/S</th>
@@ -2579,9 +2581,9 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                     {filtered.map(e => (
                       <tr key={e.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors group">
                         <td className="px-3 py-2.5 text-center">
-                          {e.image ? <img src={e.image} alt={e.model.name} className="w-11 h-11 object-cover rounded-lg border border-slate-200 mx-auto shadow-sm"/> : (
-                            <div className="w-11 h-11 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center mx-auto">
-                              <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                          {e.image ? <img src={e.image} alt={e.model.name} className="w-20 h-20 object-contain rounded-lg border border-slate-200 mx-auto shadow-sm bg-white"/> : (
+                            <div className="w-20 h-20 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center mx-auto">
+                              <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                             </div>)}
                         </td>
                         <td className="px-3 py-2.5"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-xs whitespace-nowrap">{e.catName}</span></td>
@@ -2752,12 +2754,13 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                     ))}
                   </div>
                 </div>
-                {/* 인증/보증 */}
-                <div className="grid grid-cols-4 gap-4">
-                  <div><label className={labelCls}>원산지</label><input type="text" value={regForm.origin} onChange={e=>setRF('origin',e.target.value)} className={inputCls}/></div>
+                {/* 인증/보증/홈페이지 */}
+                <div className="grid grid-cols-5 gap-4">
+                  <div><label className={labelCls}>제조국가</label><input type="text" value={regForm.origin} onChange={e=>setRF('origin',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>인증</label><input type="text" placeholder="예: 의료기기 2등급" value={regForm.cert} onChange={e=>setRF('cert',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>A/S 기간</label><input type="text" placeholder="예: 2년" value={regForm.as} onChange={e=>setRF('as',e.target.value)} className={inputCls}/></div>
-                  <div><label className={labelCls}>제품 보증</label><input type="text" placeholder="예: 1년" value={regForm.warranty} onChange={e=>setRF('warranty',e.target.value)} className={inputCls}/></div>
+                  <div><label className={labelCls}>검사주기</label><input type="text" placeholder="예: 1년" value={regForm.warranty} onChange={e=>setRF('warranty',e.target.value)} className={inputCls}/></div>
+                  <div><label className={labelCls}>홈페이지</label><input type="text" placeholder="예: https://gemss.co.kr" value={regForm.homepage} onChange={e=>setRF('homepage',e.target.value)} className={inputCls}/></div>
                 </div>
                 <div className="flex justify-end pt-2 border-t border-slate-100">
                   <button onClick={handleRegSubmit} disabled={regSaving||!regForm.itemName||!regForm.modelName.trim()}
@@ -2944,13 +2947,14 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                     <div><label className={labelCls}>단가</label><input type="text" value={editForm.price} onChange={e=>setEF('price',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력 (문의는 빈칸)"/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div><label className={labelCls}>원산지</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>제조국가</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
                     <div><label className={labelCls}>인증</label><input type="text" value={editForm.cert} onChange={e=>setEF('cert',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
-                    <div><label className={labelCls}>제품 보증</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>검사주기</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
                   </div>
+                  <div><label className={labelCls}>홈페이지</label><input type="text" placeholder="https://..." value={editForm.homepage||''} onChange={e=>setEF('homepage',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>기타 특이사항</label><input type="text" value={editForm.notes} onChange={e=>setEF('notes',e.target.value)} className={inputCls}/></div>
                   {/* 대체 모델 */}
                   {(() => {
