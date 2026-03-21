@@ -3600,10 +3600,10 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
 
       {/* 대시보드 or 테이블 */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-7xl mx-auto">
+        <div>
           {showDashboard && <LeadsDashboard leads={leads} loading={loading} />}
         </div>
-        <div className="max-w-7xl mx-auto" style={{display: showDashboard ? 'none' : 'block'}}>
+        <div style={{display: showDashboard ? 'none' : 'block'}}>
           {loading ? (
             <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400 text-sm">불러오는 중...</div>
           ) : filtered.length === 0 ? (
