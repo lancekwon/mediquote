@@ -3893,7 +3893,10 @@ function ContractFormModal({ quote, onClose, onSaved }) {
         contract_date: contractDate,
         amount: typeof amount === 'string' ? (parseInt(amount.replace(/,/g, '')) || null) : (amount || null),
         status,
-        categories: quote?.categories || [],
+        categories: (quote?.categories || []).map(cat => ({
+          ...cat,
+          items: (cat.items || []).filter(item => !item.excluded),
+        })).filter(cat => (cat.items || []).length > 0),
         notes,
       });
       onSaved && onSaved();
