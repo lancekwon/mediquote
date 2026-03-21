@@ -3864,19 +3864,19 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
   // ── 할 일 항목 생성 ──
   const allTodoItems = [];
 
-  // A/S 미처리
+  // A/S 미처리  (sortVal: 음수 = 오래될수록 먼저)
   serviceReqs.filter(s => s.status === '접수' || s.status === '처리중').forEach(s => {
     const days = s.requested_at ? daysPast(s.requested_at) : 0;
     const hosp = hospitals.find(h => h.id === s.hospital_id);
     if (!hosp) return;
-    const item = { type: 'as', hosp, tab: 'service', detail: s.equipment_name || '장비 미상', days };
+    const item = { type: 'as', hosp, tab: 'service', detail: s.equipment_name || '장비 미상', days, sortVal: -days };
     if (days >= 14) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'red' });
     else if (days >= 7) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
     else if (days >= 3) allTodoItems.push({ ...item, bucket: 'week', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
     else allTodoItems.push({ ...item, bucket: 'month', label: days === 0 ? 'A/S 신규 접수 (오늘)' : `A/S 신규 접수 ${days}일`, urgency: 'blue' });
   });
 
-  // 보증기간 만료
+  // 보증기간 만료  (sortVal: dl = 남은 일수, 적을수록 먼저)
   contracts.forEach(c => {
     if (!c.contract_date || !c.hospital_id) return;
     const cats = Array.isArray(c.categories) ? c.categories : [];
@@ -3887,26 +3887,26 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
       const dl = daysDiff(exp);
       const hosp = hospitals.find(h => h.id === c.hospital_id);
       if (!hosp || dl < 0 || dl > 90) return;
-      const base = { type: 'warranty', hosp, tab: 'contracts', detail: item.name || '장비' };
+      const base = { type: 'warranty', hosp, tab: 'contracts', detail: item.name || '장비', sortVal: dl };
       if (dl <= 7)  allTodoItems.push({ ...base, bucket: 'today', label: `보증만료 D-${dl}`, urgency: dl <= 3 ? 'red' : 'amber' });
       else if (dl <= 21) allTodoItems.push({ ...base, bucket: 'week',  label: `보증만료 D-${dl}`, urgency: 'amber' });
       else          allTodoItems.push({ ...base, bucket: 'month', label: `보증만료 D-${dl}`, urgency: dl <= 60 ? 'blue' : 'green' });
     }));
   });
 
-  // 납품 30일 점검
+  // 납품 30일 점검  (sortVal: 30일 기준까지 남은 일수, 음수 = 지난)
   deliveries.forEach(d => {
     if (!d.delivered_date || !d.hospital_id) return;
     const elapsed = daysPast(d.delivered_date);
     const hosp = hospitals.find(h => h.id === d.hospital_id);
     if (!hosp) return;
-    const base = { type: 'check', hosp, tab: 'deliveries', detail: fmtDate(new Date(d.delivered_date)) + ' 납품' };
+    const base = { type: 'check', hosp, tab: 'deliveries', detail: fmtDate(new Date(d.delivered_date)) + ' 납품', sortVal: 30 - elapsed };
     if (elapsed >= 28 && elapsed <= 35)      allTodoItems.push({ ...base, bucket: 'today', label: `납품 ${elapsed}일 점검`, urgency: 'green' });
     else if (elapsed >= 21 && elapsed <= 27) allTodoItems.push({ ...base, bucket: 'week',  label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'green' });
     else if (elapsed >= 7  && elapsed <= 20) allTodoItems.push({ ...base, bucket: 'month', label: `납품 ${elapsed}일 경과 (점검 예정)`, urgency: 'blue' });
   });
 
-  // 방사선 발생장치 3년 주기 검사 (C-Arm, X-Ray, CT)
+  // 방사선 발생장치 3년 주기 검사  (sortVal: dl = 남은 일수)
   inspectionItems.forEach(item => {
     if (!item.delivered_date || !item.hospital_id) return;
     const hosp = hospitals.find(h => h.id === item.hospital_id);
@@ -3915,12 +3915,15 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
     next.setFullYear(next.getFullYear() + 3);
     const dl = Math.ceil((next - today) / (1000*60*60*24));
     const detail = item.item_name + (item.model_name ? ` (${item.model_name})` : '');
-    const base = { type: 'inspection', hosp, tab: 'info', detail };
-    if (dl < 0)       allTodoItems.push({ ...base, bucket: 'today', label: `검사만료 ${Math.abs(dl)}일 경과`, urgency: 'red' });
+    const base = { type: 'inspection', hosp, tab: 'info', detail, sortVal: dl };
+    if (dl < 0)         allTodoItems.push({ ...base, bucket: 'today', label: `검사만료 ${Math.abs(dl)}일 경과`, urgency: 'red' });
     else if (dl <= 30)  allTodoItems.push({ ...base, bucket: 'today', label: `방사선검사 D-${dl}`, urgency: dl <= 7 ? 'red' : 'amber' });
     else if (dl <= 90)  allTodoItems.push({ ...base, bucket: 'week',  label: `방사선검사 D-${dl}`, urgency: 'amber' });
     else if (dl <= 180) allTodoItems.push({ ...base, bucket: 'month', label: `방사선검사 D-${dl}`, urgency: 'blue' });
   });
+
+  // sortVal 기준 오름차순 정렬 (가장 급한 것 = 가장 작은 값 먼저)
+  allTodoItems.sort((a, b) => (a.sortVal ?? 0) - (b.sortVal ?? 0));
 
   const todayItems  = allTodoItems.filter(t => t.bucket === 'today');
   const weekItems   = allTodoItems.filter(t => t.bucket === 'week');
