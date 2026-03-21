@@ -318,6 +318,22 @@ async function dbDeleteDelivery(id) {
   const { error } = await sb.from('deliveries').delete().eq('id', id);
   if (error) throw error;
 }
+async function dbLoadAllInspectionItems() {
+  // C-Arm, X-Ray, CT 장비 — 3년 주기 방사선 안전관리 검사 대상
+  const { data, error } = await sb.from('delivery_items')
+    .select('id,item_name,model_name,spec,deliveries!inner(id,hospital_id,delivered_date)')
+    .or('item_name.ilike.*c-arm*,item_name.ilike.*x-ray*,item_name.ilike.*ct*')
+    .limit(1000);
+  if (error) { console.error('dbLoadAllInspectionItems:', error); return []; }
+  return (data || []).map(d => ({
+    id: d.id,
+    item_name: d.item_name,
+    model_name: d.model_name,
+    spec: d.spec,
+    hospital_id: d.deliveries?.hospital_id,
+    delivered_date: d.deliveries?.delivered_date,
+  }));
+}
 
 /* ---------- Service Requests DB ---------- */
 async function dbLoadServiceRequests(hospitalId = null) {
@@ -3805,7 +3821,7 @@ function ContractFormModal({ quote, onClose, onSaved }) {
 /* ============================================================
    HOSPITALS PAGE
    ============================================================ */
-function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) {
+function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems = [], onSelectHosp }) {
   const [deliveries, setDeliveries] = React.useState([]);
   const [loadingDash, setLoadingDash] = React.useState(true);
 
@@ -3888,6 +3904,22 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) 
     if (elapsed >= 28 && elapsed <= 35)      allTodoItems.push({ ...base, bucket: 'today', label: `납품 ${elapsed}일 점검`, urgency: 'green' });
     else if (elapsed >= 21 && elapsed <= 27) allTodoItems.push({ ...base, bucket: 'week',  label: `납품 점검 예정 D-${28-elapsed}`, urgency: 'green' });
     else if (elapsed >= 7  && elapsed <= 20) allTodoItems.push({ ...base, bucket: 'month', label: `납품 ${elapsed}일 경과 (점검 예정)`, urgency: 'blue' });
+  });
+
+  // 방사선 발생장치 3년 주기 검사 (C-Arm, X-Ray, CT)
+  inspectionItems.forEach(item => {
+    if (!item.delivered_date || !item.hospital_id) return;
+    const hosp = hospitals.find(h => h.id === item.hospital_id);
+    if (!hosp) return;
+    const next = new Date(item.delivered_date);
+    next.setFullYear(next.getFullYear() + 3);
+    const dl = Math.ceil((next - today) / (1000*60*60*24));
+    const detail = item.item_name + (item.model_name ? ` (${item.model_name})` : '');
+    const base = { type: 'inspection', hosp, tab: 'info', detail };
+    if (dl < 0)       allTodoItems.push({ ...base, bucket: 'today', label: `검사만료 ${Math.abs(dl)}일 경과`, urgency: 'red' });
+    else if (dl <= 30)  allTodoItems.push({ ...base, bucket: 'today', label: `방사선검사 D-${dl}`, urgency: dl <= 7 ? 'red' : 'amber' });
+    else if (dl <= 90)  allTodoItems.push({ ...base, bucket: 'week',  label: `방사선검사 D-${dl}`, urgency: 'amber' });
+    else if (dl <= 180) allTodoItems.push({ ...base, bucket: 'month', label: `방사선검사 D-${dl}`, urgency: 'blue' });
   });
 
   const todayItems  = allTodoItems.filter(t => t.bucket === 'today');
@@ -4072,14 +4104,15 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   const [searchQuery, setSearchQuery] = React.useState('');
   const [deletingHosp, setDeletingHosp] = React.useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+  const [inspectionItems, setInspectionItems] = React.useState([]);
 
   const STATUS_COLORS = { '진행중':'bg-blue-100 text-blue-700', '완료':'bg-emerald-100 text-emerald-700', '취소':'bg-slate-100 text-slate-500', '접수':'bg-amber-100 text-amber-700', '처리중':'bg-blue-100 text-blue-700' };
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [h, c, s] = await Promise.all([dbLoadHospitals(), dbLoadContracts(), dbLoadServiceRequests()]);
-      setHospitals(h); setContracts(c); setServiceReqs(s);
+      const [h, c, s, insp] = await Promise.all([dbLoadHospitals(), dbLoadContracts(), dbLoadServiceRequests(), dbLoadAllInspectionItems()]);
+      setHospitals(h); setContracts(c); setServiceReqs(s); setInspectionItems(insp);
       if (initialHospId) {
         const target = h.find(x => x.id === initialHospId);
         if (target) {
@@ -4165,6 +4198,16 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   });
   const hospContracts = contracts.filter(c => c.hospital_id === selectedHosp?.id);
   const hospSRs = serviceReqs.filter(s => s.hospital_id === selectedHosp?.id);
+  const hospInspItems = inspectionItems.filter(i => i.hospital_id === selectedHosp?.id);
+
+  // 방사선 검사 D-day 계산
+  const calcInsp = (deliveredDate) => {
+    if (!deliveredDate) return null;
+    const next = new Date(deliveredDate);
+    next.setFullYear(next.getFullYear() + 3);
+    const diff = Math.ceil((next - new Date()) / (1000*60*60*24));
+    return { next, diff };
+  };
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
@@ -4200,6 +4243,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
           hospitals={hospitals}
           contracts={contracts}
           serviceReqs={serviceReqs}
+          inspectionItems={inspectionItems}
           onSelectHosp={(hosp, tab) => {
             setSelectedHosp(hosp);
             setDetailTab(tab);
@@ -4316,6 +4360,54 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                       <div className="text-sm text-slate-500">{selectedHosp.created_at ? new Date(selectedHosp.created_at).toLocaleDateString('ko-KR') : '—'}</div>
                     </div>
                   </div>
+
+                  {/* 방사선 발생장치 검사 현황 */}
+                  {hospInspItems.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+                        <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                        <div className="font-semibold text-slate-800 text-sm">방사선 발생장치 안전관리 검사</div>
+                        <span className="ml-1 text-xs text-slate-400 font-normal">3년 주기 의무 검사</span>
+                        <span className="ml-auto text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">{hospInspItems.length}대</span>
+                      </div>
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-100">
+                            <th className="text-left px-4 py-2 text-xs font-semibold text-slate-500">품목명</th>
+                            <th className="text-left px-4 py-2 text-xs font-semibold text-slate-500">모델명</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-500">납품일</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-500">다음 검사 만료일</th>
+                            <th className="text-center px-4 py-2 text-xs font-semibold text-slate-500">상태</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {hospInspItems.map((item, i) => {
+                            const r = calcInsp(item.delivered_date);
+                            if (!r) return null;
+                            const { next, diff } = r;
+                            const nextStr = next.toISOString().substring(0, 10);
+                            const isOverdue = diff < 0;
+                            const statusLabel = isOverdue ? `만료 ${Math.abs(diff)}일 경과` : `D-${diff}`;
+                            const statusCls = isOverdue ? 'bg-red-100 text-red-600 border-red-200'
+                              : diff <= 30  ? 'bg-amber-100 text-amber-700 border-amber-200'
+                              : diff <= 180 ? 'bg-blue-100 text-blue-700 border-blue-200'
+                              : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+                            return (
+                              <tr key={i} className={`border-b border-slate-50 last:border-0 ${isOverdue ? 'bg-red-50/30' : diff <= 30 ? 'bg-amber-50/30' : ''}`}>
+                                <td className="px-4 py-2.5 text-xs font-semibold text-slate-700">{item.item_name}</td>
+                                <td className="px-4 py-2.5 text-xs text-slate-500">{item.model_name || '—'}</td>
+                                <td className="px-4 py-2.5 text-xs text-center text-slate-500">{item.delivered_date}</td>
+                                <td className="px-4 py-2.5 text-xs text-center font-medium text-slate-700">{nextStr}</td>
+                                <td className="px-4 py-2.5 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${statusCls}`}>{statusLabel}</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {/* 병원 포털 링크 */}
                   <div className="bg-blue-50 rounded-xl border border-blue-200 overflow-hidden">
