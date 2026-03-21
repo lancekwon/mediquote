@@ -3805,13 +3805,215 @@ function ContractFormModal({ quote, onClose, onSaved }) {
 /* ============================================================
    HOSPITALS PAGE
    ============================================================ */
-function HospitalsPage({ onBack }) {
+function HospitalDashboard({ hospitals, contracts, serviceReqs, onSelectHosp }) {
+  const [deliveries, setDeliveries] = React.useState([]);
+  const [loadingDash, setLoadingDash] = React.useState(true);
+
+  React.useEffect(() => {
+    (async () => {
+      setLoadingDash(true);
+      try {
+        const { data } = await sb.from('deliveries').select('hospital_id, delivered_date, total_amount').order('delivered_date', { ascending: true });
+        setDeliveries(data || []);
+      } catch(e) { console.error(e); }
+      setLoadingDash(false);
+    })();
+  }, []);
+
+  const today = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const fmtDate = d => `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}`;
+  const daysLeft = d => Math.ceil((new Date(d) - today) / (1000*60*60*24));
+
+  // KPI
+  const totalDeliveryAmt = deliveries.reduce((s, d) => s + (d.total_amount || 0), 0);
+  const thisYear = today.getFullYear();
+  const yearDeliveryAmt = deliveries.filter(d => d.delivered_date?.startsWith(String(thisYear))).reduce((s, d) => s + (d.total_amount || 0), 0);
+  const activeContracts = contracts.filter(c => c.status === '진행중');
+  const pendingSR = serviceReqs.filter(s => s.status === '접수' || s.status === '처리중');
+  const thisMonthHosps = hospitals.filter(h => {
+    if (!h.created_at) return false;
+    const d = new Date(h.created_at);
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+  });
+
+  // 오늘 할 일
+  const todos = [];
+  // A/S 미처리 7일 이상
+  serviceReqs.filter(s => s.status === '접수' || s.status === '처리중').forEach(s => {
+    const days = s.requested_at ? Math.floor((today - new Date(s.requested_at)) / (1000*60*60*24)) : 0;
+    if (days >= 7) {
+      const hosp = hospitals.find(h => h.id === s.hospital_id);
+      if (hosp) todos.push({ type: 'as', label: `A/S 미처리 ${days}일`, hosp, tab: 'service', detail: s.equipment_name || '장비 미상', urgency: days >= 14 ? 'red' : 'amber' });
+    }
+  });
+  // 계약 보증기간 만료 D-60 이내
+  contracts.forEach(c => {
+    if (!c.contract_date || !c.hospital_id) return;
+    const cats = Array.isArray(c.categories) ? c.categories : [];
+    cats.forEach(cat => (cat.items || []).forEach(item => {
+      const months = item.warranty_months ?? 12;
+      const exp = new Date(c.contract_date);
+      exp.setMonth(exp.getMonth() + Number(months));
+      const dl = daysLeft(exp);
+      if (dl >= 0 && dl <= 60) {
+        const hosp = hospitals.find(h => h.id === c.hospital_id);
+        if (hosp) todos.push({ type: 'warranty', label: `보증만료 D-${dl}`, hosp, tab: 'contracts', detail: item.name || '장비', urgency: dl <= 14 ? 'red' : 'amber' });
+      }
+    }));
+  });
+  // 납품 후 30일 점검
+  deliveries.forEach(d => {
+    if (!d.delivered_date || !d.hospital_id) return;
+    const dl = -daysLeft(d.delivered_date);
+    if (dl >= 28 && dl <= 35) {
+      const hosp = hospitals.find(h => h.id === d.hospital_id);
+      if (hosp) todos.push({ type: 'check', label: `납품 ${dl}일 점검`, hosp, tab: 'deliveries', detail: fmtDate(new Date(d.delivered_date)) + ' 납품', urgency: 'green' });
+    }
+  });
+
+  // 월별 납품 추이 (최근 12개월)
+  const monthlyMap = {};
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+    monthlyMap[key] = { month: `${d.getMonth()+1}월`, amount: 0 };
+  }
+  deliveries.forEach(d => {
+    if (!d.delivered_date) return;
+    const key = d.delivered_date.substring(0, 7);
+    if (monthlyMap[key]) monthlyMap[key].amount += d.total_amount || 0;
+  });
+  const monthlyData = Object.values(monthlyMap);
+  const maxMonthly = Math.max(...monthlyData.map(m => m.amount), 1);
+
+  // 병원별 납품금액 Top 10
+  const hospAmtMap = {};
+  deliveries.forEach(d => {
+    if (!d.hospital_id) return;
+    hospAmtMap[d.hospital_id] = (hospAmtMap[d.hospital_id] || 0) + (d.total_amount || 0);
+  });
+  const top10 = Object.entries(hospAmtMap)
+    .map(([hid, amt]) => ({ hosp: hospitals.find(h => h.id === hid), amt }))
+    .filter(x => x.hosp)
+    .sort((a, b) => b.amt - a.amt)
+    .slice(0, 10);
+  const maxTop = Math.max(...top10.map(x => x.amt), 1);
+
+  const urgencyStyle = { red: 'border-red-200 bg-red-50', amber: 'border-amber-200 bg-amber-50', green: 'border-emerald-200 bg-emerald-50' };
+  const urgencyDot = { red: 'bg-red-500', amber: 'bg-amber-400', green: 'bg-emerald-500' };
+  const urgencyText = { red: 'text-red-700', amber: 'text-amber-700', green: 'text-emerald-700' };
+
+  const fmt = n => n >= 100000000 ? `${(n/100000000).toFixed(1)}억` : n >= 10000 ? `${Math.round(n/10000).toLocaleString()}만` : n.toLocaleString();
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+      <div className="max-w-7xl mx-auto space-y-5">
+
+        {/* KPI 카드 */}
+        <div className="grid grid-cols-4 gap-4">
+          {[
+            { label: '관리 병원', value: hospitals.length, sub: `이번달 +${thisMonthHosps.length}`, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: '총 납품금액', value: fmt(totalDeliveryAmt)+'원', sub: `올해 ${fmt(yearDeliveryAmt)}원`, color: 'text-violet-600', bg: 'bg-violet-50' },
+            { label: '진행중 계약', value: activeContracts.length+'건', sub: `전체 ${contracts.length}건`, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { label: '미처리 A/S', value: pendingSR.length+'건', sub: `접수 ${serviceReqs.filter(s=>s.status==='접수').length} · 처리중 ${serviceReqs.filter(s=>s.status==='처리중').length}`, color: pendingSR.length > 0 ? 'text-red-600' : 'text-slate-600', bg: pendingSR.length > 0 ? 'bg-red-50' : 'bg-slate-50' },
+          ].map((k, i) => (
+            <div key={i} className="bg-white rounded-xl border border-slate-200 p-5">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{k.label}</div>
+              <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+              <div className="text-xs text-slate-400 mt-1">{k.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 오늘 할 일 */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">오늘 할 일</div>
+            {todos.length > 0 && <span className="px-2 py-0.5 bg-red-100 text-red-600 text-xs font-bold rounded-full">{todos.length}</span>}
+          </div>
+          {loadingDash ? (
+            <div className="text-xs text-slate-400">불러오는 중...</div>
+          ) : todos.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-emerald-600 font-medium">
+              <span className="text-lg">✅</span> 오늘 처리할 항목이 없습니다
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {todos.map((t, i) => (
+                <div key={i} onClick={() => onSelectHosp(t.hosp, t.tab)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer hover:brightness-95 transition-all ${urgencyStyle[t.urgency]}`}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${urgencyDot[t.urgency]}`}/>
+                  <span className={`text-xs font-bold w-32 shrink-0 ${urgencyText[t.urgency]}`}>{t.label}</span>
+                  <span className="font-semibold text-slate-800 text-sm hover:underline">{t.hosp.name}</span>
+                  <span className="text-xs text-slate-400 ml-auto">{t.detail}</span>
+                  <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-5">
+          {/* 월별 납품 추이 */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">월별 납품금액 추이 (12개월)</div>
+            {loadingDash ? <div className="text-xs text-slate-400">불러오는 중...</div> : (
+              <div className="space-y-2">
+                {monthlyData.map((m, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="text-xs text-slate-400 w-8 shrink-0 text-right">{m.month}</div>
+                    <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full transition-all"
+                        style={{width: `${m.amount > 0 ? Math.max((m.amount / maxMonthly) * 100, 2) : 0}%`}}/>
+                    </div>
+                    <div className="text-xs font-mono text-slate-600 w-16 text-right shrink-0">
+                      {m.amount > 0 ? fmt(m.amount) : '—'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Top 10 병원 */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">납품금액 Top 10 병원</div>
+            {loadingDash ? <div className="text-xs text-slate-400">불러오는 중...</div> : top10.length === 0 ? (
+              <div className="text-xs text-slate-400">납품 데이터가 없습니다</div>
+            ) : (
+              <div className="space-y-2">
+                {top10.map((x, i) => (
+                  <div key={i} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-lg px-1 py-0.5 transition-colors"
+                    onClick={() => onSelectHosp(x.hosp, 'deliveries')}>
+                    <div className={`text-xs font-bold w-5 text-center shrink-0 ${i < 3 ? 'text-amber-500' : 'text-slate-400'}`}>{i+1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-slate-700 truncate hover:underline">{x.hosp.name}</div>
+                      <div className="h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                        <div className="h-full bg-violet-400 rounded-full" style={{width:`${(x.amt/maxTop)*100}%`}}/>
+                      </div>
+                    </div>
+                    <div className="text-xs font-mono text-slate-600 shrink-0">{fmt(x.amt)}원</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNavigated }) {
   const [hospitals, setHospitals] = React.useState([]);
   const [contracts, setContracts] = React.useState([]);
   const [serviceReqs, setServiceReqs] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedHosp, setSelectedHosp] = React.useState(null);
   const [detailTab, setDetailTab] = React.useState('info');
+  const [showDashboard, setShowDashboard] = React.useState(false);
   const [showNewHospForm, setShowNewHospForm] = React.useState(false);
   const [editingHosp, setEditingHosp] = React.useState(null);
   const [newHosp, setNewHosp] = React.useState({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'', access_pin:'' });
@@ -3832,6 +4034,16 @@ function HospitalsPage({ onBack }) {
     try {
       const [h, c, s] = await Promise.all([dbLoadHospitals(), dbLoadContracts(), dbLoadServiceRequests()]);
       setHospitals(h); setContracts(c); setServiceReqs(s);
+      if (initialHospId) {
+        const target = h.find(x => x.id === initialHospId);
+        if (target) {
+          setSelectedHosp(target);
+          setDetailTab(initialTab);
+          setShowDashboard(false);
+          if (initialTab === 'deliveries') loadDeliveries(target.id);
+        }
+        if (onNavigated) onNavigated();
+      }
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -3898,6 +4110,11 @@ function HospitalsPage({ onBack }) {
         <span className="text-slate-400 text-xs">·</span>
         <span className="text-slate-200 text-sm font-semibold">병원 관리</span>
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setShowDashboard(p => !p)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            {showDashboard ? '목록 보기' : '대시보드'}
+          </button>
           <button onClick={openNewHospForm}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
@@ -3910,8 +4127,24 @@ function HospitalsPage({ onBack }) {
         </div>
       </div>
 
+      {/* 대시보드 */}
+      {showDashboard && (
+        <HospitalDashboard
+          hospitals={hospitals}
+          contracts={contracts}
+          serviceReqs={serviceReqs}
+          onSelectHosp={(hosp, tab) => {
+            setSelectedHosp(hosp);
+            setDetailTab(tab);
+            setShowDashboard(false);
+            setDeliveries([]);
+            if (tab === 'deliveries') loadDeliveries(hosp.id);
+          }}
+        />
+      )}
+
       {/* 바디 — 좌우 패널 */}
-      <div className="flex-1 overflow-hidden flex">
+      <div className="flex-1 overflow-hidden flex" style={{display: showDashboard ? 'none' : 'flex'}}>
         {/* 좌: 병원 목록 */}
         <div className={`${selectedHosp ? 'w-80' : 'flex-1'} border-r border-slate-200 overflow-y-auto bg-white shrink-0`}>
           {loading ? (
@@ -5405,7 +5638,15 @@ function App() {
   const [view, setView] = useState('list'); // 'editor' | 'list' | 'manage'
   const [listInitialTab, setListInitialTab] = useState('saved');
   const [listInitialDept, setListInitialDept] = useState(null);
-  const [currentLead, setCurrentLead] = useState(null); // 리드에서 견적 작성 시 연결 리드
+  const [hospitalsInitialHospId, setHospitalsInitialHospId] = useState(null);
+  const [hospitalsInitialTab, setHospitalsInitialTab] = useState('info');
+  const [currentLead, setCurrentLead] = useState(null);
+
+  const goToHospital = (hospId, tab = 'info') => {
+    setHospitalsInitialHospId(hospId);
+    setHospitalsInitialTab(tab);
+    setView('hospitals');
+  }; // 리드에서 견적 작성 시 연결 리드
   const [customEquips, setCustomEquips] = useState([]);
   const [dynCats, setDynCats] = useState([]);
   const [dynItems, setDynItems] = useState([]);
@@ -5559,7 +5800,12 @@ function App() {
   }
 
   if (view === 'hospitals') {
-    return <HospitalsPage onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} />;
+    return <HospitalsPage
+      onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }}
+      initialHospId={hospitalsInitialHospId}
+      initialTab={hospitalsInitialTab}
+      onNavigated={() => { setHospitalsInitialHospId(null); setHospitalsInitialTab('info'); }}
+    />;
   }
 
   if (view === 'service') {
