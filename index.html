@@ -821,6 +821,68 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onManage, onHome, onH
 }
 
 /* ============================================================
+   APP HEADER (공통 헤더 — 아바타 드롭다운 메뉴 포함)
+   ============================================================ */
+function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const menuItems = [
+    { label:'리드 관리',  onClick: nav?.leads,     icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
+    { label:'견적 관리',  onClick: nav?.list,      icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
+    { label:'병원 관리',  onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
+    { label:'A/S 관리',  onClick: nav?.service,   icon:'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
+    { label:'장비 관리',  onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+  ];
+  return (
+    <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
+      <button onClick={onLogoClick} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity shrink-0">
+        <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
+        <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+      </button>
+      {title && <>
+        <span className="text-slate-400 text-xs shrink-0">·</span>
+        <span className="text-slate-200 text-sm font-semibold shrink-0">{title}</span>
+      </>}
+      {badge && <span className="ml-1 px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded-full shrink-0">{badge}</span>}
+      <div className="ml-auto flex items-center gap-2">
+        {children}
+        <div className="relative shrink-0" ref={menuRef}>
+          <button onClick={() => setMenuOpen(p => !p)}
+            className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center text-white text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400">
+            {user?.email?.[0]?.toUpperCase() || '?'}
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-10 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-fs z-50">
+              {menuItems.map(item => (
+                <button key={item.label} onClick={() => { item.onClick?.(); setMenuOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left">
+                  <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon}/>
+                  </svg>
+                  {item.label}
+                </button>
+              ))}
+              <div className="border-t border-slate-100 mx-3 my-1"/>
+              <div className="px-4 py-2 text-xs text-slate-400 truncate">{user?.email || ''}</div>
+              <button onClick={() => { onLogout?.(); setMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors text-left">
+                <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                로그아웃
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ============================================================
    PRODUCT DETAIL MODAL
    ============================================================ */
 function ProductDetailModal({ modelId, modelName, manufacturer, catName, catColorKey, onClose, onViewManufacturer, customEquips = [] }) {
@@ -2326,7 +2388,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
    EQUIPMENT MANAGE PAGE (통합: 장비목록 + 장비등록 + 카테고리관리)
    ============================================================ */
 
-function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsChange, onItemsChange }) {
+function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsChange, onItemsChange, user, onLogout, nav }) {
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'register' | 'catmgr'
   const emptySpec = () => ({ l:'', v:'' });
   const inputCls = "w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400";
@@ -2513,21 +2575,12 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* Header */}
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
-          <span className="font-bold text-sm text-slate-100">DWmedi</span>
+      <AppHeader title="장비 관리" badge={`${equips.length}개 등록`} onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
+        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          견적 작성으로 돌아가기
         </button>
-        <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">장비 관리</span>
-        <span className="ml-2 px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded-full">{equips.length}개 등록</span>
-        <div className="ml-auto">
-          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            견적 작성으로 돌아가기
-          </button>
-        </div>
-      </div>
+      </AppHeader>
 
       {/* Tab bar */}
       <div className="bg-white border-b border-slate-200 px-6 flex items-center gap-0 shrink-0">
@@ -3410,7 +3463,7 @@ const LEAD_STAGE_BTN = {
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
 const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'' };
 
-function LeadsPage({ onBack, onCreateQuote }) {
+function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const [leads, setLeads] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState('신규문의');
@@ -3483,32 +3536,24 @@ function LeadsPage({ onBack, onCreateQuote }) {
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* 헤더 */}
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
-          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+      <AppHeader title="리드 관리" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
+        <button onClick={() => setShowDashboard(p => !p)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          {showDashboard ? '목록 보기' : '대시보드'}
         </button>
-        <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">리드 관리</span>
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => setShowDashboard(p => !p)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-            {showDashboard ? '목록 보기' : '대시보드'}
+        {!showDashboard && (
+          <button onClick={openNew}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+            새 리드
           </button>
-          {!showDashboard && (
-            <button onClick={openNew}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-              새 리드
-            </button>
-          )}
-          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            돌아가기
-          </button>
-        </div>
-      </div>
+        )}
+        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          돌아가기
+        </button>
+      </AppHeader>
 
       {/* 영업 단계 필터 */}
       {!showDashboard && <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-2 shrink-0 overflow-x-auto">
@@ -4213,7 +4258,7 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
   );
 }
 
-function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNavigated }) {
+function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNavigated, user, onLogout, nav }) {
   const [hospitals, setHospitals] = React.useState([]);
   const [contracts, setContracts] = React.useState([]);
   const [serviceReqs, setServiceReqs] = React.useState([]);
@@ -4344,30 +4389,22 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* 헤더 */}
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
-          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+      <AppHeader title="병원 관리" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
+        <button onClick={() => setShowDashboard(p => !p)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          {showDashboard ? '목록 보기' : '대시보드'}
         </button>
-        <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">병원 관리</span>
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => setShowDashboard(p => !p)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-            {showDashboard ? '목록 보기' : '대시보드'}
-          </button>
-          <button onClick={openNewHospForm}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-            새 병원 등록
-          </button>
-          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            돌아가기
-          </button>
-        </div>
-      </div>
+        <button onClick={openNewHospForm}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+          새 병원 등록
+        </button>
+        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          돌아가기
+        </button>
+      </AppHeader>
 
       {/* 대시보드 */}
       {showDashboard && (
@@ -5022,7 +5059,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
 /* ============================================================
    SERVICE REQUESTS PAGE (전체 A/S 관리)
    ============================================================ */
-function ServiceRequestsPage({ onBack }) {
+function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
   const [serviceReqs, setServiceReqs] = React.useState([]);
   const [hospitals, setHospitals] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -5082,25 +5119,17 @@ function ServiceRequestsPage({ onBack }) {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
-          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
+      <AppHeader title="A/S 관리" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
+        <button onClick={openNew}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+          A/S 등록
         </button>
-        <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">A/S 관리</span>
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={openNew}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-            A/S 등록
-          </button>
-          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-            돌아가기
-          </button>
-        </div>
-      </div>
+        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+          돌아가기
+        </button>
+      </AppHeader>
 
       {/* 상태 필터 바 */}
       <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center gap-3 shrink-0">
@@ -5241,7 +5270,7 @@ function ServiceRequestsPage({ onBack }) {
 /* ============================================================
    SAVED QUOTES LIST
    ============================================================ */
-function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, customEquips = [], dynCats = [], initialTab = 'saved', initialDept = null }) {
+function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, customEquips = [], dynCats = [], initialTab = 'saved', initialDept = null, user, onLogout, nav }) {
   const [saves, setSaves] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [confirmId, setConfirmId] = React.useState(null);
@@ -5533,39 +5562,13 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* Header */}
-      <div className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-        <button onClick={onBack} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity">
-          <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
-          <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
-        </button>
-        <span className="text-slate-400 text-xs">·</span>
-        <span className="text-slate-200 text-sm font-semibold">견적서 관리</span>
+      <AppHeader title="견적서 관리" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
         <Toast toasts={toasts}/>
-        <div className="ml-auto flex items-center gap-2">
-          {onLeads && (
-            <button onClick={onLeads} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-              리드 관리
-            </button>
-          )}
-          {onHospitals && (
-            <button onClick={onHospitals} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-              병원 관리
-            </button>
-          )}
-          {onService && (
-            <button onClick={onService} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-              A/S 관리
-            </button>
-          )}
-          <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-            견적 작성
-          </button>
-        </div>
-      </div>
+        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          견적 작성
+        </button>
+      </AppHeader>
 
       {/* Tabs */}
       <div className="bg-white border-b border-slate-200 px-8 shrink-0">
@@ -6134,6 +6137,14 @@ function App() {
     return <LoginPage onLogin={setUser} />;
   }
 
+  const nav = {
+    leads:     () => { setListInitialTab('saved'); setListInitialDept(null); setView('leads'); },
+    list:      () => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); },
+    hospitals: () => setView('hospitals'),
+    service:   () => { setListInitialTab('saved'); setListInitialDept(null); setView('service'); },
+    manage:    () => setView('manage'),
+  };
+
   if (view === 'manage') {
     return <EquipmentManagePage
       onBack={() => setView('editor')}
@@ -6142,6 +6153,9 @@ function App() {
       dynItems={dynItems}
       onCatsChange={setDynCats}
       onItemsChange={setDynItems}
+      user={user}
+      onLogout={handleLogout}
+      nav={nav}
     />;
   }
 
@@ -6151,16 +6165,27 @@ function App() {
       initialHospId={hospitalsInitialHospId}
       initialTab={hospitalsInitialTab}
       onNavigated={() => { setHospitalsInitialHospId(null); setHospitalsInitialTab('info'); }}
+      user={user}
+      onLogout={handleLogout}
+      nav={nav}
     />;
   }
 
   if (view === 'service') {
-    return <ServiceRequestsPage onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} />;
+    return <ServiceRequestsPage
+      onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }}
+      user={user}
+      onLogout={handleLogout}
+      nav={nav}
+    />;
   }
 
   if (view === 'leads') {
     return <LeadsPage
       onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }}
+      user={user}
+      onLogout={handleLogout}
+      nav={nav}
       onCreateQuote={(lead, type) => {
         if (type === 'standard') {
           setListInitialTab('standard');
@@ -6192,6 +6217,9 @@ function App() {
         dynCats={dynCats}
         initialTab={listInitialTab}
         initialDept={listInitialDept}
+        user={user}
+        onLogout={handleLogout}
+        nav={nav}
       />
     );
   }
