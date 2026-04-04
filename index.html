@@ -1123,12 +1123,18 @@ function ManufacturerModal({ manufacturer, allCategories, onClose, onViewProduct
 /* ============================================================
    ADD EQUIPMENT MODAL
    ============================================================ */
-function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd, onClose, onViewProduct, onViewManufacturer }) {
+function AddEquipmentModal({ categories, customEquips = [], dynCats = [], dynItems = [], onAdd, onClose, onViewProduct, onViewManufacturer }) {
   const [tab, setTab] = useState('search');          // 'search' | 'custom'
   const [query, setQuery] = useState('');
-  const [selectedCat, setSelectedCat] = useState('all');
+  const [selectedCat,  setSelectedCat]  = useState('all');
+  const [selectedItem, setSelectedItem] = useState('all');
   const searchRef = useRef(null);
   const filterCats = dynCats.length > 0 ? dynCats : categories;
+
+  const handleSelectCat = (catId) => {
+    setSelectedCat(catId);
+    setSelectedItem('all');
+  };
 
   // custom form state
   const [form, setForm] = useState({
@@ -1153,17 +1159,23 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
     }));
   }, [customEquips, filterCats, categories]);
 
+  const itemOptions = useMemo(() => {
+    if (selectedCat === 'all') return [];
+    return dynItems.filter(it => it.catId === selectedCat);
+  }, [dynItems, selectedCat]);
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
     return catalog.filter(r => {
-      const matchCat = selectedCat === 'all' || r.catId === selectedCat;
+      const matchCat  = selectedCat  === 'all' || r.catId    === selectedCat;
+      const matchItem = selectedItem === 'all' || r.itemName === selectedItem;
       const matchQ = !q ||
         r.itemName.toLowerCase().includes(q) ||
         r.model.name.toLowerCase().includes(q) ||
         r.model.manufacturer.toLowerCase().includes(q);
-      return matchCat && matchQ;
+      return matchCat && matchItem && matchQ;
     });
-  }, [catalog, query, selectedCat]);
+  }, [catalog, query, selectedCat, selectedItem]);
 
   const handleAddFromSearch = (row) => {
     onAdd({
@@ -1175,6 +1187,21 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
       notes: row.model.notes,
       image: row.image || null,
       altModels: row.altModels || [],
+    });
+  };
+
+  const handleAddAll = () => {
+    filtered.forEach((row, i) => {
+      setTimeout(() => onAdd({
+        catId:        row.catId,
+        itemName:     row.itemName,
+        modelName:    row.model.name,
+        manufacturer: row.model.manufacturer,
+        price:        row.model.price,
+        notes:        row.model.notes,
+        image:        row.image || null,
+        altModels:    row.altModels || [],
+      }), i * 2);
     });
   };
 
@@ -1241,12 +1268,26 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
               </div>
               <div className="flex flex-wrap gap-1">
                 {[{id:'all',label:'전체'},...filterCats.map(c=>({id:c.id,label:c.name}))].map(f=>(
-                  <button key={f.id} onClick={()=>setSelectedCat(f.id)}
+                  <button key={f.id} onClick={()=>handleSelectCat(f.id)}
                     className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors whitespace-nowrap ${selectedCat===f.id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-100'}`}>
                     {f.label}
                   </button>
                 ))}
               </div>
+              {itemOptions.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1.5 border-t border-slate-100">
+                  <button onClick={()=>setSelectedItem('all')}
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors whitespace-nowrap ${selectedItem==='all'?'bg-blue-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>
+                    전체
+                  </button>
+                  {itemOptions.map(it=>(
+                    <button key={it.id} onClick={()=>setSelectedItem(it.name)}
+                      className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors whitespace-nowrap ${selectedItem===it.name?'bg-blue-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>
+                      {it.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Results */}
@@ -1258,6 +1299,14 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
                   <div className="text-xs mt-1">직접 입력 탭에서 새 장비를 추가해 보세요</div>
                 </div>
               ) : (
+                <>
+                <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-slate-50/60 shrink-0">
+                  <span className="text-xs text-slate-500">{filtered.length}개 장비</span>
+                  <button onClick={handleAddAll}
+                    className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-medium transition-colors">
+                    전체 추가 ({filtered.length})
+                  </button>
+                </div>
                 <table className="w-full">
                   <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
                     <tr>
@@ -1310,6 +1359,7 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], onAdd,
                     })}
                   </tbody>
                 </table>
+                </>
               )}
             </div>
           </div>
@@ -5924,6 +5974,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
           categories={dynCats.length > 0 ? dynCats : []}
           customEquips={customEquips}
           dynCats={dynCats}
+          dynItems={dynItems}
           onAdd={handleAddFromModal}
           onClose={() => setShowTplEquipModal(false)}
           onViewProduct={() => {}}
@@ -6056,17 +6107,18 @@ function App() {
   }, []);
 
   const handleAddEquip = useCallback(({ catId, itemName, modelName, manufacturer, price, notes, image, altModels = [] }) => {
-    const mid = 'custom-model-' + Date.now();
+    const rand = () => Math.random().toString(36).slice(2, 7);
+    const mid = 'custom-model-' + Date.now() + '-' + rand();
     const primaryModel = { id: mid, name: modelName, manufacturer: manufacturer || '', price: price ?? null, notes: notes || '', image: image || null };
     const altModelObjs = altModels.map((am, i) => ({
-      id: 'alt-model-' + Date.now() + '-' + i,
+      id: 'alt-model-' + Date.now() + '-' + i + '-' + rand(),
       name: am.name || '',
       manufacturer: am.manufacturer || '',
       price: am.price ?? null,
       notes: am.notes || '',
     }));
     const newItem = {
-      id: 'custom-' + Date.now(),
+      id: 'custom-' + Date.now() + '-' + rand(),
       name: itemName,
       selectedModelId: mid,
       quantity: 1,
@@ -6315,6 +6367,7 @@ function App() {
           categories={categories}
           customEquips={customEquips}
           dynCats={dynCats}
+          dynItems={dynItems}
           onAdd={(data) => { handleAddEquip(data); }}
           onClose={() => setAddEquipOpen(false)}
           onViewProduct={(modelId, modelName, manufacturer, catName, catColorKey) => { setAddEquipOpen(false); setProductModal({modelId, modelName, manufacturer, catName, catColorKey}); }}
