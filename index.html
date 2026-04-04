@@ -72,6 +72,7 @@ async function dbLoadEquip() {
     altText:  r.alt_text   || '',
     altModels: Array.isArray(r.alt_models) ? r.alt_models : [],
     homepage: r.homepage   || '',
+    purchasePrice: r.purchase_price ?? null,
     image:    r.image_data || null,
     spec: {
       desc:     r.description || '',
@@ -107,6 +108,7 @@ async function dbSaveEquip(entry) {
     alt_text: entry.altText || '',
     alt_models: entry.altModels || [],
     homepage: entry.homepage || '',
+    purchase_price: entry.purchasePrice || null,
     raw_data: entry,
   };
   // 수정 (id가 있으면 Supabase UUID로 update)
@@ -2469,7 +2471,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   const editImgRef                    = useRef(null);
 
   /* ── 장비 등록 state ── */
-  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
+  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', purchasePrice:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
   const [regForm, setRegForm]         = useState(emptyRegForm);
   const [regSaving, setRegSaving]     = useState(false);
   const [regSaved, setRegSaved]       = useState(false);
@@ -2501,6 +2503,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     setEditForm({
       catId: e.catId || dynCats[0]?.id || '',
       itemName: e.itemName, modelName: e.model.name, manufacturer: e.model.manufacturer,
+      purchasePrice: e.purchasePrice != null ? e.purchasePrice.toLocaleString('ko-KR') : '',
       price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
       altText: e.altText || '', altModels: Array.isArray(e.altModels) ? e.altModels.map(m=>({...m, price: m.price != null ? String(m.price) : ''})) : [], homepage: e.homepage || '', image: e.image || null,
       desc: e.spec?.desc || '', specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
@@ -2529,6 +2532,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       catId: catObj?.id || editForm.catId, catName: catObj?.name || editForm.catId,
       itemName: editForm.itemName.trim(),
       model: { id: editTarget.model.id, name: editForm.modelName.trim(), manufacturer: editForm.manufacturer.trim(), price: parseInt(editForm.price.replace(/[^0-9]/g,''))||null, notes: editForm.notes.trim() },
+      purchasePrice: parseInt((editForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
       altText: editForm.altText.trim(),
       altModels: editForm.altModels || [],
       homepage: editForm.homepage?.trim() || '',
@@ -2576,6 +2580,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       id: null, catId: catObj?.id || regForm.catId, catName: catObj?.name || regForm.catId,
       itemName: regForm.itemName,
       model: { id:'cm-'+Date.now(), name: regForm.modelName.trim(), manufacturer: regForm.manufacturer.trim(), price: parseInt(regForm.price.replace(/[^0-9]/g,''))||null, notes: regForm.notes.trim() },
+      purchasePrice: parseInt((regForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
       altText: '',
       altModels: regForm.altModels || [],
       homepage: regForm.homepage?.trim() || '',
@@ -2692,6 +2697,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">품목명</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-32">모델명</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">제조사</th>
+                      <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">매입가</th>
                       <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">단가</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">A/S</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">보증</th>
@@ -2711,6 +2717,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                         <td className="px-3 py-2.5 font-semibold text-slate-800">{e.itemName}</td>
                         <td className="px-3 py-2.5 text-slate-700">{e.model.name}</td>
                         <td className="px-3 py-2.5 text-slate-600">{e.model.manufacturer}</td>
+                        <td className="px-3 py-2.5 text-right tnum font-medium text-slate-600">{e.purchasePrice!=null?e.purchasePrice.toLocaleString('ko-KR')+'원':<span className="text-slate-300 font-normal">—</span>}</td>
                         <td className="px-3 py-2.5 text-right tnum font-medium text-slate-800">{e.model.price!=null?e.model.price.toLocaleString('ko-KR')+'원':<span className="text-slate-400 font-normal">문의</span>}</td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.as||'—'}</td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.warranty||'—'}</td>
@@ -2769,8 +2776,13 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                     <input type="text" placeholder="예: Gemss healthcare" value={regForm.manufacturer} onChange={e=>setRF('manufacturer',e.target.value)} className={inputCls}/>
                   </div>
                 </div>
-                {/* Row 2: 단가 / 대체품 / 특이사항 */}
-                <div className="grid grid-cols-3 gap-4">
+                {/* Row 2: 매입가 / 단가 / 특이사항 */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className={labelCls}>매입가 (원)</label>
+                    <input type="text" inputMode="numeric" placeholder="0" value={regForm.purchasePrice}
+                      onChange={e=>setRF('purchasePrice',(parseInt(e.target.value.replace(/[^0-9]/g,''))||'').toLocaleString('ko-KR').replace('NaN',''))} className={inputCls}/>
+                  </div>
                   <div>
                     <label className={labelCls}>단가 (원)</label>
                     <input type="text" inputMode="numeric" placeholder="0" value={regForm.price}
@@ -3065,15 +3077,19 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>제조사</label><input type="text" value={editForm.manufacturer} onChange={e=>setEF('manufacturer',e.target.value)} className={inputCls}/></div>
-                    <div><label className={labelCls}>단가</label><input type="text" value={editForm.price} onChange={e=>setEF('price',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력 (문의는 빈칸)"/></div>
+                    <div><label className={labelCls}>매입가</label><input type="text" value={editForm.purchasePrice||''} onChange={e=>setEF('purchasePrice',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력"/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div><label className={labelCls}>제조국가</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>단가</label><input type="text" value={editForm.price} onChange={e=>setEF('price',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력 (문의는 빈칸)"/></div>
                     <div><label className={labelCls}>인증</label><input type="text" value={editForm.cert} onChange={e=>setEF('cert',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
+                    <div><label className={labelCls}>제조국가</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
                     <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>검사주기</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div><label className={labelCls}>홈페이지</label><input type="text" placeholder="https://..." value={editForm.homepage||''} onChange={e=>setEF('homepage',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>기타 특이사항</label><input type="text" value={editForm.notes} onChange={e=>setEF('notes',e.target.value)} className={inputCls}/></div>
