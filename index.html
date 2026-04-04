@@ -3625,11 +3625,14 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
   ];
 
   const EVENT_TYPES = {
-    inquiry:    { label:'신규문의', dot:'bg-slate-400',   badge:'bg-slate-400 text-white'   },
-    quote_sent: { label:'견적발송', dot:'bg-violet-500',  badge:'bg-violet-500 text-white'  },
-    meeting:    { label:'미팅',    dot:'bg-blue-500',    badge:'bg-blue-500 text-white'    },
-    contracted: { label:'계약완료', dot:'bg-emerald-500', badge:'bg-emerald-500 text-white' },
-    lost:       { label:'타사계약', dot:'bg-red-400',     badge:'bg-red-400 text-white'     },
+    inquiry:          { label:'신규문의', dot:'bg-slate-400',   badge:'bg-slate-400 text-white'   },
+    quote_sent:       { label:'견적발송', dot:'bg-violet-500',  badge:'bg-violet-500 text-white'  },
+    meeting:          { label:'미팅',    dot:'bg-blue-500',    badge:'bg-blue-500 text-white'    },
+    contracted:       { label:'계약완료', dot:'bg-emerald-500', badge:'bg-emerald-500 text-white' },
+    delivered:        { label:'납품',    dot:'bg-orange-500',  badge:'bg-orange-500 text-white'  },
+    purchase_complete:{ label:'매입완료', dot:'bg-cyan-500',    badge:'bg-cyan-500 text-white'    },
+    sales_complete:   { label:'매출완료', dot:'bg-teal-600',    badge:'bg-teal-600 text-white'    },
+    lost:             { label:'타사계약', dot:'bg-red-400',     badge:'bg-red-400 text-white'     },
   };
 
   const toKey = (s) => (s && typeof s === 'string') ? s.substring(0,10) : null;
@@ -3646,8 +3649,11 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
     fl.forEach(lead => {
       if (lead.created_at)      add(lead.created_at,      lead, 'inquiry');
       if (lead.quote_sent_date) add(lead.quote_sent_date, lead, 'quote_sent');
-      if (lead.contracted_at)   add(lead.contracted_at,   lead, 'contracted');
-      if (lead.lost_at)         add(lead.lost_at,         lead, 'lost');
+      if (lead.contracted_at)          add(lead.contracted_at,          lead, 'contracted');
+      if (lead.delivered_at)           add(lead.delivered_at,           lead, 'delivered');
+      if (lead.purchase_complete_at)   add(lead.purchase_complete_at,   lead, 'purchase_complete');
+      if (lead.sales_complete_at)      add(lead.sales_complete_at,      lead, 'sales_complete');
+      if (lead.lost_at)                add(lead.lost_at,                lead, 'lost');
       const mtgs = Array.isArray(lead.meetings) ? lead.meetings : [];
       mtgs.forEach((m, i) => {
         if (m.date) {
@@ -3688,8 +3694,11 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
     (Array.isArray(lead.meetings)?lead.meetings:[]).forEach((m,i) => {
       if (m.date) evs.push({ date:m.date, type:'meeting', label:`${i+1}차 미팅`, sub:`${m.type||''}${m.time?' '+m.time:''}`, memo:m.memo||'' });
     });
-    if (lead.contracted_at)   evs.push({ date:lead.contracted_at,               type:'contracted', label:'계약완료', sub:'', memo:'' });
-    if (lead.lost_at)         evs.push({ date:lead.lost_at,                      type:'lost',       label:'타사계약', sub:'', memo:'' });
+    if (lead.contracted_at)        evs.push({ date:lead.contracted_at,        type:'contracted',        label:'계약완료', sub:'', memo:'' });
+    if (lead.delivered_at)         evs.push({ date:lead.delivered_at,         type:'delivered',         label:'납품',    sub:'', memo:'' });
+    if (lead.purchase_complete_at) evs.push({ date:lead.purchase_complete_at, type:'purchase_complete', label:'매입완료', sub:'', memo:'' });
+    if (lead.sales_complete_at)    evs.push({ date:lead.sales_complete_at,    type:'sales_complete',    label:'매출완료', sub:'', memo:'' });
+    if (lead.lost_at)              evs.push({ date:lead.lost_at,              type:'lost',              label:'타사계약', sub:'', memo:'' });
     return evs.sort((a,b) => b.date.localeCompare(a.date));
   };
 
@@ -3918,7 +3927,7 @@ const LEAD_STAGE_BTN = {
   '타사계약': 'bg-red-500',
 };
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
-const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', quote_sent_date:'', contracted_at:'', lost_at:'', meetings:[] };
+const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', quote_sent_date:'', contracted_at:'', delivered_at:'', purchase_complete_at:'', sales_complete_at:'', lost_at:'', meetings:[] };
 
 function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const [leads, setLeads] = React.useState([]);
@@ -3960,7 +3969,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   };
   const openEdit = (lead) => {
     setEditingLead(lead);
-    setForm({ hospital_name:lead.hospital_name||'', contact_name:lead.contact_name||'', contact_phone:lead.contact_phone||'', dept:lead.dept||'', opening_date:lead.opening_date||'', source:lead.source||'직접입력', stage:lead.stage||'신규문의', assignee:lead.assignee||'', notes:lead.notes||'', quote_sent_date:lead.quote_sent_date||'', contracted_at:lead.contracted_at||'', lost_at:lead.lost_at||'', meetings:Array.isArray(lead.meetings)?lead.meetings:[] });
+    setForm({ hospital_name:lead.hospital_name||'', contact_name:lead.contact_name||'', contact_phone:lead.contact_phone||'', dept:lead.dept||'', opening_date:lead.opening_date||'', source:lead.source||'직접입력', stage:lead.stage||'신규문의', assignee:lead.assignee||'', notes:lead.notes||'', quote_sent_date:lead.quote_sent_date||'', contracted_at:lead.contracted_at||'', delivered_at:lead.delivered_at||'', purchase_complete_at:lead.purchase_complete_at||'', sales_complete_at:lead.sales_complete_at||'', lost_at:lead.lost_at||'', meetings:Array.isArray(lead.meetings)?lead.meetings:[] });
     setShowForm(true);
   };
 
@@ -3970,7 +3979,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
     try {
       // 빈 문자열 DATE 필드 → null 변환 (PostgreSQL DATE 타입 오류 방지)
       const payload = { ...form };
-      ['quote_sent_date','contracted_at','lost_at'].forEach(f => { if (payload[f] === '') payload[f] = null; });
+      ['quote_sent_date','contracted_at','delivered_at','purchase_complete_at','sales_complete_at','lost_at'].forEach(f => { if (payload[f] === '') payload[f] = null; });
       // meetings 빈 date 항목 제거
       payload.meetings = (payload.meetings || []).map(m => ({ ...m, date: m.date || null }));
       if (editingLead) {
@@ -3990,9 +3999,12 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
     try {
       const today = new Date().toISOString().split('T')[0];
       const updates = { stage };
-      if (stage === '견적발송' && !lead.quote_sent_date) updates.quote_sent_date = today;
-      if (stage === '계약완료' && !lead.contracted_at)   updates.contracted_at   = today;
-      if (stage === '타사계약' && !lead.lost_at)          updates.lost_at         = today;
+      if (stage === '견적발송' && !lead.quote_sent_date)       updates.quote_sent_date       = today;
+      if (stage === '계약완료' && !lead.contracted_at)         updates.contracted_at         = today;
+      if (stage === '납품'     && !lead.delivered_at)          updates.delivered_at          = today;
+      if (stage === '매입완료' && !lead.purchase_complete_at)  updates.purchase_complete_at  = today;
+      if (stage === '매출완료' && !lead.sales_complete_at)     updates.sales_complete_at     = today;
+      if (stage === '타사계약' && !lead.lost_at)               updates.lost_at               = today;
       await dbUpdateLead(lead.id, updates);
       setLeads(p => p.map(l => l.id === lead.id ? { ...l, ...updates } : l));
     } catch(e) { console.error(e); }
