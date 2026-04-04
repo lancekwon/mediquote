@@ -3611,38 +3611,45 @@ function LeadsCalendar({ leads }) {
   const assignees = React.useMemo(() => [...new Set(leads.map(l=>l.assignee).filter(Boolean))], [leads]);
 
   const ASSIGNEE_COLORS = [
-    { bg:'bg-blue-500',    text:'text-blue-600',    dot:'bg-blue-500'    },
-    { bg:'bg-emerald-500', text:'text-emerald-600', dot:'bg-emerald-500' },
-    { bg:'bg-violet-500',  text:'text-violet-600',  dot:'bg-violet-500'  },
-    { bg:'bg-amber-500',   text:'text-amber-600',   dot:'bg-amber-500'   },
+    { bg:'bg-blue-500',    text:'text-blue-600'    },
+    { bg:'bg-emerald-500', text:'text-emerald-600' },
+    { bg:'bg-violet-500',  text:'text-violet-600'  },
+    { bg:'bg-amber-500',   text:'text-amber-600'   },
   ];
 
   const EVENT_TYPES = {
-    meeting:    { label:'미팅',   dotClass:'bg-blue-500',    badgeClass:'bg-blue-500 text-white'    },
-    followup:   { label:'팔로업', dotClass:'bg-violet-500',  badgeClass:'bg-violet-500 text-white'  },
-    contracted: { label:'계약완료',dotClass:'bg-emerald-500', badgeClass:'bg-emerald-500 text-white' },
-    inquiry:    { label:'문의접수',dotClass:'bg-slate-400',   badgeClass:'bg-slate-400 text-white'   },
+    inquiry:    { label:'신규문의', dot:'bg-slate-400',    badge:'bg-slate-400 text-white'    },
+    quote_sent: { label:'견적발송', dot:'bg-violet-500',   badge:'bg-violet-500 text-white'   },
+    meeting1:   { label:'1차 미팅', dot:'bg-blue-500',     badge:'bg-blue-500 text-white'     },
+    meeting2:   { label:'2차 미팅', dot:'bg-cyan-500',     badge:'bg-cyan-500 text-white'     },
+    meeting3:   { label:'3차 미팅', dot:'bg-indigo-500',   badge:'bg-indigo-500 text-white'   },
+    contracted: { label:'계약완료', dot:'bg-emerald-500',  badge:'bg-emerald-500 text-white'  },
+    lost:       { label:'타사계약', dot:'bg-red-400',      badge:'bg-red-400 text-white'      },
   };
 
-  const formatKey = (d) => {
-    const s = typeof d === 'string' ? d : '';
-    return s ? s.substring(0,10) : null;
-  };
+  const toKey = (s) => (s && typeof s === 'string') ? s.substring(0,10) : null;
 
   const eventMap = React.useMemo(() => {
     const map = {};
     const fl = selectedAssignee === 'all' ? leads : leads.filter(l=>l.assignee===selectedAssignee);
-    const add = (dateStr, lead, type) => {
-      const key = formatKey(dateStr);
+    const add = (dateStr, lead, type, extra={}) => {
+      const key = toKey(dateStr);
       if (!key) return;
       if (!map[key]) map[key] = [];
-      map[key].push({ lead, type });
+      map[key].push({ lead, type, ...extra });
     };
     fl.forEach(lead => {
-      if (lead.meeting_date)   add(lead.meeting_date,   lead, 'meeting');
-      if (lead.followup_date)  add(lead.followup_date,  lead, 'followup');
-      if (lead.contracted_at)  add(lead.contracted_at,  lead, 'contracted');
-      if (lead.created_at)     add(lead.created_at,     lead, 'inquiry');
+      if (lead.created_at)      add(lead.created_at,      lead, 'inquiry');
+      if (lead.quote_sent_date) add(lead.quote_sent_date, lead, 'quote_sent');
+      if (lead.contracted_at)   add(lead.contracted_at,   lead, 'contracted');
+      if (lead.lost_at)         add(lead.lost_at,         lead, 'lost');
+      const mtgs = Array.isArray(lead.meetings) ? lead.meetings : [];
+      mtgs.forEach((m, i) => {
+        if (m.date) {
+          const type = i===0 ? 'meeting1' : i===1 ? 'meeting2' : 'meeting3';
+          add(m.date, lead, type, { meetingType: m.type, meetingMemo: m.memo, meetingOrder: i+1 });
+        }
+      });
     });
     return map;
   }, [leads, selectedAssignee]);
@@ -3665,23 +3672,19 @@ function LeadsCalendar({ leads }) {
     return `${y}-${m}-${d}`;
   };
   const todayKey = fmtKey(new Date());
-
   const prevMonth = () => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth()-1, 1));
   const nextMonth = () => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth()+1, 1));
-
   const selEvents = selectedDay ? (eventMap[selectedDay]||[]) : [];
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      {/* 상단 헤더 */}
+      {/* 헤더 */}
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
           </button>
-          <span className="font-bold text-slate-800 text-base min-w-[120px] text-center">
-            {currentDate.getFullYear()}년 {currentDate.getMonth()+1}월
-          </span>
+          <span className="font-bold text-slate-800 text-base min-w-[120px] text-center">{currentDate.getFullYear()}년 {currentDate.getMonth()+1}월</span>
           <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
           </button>
@@ -3704,10 +3707,10 @@ function LeadsCalendar({ leads }) {
       </div>
 
       {/* 범례 */}
-      <div className="px-5 py-2 border-b border-slate-100 flex items-center gap-5 flex-wrap">
+      <div className="px-5 py-2.5 border-b border-slate-100 flex items-center gap-4 flex-wrap">
         {Object.entries(EVENT_TYPES).map(([k,v]) => (
           <div key={k} className="flex items-center gap-1.5">
-            <div className={`w-2.5 h-2.5 rounded-full ${v.dotClass}`}/>
+            <div className={`w-2.5 h-2.5 rounded-full ${v.dot}`}/>
             <span className="text-xs text-slate-500">{v.label}</span>
           </div>
         ))}
@@ -3746,16 +3749,17 @@ function LeadsCalendar({ leads }) {
                 !isToday && dow===0 ? 'text-red-500' : '',
                 !isToday && dow===6 ? 'text-blue-500' : '',
                 !isToday && dow!==0 && dow!==6 ? (dayObj.cur ? 'text-slate-700' : 'text-slate-300') : '',
-                !isToday && !dayObj.cur ? 'text-slate-300' : '',
               ].join(' ')}>
                 {dayObj.date.getDate()}
               </div>
               <div className="space-y-0.5">
                 {visible.map((ev,i) => {
-                  const ti = EVENT_TYPES[ev.type];
+                  const ti = EVENT_TYPES[ev.type] || EVENT_TYPES.inquiry;
+                  const label = ev.meetingOrder ? `${ev.lead.contact_name}` : ev.lead.contact_name;
                   return (
-                    <div key={i} className={`flex items-center px-1 py-0.5 rounded truncate ${ti.badgeClass}`} title={`${ev.lead.contact_name} · ${ti.label}`}>
-                      <span className="truncate text-[10px] leading-snug">{ev.lead.contact_name}</span>
+                    <div key={i} className={`flex items-center gap-1 px-1 py-0.5 rounded truncate ${ti.badge}`}
+                      title={`${ev.lead.contact_name} · ${ti.label}${ev.meetingType ? ' ('+ev.meetingType+')' : ''}`}>
+                      <span className="truncate text-[10px] leading-snug">{label}</span>
                     </div>
                   );
                 })}
@@ -3777,22 +3781,25 @@ function LeadsCalendar({ leads }) {
           </div>
           <div className="space-y-2">
             {selEvents.map((ev,i) => {
-              const ti = EVENT_TYPES[ev.type];
+              const ti = EVENT_TYPES[ev.type] || EVENT_TYPES.inquiry;
               const ai = assignees.indexOf(ev.lead.assignee);
               const ac = ai >= 0 ? ASSIGNEE_COLORS[ai % ASSIGNEE_COLORS.length] : null;
               return (
-                <div key={i} className="bg-white rounded-lg border border-slate-200 px-3 py-2.5 flex items-center gap-3">
-                  <div className={`w-1.5 h-10 rounded-full ${ti.dotClass} shrink-0`}/>
+                <div key={i} className="bg-white rounded-lg border border-slate-200 px-3 py-2.5 flex items-start gap-3">
+                  <div className={`w-1.5 h-full min-h-[40px] rounded-full ${ti.dot} shrink-0 mt-0.5`}/>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-slate-800 text-sm">{ev.lead.contact_name}</span>
                       {ev.lead.hospital_name && <span className="text-xs text-slate-400">{ev.lead.hospital_name}</span>}
                     </div>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${ti.badgeClass}`}>{ti.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${ti.badge}`}>
+                        {ti.label}{ev.meetingType ? ` · ${ev.meetingType}` : ''}
+                      </span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${LEAD_STAGE_COLORS[ev.lead.stage]||'bg-slate-100 text-slate-600'}`}>{ev.lead.stage}</span>
                       {ev.lead.assignee && <span className={`text-xs ${ac ? ac.text : 'text-slate-500'}`}>담당: {ev.lead.assignee}</span>}
                     </div>
+                    {ev.meetingMemo && <div className="text-xs text-slate-500 mt-1 italic">"{ev.meetingMemo}"</div>}
                   </div>
                 </div>
               );
@@ -3823,7 +3830,7 @@ const LEAD_STAGE_BTN = {
   '타사계약': 'bg-red-500',
 };
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
-const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', meeting_date:'', followup_date:'', contracted_at:'' };
+const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', quote_sent_date:'', contracted_at:'', lost_at:'', meetings:[] };
 
 function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const [leads, setLeads] = React.useState([]);
@@ -3857,7 +3864,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const openNew = () => { setEditingLead(null); setForm(EMPTY_LEAD); setShowForm(true); };
   const openEdit = (lead) => {
     setEditingLead(lead);
-    setForm({ hospital_name:lead.hospital_name||'', contact_name:lead.contact_name||'', contact_phone:lead.contact_phone||'', dept:lead.dept||'', opening_date:lead.opening_date||'', source:lead.source||'직접입력', stage:lead.stage||'신규문의', assignee:lead.assignee||'', notes:lead.notes||'', meeting_date:lead.meeting_date||'', followup_date:lead.followup_date||'', contracted_at:lead.contracted_at||'' });
+    setForm({ hospital_name:lead.hospital_name||'', contact_name:lead.contact_name||'', contact_phone:lead.contact_phone||'', dept:lead.dept||'', opening_date:lead.opening_date||'', source:lead.source||'직접입력', stage:lead.stage||'신규문의', assignee:lead.assignee||'', notes:lead.notes||'', quote_sent_date:lead.quote_sent_date||'', contracted_at:lead.contracted_at||'', lost_at:lead.lost_at||'', meetings:Array.isArray(lead.meetings)?lead.meetings:[] });
     setShowForm(true);
   };
 
@@ -3865,12 +3872,17 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
     if (!form.contact_name.trim()) { alert('이름을 입력해주세요.'); return; }
     setSaving(true);
     try {
+      // 빈 문자열 DATE 필드 → null 변환 (PostgreSQL DATE 타입 오류 방지)
+      const payload = { ...form };
+      ['quote_sent_date','contracted_at','lost_at'].forEach(f => { if (payload[f] === '') payload[f] = null; });
+      // meetings 빈 date 항목 제거
+      payload.meetings = (payload.meetings || []).map(m => ({ ...m, date: m.date || null }));
       if (editingLead) {
-        await dbUpdateLead(editingLead.id, form);
-        setLeads(p => p.map(l => l.id === editingLead.id ? { ...l, ...form } : l));
+        await dbUpdateLead(editingLead.id, payload);
+        setLeads(p => p.map(l => l.id === editingLead.id ? { ...l, ...payload } : l));
       } else {
-        const id = await dbSaveLead(form);
-        setLeads(p => [{ id, ...form, created_at: new Date().toISOString() }, ...p]);
+        const id = await dbSaveLead(payload);
+        setLeads(p => [{ id, ...payload, created_at: new Date().toISOString() }, ...p]);
       }
       setShowForm(false); setEditingLead(null);
     } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); }
@@ -3880,10 +3892,11 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const handleStageChange = async (lead, stage) => {
     setStagePopup(null);
     try {
+      const today = new Date().toISOString().split('T')[0];
       const updates = { stage };
-      if (stage === '계약완료' && !lead.contracted_at) {
-        updates.contracted_at = new Date().toISOString().split('T')[0];
-      }
+      if (stage === '견적발송' && !lead.quote_sent_date) updates.quote_sent_date = today;
+      if (stage === '계약완료' && !lead.contracted_at)   updates.contracted_at   = today;
+      if (stage === '타사계약' && !lead.lost_at)          updates.lost_at         = today;
       await dbUpdateLead(lead.id, updates);
       setLeads(p => p.map(l => l.id === lead.id ? { ...l, ...updates } : l));
     } catch(e) { console.error(e); }
@@ -4028,9 +4041,17 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs">{lead.source || '—'}</td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
-                        {lead.meeting_date
-                          ? <span className="text-blue-600 font-medium">{lead.meeting_date}</span>
-                          : <span className="text-slate-300">—</span>}
+                        {(() => {
+                          const ms = Array.isArray(lead.meetings) ? lead.meetings.filter(m=>m.date) : [];
+                          if (ms.length === 0) return <span className="text-slate-300">—</span>;
+                          return (
+                            <div>
+                              <span className="text-blue-600 font-medium">{ms[0].date}</span>
+                              <span className="text-slate-400 ml-1">({ms[0].type})</span>
+                              {ms.length > 1 && <span className="text-slate-400 ml-1">+{ms.length-1}</span>}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 relative">
                         <button
@@ -4145,17 +4166,46 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                   ))}
                 </div>
               </div>
-              {/* 미팅 확정일 / 팔로업 예정일 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">미팅 확정일 🔵</label>
-                  <input type="date" value={form.meeting_date||''} onChange={e=>setForm(p=>({...p,meeting_date:e.target.value}))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+              {/* 미팅 일정 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold text-slate-600">미팅 일정</label>
+                  <button type="button"
+                    onClick={() => setForm(p => ({...p, meetings:[...(p.meetings||[]), {id:Date.now().toString(36)+Math.random().toString(36).slice(2,5), type:'온라인', date:'', memo:''}]}))}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                    미팅 추가
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">팔로업 예정일 🟣</label>
-                  <input type="date" value={form.followup_date||''} onChange={e=>setForm(p=>({...p,followup_date:e.target.value}))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                {(form.meetings||[]).length === 0 && (
+                  <div className="text-xs text-slate-400 py-2 text-center border border-dashed border-slate-200 rounded-lg">미팅 일정이 없습니다</div>
+                )}
+                <div className="space-y-2">
+                  {(form.meetings||[]).map((m, i) => (
+                    <div key={m.id} className="flex items-start gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                      <span className="text-xs font-bold text-slate-500 pt-2 shrink-0 w-8">{i+1}차</span>
+                      <div className="flex-1 grid grid-cols-2 gap-2">
+                        <select value={m.type}
+                          onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, type:e.target.value} : x)}))}
+                          className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                          <option>온라인</option>
+                          <option>병원방문</option>
+                          <option>쇼룸방문</option>
+                        </select>
+                        <input type="date" value={m.date||''}
+                          onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, date:e.target.value} : x)}))}
+                          className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
+                        <input value={m.memo||''} placeholder="메모 (특이사항)"
+                          onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, memo:e.target.value} : x)}))}
+                          className="col-span-2 border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
+                      </div>
+                      <button type="button"
+                        onClick={() => setForm(p => ({...p, meetings:p.meetings.filter(x => x.id !== m.id)}))}
+                        className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-100 text-slate-300 hover:text-red-500 transition-colors shrink-0 mt-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
               {/* 병원명 (선택) */}
