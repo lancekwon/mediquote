@@ -3905,15 +3905,12 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
 /* ============================================================
    LEADS PAGE (영업 파이프라인)
    ============================================================ */
-const LEAD_STAGES = ['신규문의', '견적발송', '상담중', '계약완료', '납품', '매입완료', '매출완료', '타사계약'];
+const LEAD_STAGES = ['신규문의', '견적발송', '상담중', '계약완료', '타사계약'];
 const LEAD_STAGE_COLORS = {
   '신규문의': 'bg-slate-100 text-slate-600',
   '견적발송': 'bg-violet-100 text-violet-700',
   '상담중':   'bg-blue-100 text-blue-700',
   '계약완료': 'bg-emerald-100 text-emerald-700',
-  '납품':     'bg-orange-100 text-orange-700',
-  '매입완료': 'bg-cyan-100 text-cyan-700',
-  '매출완료': 'bg-teal-100 text-teal-800',
   '타사계약': 'bg-red-100 text-red-600',
 };
 const LEAD_STAGE_BTN = {
@@ -3921,9 +3918,6 @@ const LEAD_STAGE_BTN = {
   '견적발송': 'bg-violet-500',
   '상담중':   'bg-blue-500',
   '계약완료': 'bg-emerald-500',
-  '납품':     'bg-orange-500',
-  '매입완료': 'bg-cyan-500',
-  '매출완료': 'bg-teal-600',
   '타사계약': 'bg-red-500',
 };
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
@@ -3999,12 +3993,9 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
     try {
       const today = new Date().toISOString().split('T')[0];
       const updates = { stage };
-      if (stage === '견적발송' && !lead.quote_sent_date)       updates.quote_sent_date       = today;
-      if (stage === '계약완료' && !lead.contracted_at)         updates.contracted_at         = today;
-      if (stage === '납품'     && !lead.delivered_at)          updates.delivered_at          = today;
-      if (stage === '매입완료' && !lead.purchase_complete_at)  updates.purchase_complete_at  = today;
-      if (stage === '매출완료' && !lead.sales_complete_at)     updates.sales_complete_at     = today;
-      if (stage === '타사계약' && !lead.lost_at)               updates.lost_at               = today;
+      if (stage === '견적발송' && !lead.quote_sent_date) updates.quote_sent_date = today;
+      if (stage === '계약완료' && !lead.contracted_at)  updates.contracted_at   = today;
+      if (stage === '타사계약' && !lead.lost_at)         updates.lost_at         = today;
       await dbUpdateLead(lead.id, updates);
       setLeads(p => p.map(l => l.id === lead.id ? { ...l, ...updates } : l));
     } catch(e) { console.error(e); }
@@ -4080,8 +4071,8 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
       {/* 파이프라인 진행 바 */}
       {!showDashboard && !showCalendar && filter === 'all' && leads.length > 0 && (
         <div className="bg-white border-b border-slate-100 px-6 py-2.5 flex items-center gap-1 shrink-0 flex-wrap">
-          {['신규문의','견적발송','상담중','계약완료','납품','매입완료','매출완료'].map((s, i) => {
-            const colors = ['bg-slate-400','bg-violet-400','bg-blue-400','bg-emerald-400','bg-orange-400','bg-cyan-400','bg-teal-500'];
+          {['신규문의','견적발송','상담중','계약완료'].map((s, i) => {
+            const colors = ['bg-slate-400','bg-violet-400','bg-blue-400','bg-emerald-400'];
             return (
               <React.Fragment key={s}>
                 {i > 0 && <svg className="w-3 h-3 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>}
@@ -4335,6 +4326,31 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                         className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-100 text-slate-300 hover:text-red-500 transition-colors shrink-0 mt-1">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                       </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* 납품 / 매입완료 / 매출완료 일정 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-2">납품 · 정산 일정</label>
+                <div className="space-y-2">
+                  {[
+                    { key:'delivered_at',        label:'납품일',     color:'bg-orange-500' },
+                    { key:'purchase_complete_at', label:'매입완료일', color:'bg-cyan-500'   },
+                    { key:'sales_complete_at',    label:'매출완료일', color:'bg-teal-600'   },
+                  ].map(({ key, label, color }) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${color} shrink-0`}/>
+                      <span className="text-xs text-slate-500 w-20 shrink-0">{label}</span>
+                      <input type="date" value={form[key]||''}
+                        onChange={e => setForm(p=>({...p,[key]:e.target.value}))}
+                        className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
+                      {form[key] && (
+                        <button type="button" onClick={() => setForm(p=>({...p,[key]:''}))}
+                          className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-100 text-slate-300 hover:text-red-500 transition-colors">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
