@@ -73,6 +73,8 @@ async function dbLoadEquip() {
     altModels: Array.isArray(r.alt_models) ? r.alt_models : [],
     homepage: r.homepage   || '',
     purchasePrice: r.purchase_price ?? null,
+    contactName:  r.contact_name  || '',
+    contactPhone: r.contact_phone || '',
     image:    r.image_data || null,
     spec: {
       desc:     r.description || '',
@@ -109,6 +111,8 @@ async function dbSaveEquip(entry) {
     alt_models: entry.altModels || [],
     homepage: entry.homepage || '',
     purchase_price: entry.purchasePrice || null,
+    contact_name:  entry.contactName  || '',
+    contact_phone: entry.contactPhone || '',
     raw_data: entry,
   };
   // 수정 (id가 있으면 Supabase UUID로 update)
@@ -2464,6 +2468,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
   const [catFilter, setCatFilter]     = useState('all');
+  const [itemFilter, setItemFilter]   = useState('all');
   const [editTarget, setEditTarget]   = useState(null);
   const [editForm, setEditForm]       = useState(null);
   const [confirmDel, setConfirmDel]   = useState(null);
@@ -2471,7 +2476,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   const editImgRef                    = useRef(null);
 
   /* ── 장비 등록 state ── */
-  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', purchasePrice:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
+  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', purchasePrice:'', price:'', altModels:[], homepage:'', contactName:'', contactPhone:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
   const [regForm, setRegForm]         = useState(emptyRegForm);
   const [regSaving, setRegSaving]     = useState(false);
   const [regSaved, setRegSaved]       = useState(false);
@@ -2505,6 +2510,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       itemName: e.itemName, modelName: e.model.name, manufacturer: e.model.manufacturer,
       purchasePrice: e.purchasePrice != null ? e.purchasePrice.toLocaleString('ko-KR') : '',
       price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
+      contactName: e.contactName || '', contactPhone: e.contactPhone || '',
       altText: e.altText || '', altModels: Array.isArray(e.altModels) ? e.altModels.map(m=>({...m, price: m.price != null ? String(m.price) : ''})) : [], homepage: e.homepage || '', image: e.image || null,
       desc: e.spec?.desc || '', specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
       origin: e.spec?.origin || '', cert: e.spec?.cert || '', as: e.spec?.as || '', warranty: e.spec?.warranty || '', notes: e.model.notes || '',
@@ -2533,6 +2539,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       itemName: editForm.itemName.trim(),
       model: { id: editTarget.model.id, name: editForm.modelName.trim(), manufacturer: editForm.manufacturer.trim(), price: parseInt(editForm.price.replace(/[^0-9]/g,''))||null, notes: editForm.notes.trim() },
       purchasePrice: parseInt((editForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
+      contactName: editForm.contactName?.trim() || '',
+      contactPhone: editForm.contactPhone?.trim() || '',
       altText: editForm.altText.trim(),
       altModels: editForm.altModels || [],
       homepage: editForm.homepage?.trim() || '',
@@ -2552,14 +2560,20 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     catch(e) { console.error(e); alert('삭제 중 오류가 발생했습니다.'); }
   };
 
+  const listItemOptions = useMemo(() => {
+    if (catFilter === 'all') return [];
+    return dynItems.filter(it => it.catId === catFilter);
+  }, [dynItems, catFilter]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return equips.filter(e => {
-      const matchCat = catFilter==='all' || e.catId===catFilter;
+      const matchCat  = catFilter  === 'all' || e.catId    === catFilter;
+      const matchItem = itemFilter === 'all' || e.itemName === itemFilter;
       const matchQ = !q || e.itemName.toLowerCase().includes(q) || e.model.name.toLowerCase().includes(q) || e.model.manufacturer.toLowerCase().includes(q);
-      return matchCat && matchQ;
+      return matchCat && matchItem && matchQ;
     });
-  }, [equips, search, catFilter]);
+  }, [equips, search, catFilter, itemFilter]);
 
   /* ── 장비 등록 helpers ── */
   const setRF = (k, v) => setRegForm(p => ({ ...p, [k]: v }));
@@ -2581,6 +2595,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       itemName: regForm.itemName,
       model: { id:'cm-'+Date.now(), name: regForm.modelName.trim(), manufacturer: regForm.manufacturer.trim(), price: parseInt(regForm.price.replace(/[^0-9]/g,''))||null, notes: regForm.notes.trim() },
       purchasePrice: parseInt((regForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
+      contactName: regForm.contactName?.trim() || '',
+      contactPhone: regForm.contactPhone?.trim() || '',
       altText: '',
       altModels: regForm.altModels || [],
       homepage: regForm.homepage?.trim() || '',
@@ -2659,22 +2675,38 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       {/* ═══════════════ 장비 목록 탭 ═══════════════ */}
       {activeTab === 'list' && (
         <div className="flex flex-col flex-1 overflow-hidden">
-          <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3 shrink-0">
-            <div className="relative flex-1 max-w-xs">
-              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
-              <input type="text" placeholder="품목명, 모델명, 제조사 검색..." value={search} onChange={e=>setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"/>
-              {search && <button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg></button>}
+          <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-col gap-2 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1 max-w-xs">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+                <input type="text" placeholder="품목명, 모델명, 제조사 검색..." value={search} onChange={e=>setSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"/>
+                {search && <button onClick={()=>setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg></button>}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {[{id:'all',name:'전체'},...dynCats].map(c=>(
+                  <button key={c.id} onClick={()=>{ setCatFilter(c.id); setItemFilter('all'); }}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition-colors whitespace-nowrap ${catFilter===c.id?'bg-slate-900 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+              <span className="ml-auto text-xs text-slate-400 shrink-0">검색결과 {filtered.length}개</span>
             </div>
-            <div className="flex gap-1">
-              {[{id:'all',name:'전체'},...dynCats].map(c=>(
-                <button key={c.id} onClick={()=>setCatFilter(c.id)}
-                  className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${catFilter===c.id?'bg-slate-900 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                  {c.name}
+            {listItemOptions.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                <button onClick={()=>setItemFilter('all')}
+                  className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors whitespace-nowrap ${itemFilter==='all'?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                  전체
                 </button>
-              ))}
-            </div>
-            <span className="ml-auto text-xs text-slate-400">검색결과 {filtered.length}개</span>
+                {listItemOptions.map(it=>(
+                  <button key={it.id} onClick={()=>setItemFilter(it.name)}
+                    className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors whitespace-nowrap ${itemFilter===it.name?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                    {it.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex-1 overflow-auto p-6">
             {loading ? (
@@ -2699,9 +2731,11 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">제조사</th>
                       <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">매입가</th>
                       <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">단가</th>
+                      <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">판매이익</th>
+                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-32">담당자</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">A/S</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">보증</th>
-                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-24">작업</th>
+                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-36">작업</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2719,12 +2753,27 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                         <td className="px-3 py-2.5 text-slate-600">{e.model.manufacturer}</td>
                         <td className="px-3 py-2.5 text-right tnum font-medium text-slate-600">{e.purchasePrice!=null?e.purchasePrice.toLocaleString('ko-KR')+'원':<span className="text-slate-300 font-normal">—</span>}</td>
                         <td className="px-3 py-2.5 text-right tnum font-medium text-slate-800">{e.model.price!=null?e.model.price.toLocaleString('ko-KR')+'원':<span className="text-slate-400 font-normal">문의</span>}</td>
+                        <td className="px-3 py-2.5 text-right tnum font-medium">
+                          {e.purchasePrice!=null && e.model.price!=null
+                            ? <span className={e.model.price-e.purchasePrice>=0?'text-emerald-600':'text-red-500'}>
+                                {(e.model.price-e.purchasePrice).toLocaleString('ko-KR')}원
+                              </span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {e.contactName||e.contactPhone
+                            ? <div className="flex flex-col gap-0.5">
+                                {e.contactName && <span className="text-slate-700 font-medium">{e.contactName}</span>}
+                                {e.contactPhone && <span className="text-slate-500">{e.contactPhone}</span>}
+                              </div>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.as||'—'}</td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.warranty||'—'}</td>
                         <td className="px-3 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            <button onClick={()=>openEdit(e)} className="px-2.5 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 rounded font-medium transition-colors">수정</button>
-                            <button onClick={()=>setConfirmDel(e.id)} className="px-2.5 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded font-medium transition-colors">삭제</button>
+                            <button onClick={()=>openEdit(e)} className="px-2.5 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 rounded font-medium transition-colors whitespace-nowrap">수정</button>
+                            <button onClick={()=>setConfirmDel(e.id)} className="px-2.5 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded font-medium transition-colors whitespace-nowrap">삭제</button>
                           </div>
                         </td>
                       </tr>
@@ -2776,7 +2825,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                     <input type="text" placeholder="예: Gemss healthcare" value={regForm.manufacturer} onChange={e=>setRF('manufacturer',e.target.value)} className={inputCls}/>
                   </div>
                 </div>
-                {/* Row 2: 매입가 / 단가 / 특이사항 */}
+                {/* Row 2: 매입가 / 단가 / 판매이익 / 특이사항 */}
                 <div className="grid grid-cols-4 gap-4">
                   <div>
                     <label className={labelCls}>매입가 (원)</label>
@@ -2789,8 +2838,30 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                       onChange={e=>setRF('price',(parseInt(e.target.value.replace(/[^0-9]/g,''))||'').toLocaleString('ko-KR').replace('NaN',''))} className={inputCls}/>
                   </div>
                   <div>
+                    <label className={labelCls}>판매이익 (자동계산)</label>
+                    {(() => {
+                      const pp = parseInt((regForm.purchasePrice||'').replace(/[^0-9]/g,''))||null;
+                      const sp = parseInt((regForm.price||'').replace(/[^0-9]/g,''))||null;
+                      const profit = pp!=null && sp!=null ? sp - pp : null;
+                      return <div className={`px-2.5 py-1.5 text-xs border rounded-md ${profit==null?'text-slate-300 border-slate-100 bg-slate-50':profit>=0?'text-emerald-600 border-emerald-100 bg-emerald-50 font-semibold':'text-red-500 border-red-100 bg-red-50 font-semibold'}`}>
+                        {profit!=null ? profit.toLocaleString('ko-KR')+'원' : '—'}
+                      </div>;
+                    })()}
+                  </div>
+                  <div>
                     <label className={labelCls}>기타 특이사항</label>
                     <input type="text" placeholder="예: 콘덴서 포함" value={regForm.notes} onChange={e=>setRF('notes',e.target.value)} className={inputCls}/>
+                  </div>
+                </div>
+                {/* Row 3: 담당자 */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className={labelCls}>담당자 이름</label>
+                    <input type="text" placeholder="예: 홍길동" value={regForm.contactName} onChange={e=>setRF('contactName',e.target.value)} className={inputCls}/>
+                  </div>
+                  <div>
+                    <label className={labelCls}>담당자 연락처</label>
+                    <input type="text" placeholder="예: 010-1234-5678" value={regForm.contactPhone} onChange={e=>setRF('contactPhone',e.target.value)} className={inputCls}/>
                   </div>
                 </div>
                 {/* 대체 모델 */}
@@ -3081,15 +3152,28 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>단가</label><input type="text" value={editForm.price} onChange={e=>setEF('price',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력 (문의는 빈칸)"/></div>
-                    <div><label className={labelCls}>인증</label><input type="text" value={editForm.cert} onChange={e=>setEF('cert',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>판매이익 (자동계산)</label>
+                      {(() => {
+                        const pp = parseInt((editForm.purchasePrice||'').replace(/[^0-9]/g,''))||null;
+                        const sp = parseInt((editForm.price||'').replace(/[^0-9]/g,''))||null;
+                        const profit = pp!=null && sp!=null ? sp - pp : null;
+                        return <div className={`px-2.5 py-1.5 text-xs border rounded-md ${profit==null?'text-slate-300 border-slate-100 bg-slate-50':profit>=0?'text-emerald-600 border-emerald-100 bg-emerald-50 font-semibold':'text-red-500 border-red-100 bg-red-50 font-semibold'}`}>
+                          {profit!=null ? profit.toLocaleString('ko-KR')+'원' : '—'}
+                        </div>;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className={labelCls}>담당자 이름</label><input type="text" value={editForm.contactName||''} onChange={e=>setEF('contactName',e.target.value)} className={inputCls} placeholder="예: 홍길동"/></div>
+                    <div><label className={labelCls}>담당자 연락처</label><input type="text" value={editForm.contactPhone||''} onChange={e=>setEF('contactPhone',e.target.value)} className={inputCls} placeholder="예: 010-1234-5678"/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>제조국가</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
-                    <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>인증</label><input type="text" value={editForm.cert} onChange={e=>setEF('cert',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div><label className={labelCls}>검사주기</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
                     <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
+                    <div><label className={labelCls}>검사주기</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div><label className={labelCls}>홈페이지</label><input type="text" placeholder="https://..." value={editForm.homepage||''} onChange={e=>setEF('homepage',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>기타 특이사항</label><input type="text" value={editForm.notes} onChange={e=>setEF('notes',e.target.value)} className={inputCls}/></div>
