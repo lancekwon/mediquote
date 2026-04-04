@@ -3644,7 +3644,7 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
       const mtgs = Array.isArray(lead.meetings) ? lead.meetings : [];
       mtgs.forEach((m, i) => {
         if (m.date) {
-          add(m.date, lead, 'meeting', { meetingType: m.type, meetingMemo: m.memo, meetingOrder: i+1 });
+          add(m.date, lead, 'meeting', { meetingType: m.type, meetingTime: m.time||'', meetingMemo: m.memo, meetingOrder: i+1 });
         }
       });
     });
@@ -3685,6 +3685,13 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
           <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
           </button>
+          {onNewLead && (
+            <button onClick={() => onNewLead()}
+              className="flex items-center gap-1.5 ml-2 px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-semibold">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+              새 리드
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button onClick={() => setSelectedAssignee('all')}
@@ -3804,7 +3811,7 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
                       </div>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${ti.badge}`}>
-                          {ti.label}{ev.meetingType ? ` · ${ev.meetingType}` : ''}
+                          {ti.label}{ev.meetingType ? ` · ${ev.meetingType}` : ''}{ev.meetingTime ? ` ${ev.meetingTime}` : ''}
                         </span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${LEAD_STAGE_COLORS[ev.lead.stage]||'bg-slate-100 text-slate-600'}`}>{ev.lead.stage}</span>
                         {ev.lead.assignee && <span className={`text-xs ${ac ? ac.text : 'text-slate-500'}`}>담당: {ev.lead.assignee}</span>}
@@ -3881,7 +3888,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const openNew = (prefillDate) => {
     setEditingLead(null);
     if (prefillDate) {
-      setForm({ ...EMPTY_LEAD, meetings:[{ id:Date.now().toString(36), type:'온라인', date:prefillDate, memo:'' }] });
+      setForm({ ...EMPTY_LEAD, meetings:[{ id:Date.now().toString(36), type:'온라인', date:prefillDate, time:'', memo:'' }] });
     } else {
       setForm(EMPTY_LEAD);
     }
@@ -4209,7 +4216,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-semibold text-slate-600">미팅 일정</label>
                   <button type="button"
-                    onClick={() => setForm(p => ({...p, meetings:[...(p.meetings||[]), {id:Date.now().toString(36)+Math.random().toString(36).slice(2,5), type:'온라인', date:'', memo:''}]}))}
+                    onClick={() => setForm(p => ({...p, meetings:[...(p.meetings||[]), {id:Date.now().toString(36)+Math.random().toString(36).slice(2,5), type:'온라인', date:'', time:'', memo:''}]}))}
                     className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
                     미팅 추가
@@ -4222,20 +4229,30 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                   {(form.meetings||[]).map((m, i) => (
                     <div key={m.id} className="flex items-start gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
                       <span className="text-xs font-bold text-slate-500 pt-2 shrink-0 w-8">{i+1}차</span>
-                      <div className="flex-1 grid grid-cols-2 gap-2">
-                        <select value={m.type}
-                          onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, type:e.target.value} : x)}))}
-                          className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                          <option>온라인</option>
-                          <option>병원방문</option>
-                          <option>쇼룸방문</option>
-                        </select>
-                        <input type="date" value={m.date||''}
-                          onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, date:e.target.value} : x)}))}
-                          className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
+                      <div className="flex-1 space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <select value={m.type}
+                            onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, type:e.target.value} : x)}))}
+                            className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option>온라인</option>
+                            <option>병원방문</option>
+                            <option>쇼룸방문</option>
+                          </select>
+                          <input type="date" value={m.date||''}
+                            onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, date:e.target.value} : x)}))}
+                            className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
+                          <select value={m.time||''}
+                            onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, time:e.target.value} : x)}))}
+                            className="border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="">시간</option>
+                            {Array.from({length:96},(_,i)=>{const h=String(Math.floor(i/4)).padStart(2,'0'),m=String((i%4)*15).padStart(2,'0');return `${h}:${m}`;}).map(t=>(
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </div>
                         <input value={m.memo||''} placeholder="메모 (특이사항)"
                           onChange={e => setForm(p => ({...p, meetings:p.meetings.map(x => x.id===m.id ? {...x, memo:e.target.value} : x)}))}
-                          className="col-span-2 border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
+                          className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"/>
                       </div>
                       <button type="button"
                         onClick={() => setForm(p => ({...p, meetings:p.meetings.filter(x => x.id !== m.id)}))}
