@@ -3690,7 +3690,7 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
     });
     if (lead.contracted_at)   evs.push({ date:lead.contracted_at,               type:'contracted', label:'계약완료', sub:'', memo:'' });
     if (lead.lost_at)         evs.push({ date:lead.lost_at,                      type:'lost',       label:'타사계약', sub:'', memo:'' });
-    return evs.sort((a,b) => a.date.localeCompare(b.date));
+    return evs.sort((a,b) => b.date.localeCompare(a.date));
   };
 
   return (
