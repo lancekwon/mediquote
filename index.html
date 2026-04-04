@@ -3618,13 +3618,11 @@ function LeadsCalendar({ leads }) {
   ];
 
   const EVENT_TYPES = {
-    inquiry:    { label:'신규문의', dot:'bg-slate-400',    badge:'bg-slate-400 text-white'    },
-    quote_sent: { label:'견적발송', dot:'bg-violet-500',   badge:'bg-violet-500 text-white'   },
-    meeting1:   { label:'1차 미팅', dot:'bg-blue-500',     badge:'bg-blue-500 text-white'     },
-    meeting2:   { label:'2차 미팅', dot:'bg-cyan-500',     badge:'bg-cyan-500 text-white'     },
-    meeting3:   { label:'3차 미팅', dot:'bg-indigo-500',   badge:'bg-indigo-500 text-white'   },
-    contracted: { label:'계약완료', dot:'bg-emerald-500',  badge:'bg-emerald-500 text-white'  },
-    lost:       { label:'타사계약', dot:'bg-red-400',      badge:'bg-red-400 text-white'      },
+    inquiry:    { label:'신규문의', dot:'bg-slate-400',   badge:'bg-slate-400 text-white'   },
+    quote_sent: { label:'견적발송', dot:'bg-violet-500',  badge:'bg-violet-500 text-white'  },
+    meeting:    { label:'미팅',    dot:'bg-blue-500',    badge:'bg-blue-500 text-white'    },
+    contracted: { label:'계약완료', dot:'bg-emerald-500', badge:'bg-emerald-500 text-white' },
+    lost:       { label:'타사계약', dot:'bg-red-400',     badge:'bg-red-400 text-white'     },
   };
 
   const toKey = (s) => (s && typeof s === 'string') ? s.substring(0,10) : null;
@@ -3646,8 +3644,7 @@ function LeadsCalendar({ leads }) {
       const mtgs = Array.isArray(lead.meetings) ? lead.meetings : [];
       mtgs.forEach((m, i) => {
         if (m.date) {
-          const type = i===0 ? 'meeting1' : i===1 ? 'meeting2' : 'meeting3';
-          add(m.date, lead, type, { meetingType: m.type, meetingMemo: m.memo, meetingOrder: i+1 });
+          add(m.date, lead, 'meeting', { meetingType: m.type, meetingMemo: m.memo, meetingOrder: i+1 });
         }
       });
     });
