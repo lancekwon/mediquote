@@ -633,6 +633,7 @@ const getToday = () => new Date().toISOString().split('T')[0];
 const getValidity = (days=30) => { const d=new Date(); d.setDate(d.getDate()+days); return d.toISOString().split('T')[0]; };
 const formatWon = (n) => n!=null ? n.toLocaleString('ko-KR')+'원' : '—';
 const formatWonShort = (n) => n!=null ? n.toLocaleString('ko-KR') : '—';
+const pad = n => String(n).padStart(2, '0');
 const getModel = (item) => item.models.find(m=>m.id===item.selectedModelId) || item.models[0];
 const getGross = (item) => { const m=getModel(item); return (m&&m.price!=null) ? m.price*item.quantity : null; };
 const getNet = (item) => { const g=getGross(item); return g!=null ? Math.max(0, g-(item.itemDiscount||0)) : null; };
@@ -3412,7 +3413,6 @@ function LeadsDashboard({ leads, loading }) {
   const DONUT_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4','#ec4899','#84cc16'];
 
   const periodLabel = React.useMemo(() => {
-    const pad = n => String(n).padStart(2, '0');
     const DAY = ['일','월','화','수','목','금','토'];
     if (period === 'all') return '전체 기간';
     if (period === 'month') {
@@ -4014,45 +4014,6 @@ function QuotePickerModal({ onSelect, onClose }) {
 /* ============================================================
    QUOTE NO INPUT MODAL (견적발송 단계 전환 시)
    ============================================================ */
-function QuoteNoInputModal({ lead, onConfirm, onClose }) {
-  const [quoteNo, setQuoteNo] = React.useState(lead.quote_no || '');
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <div className="font-bold text-slate-900">견적발송 단계 전환</div>
-            <div className="text-xs text-slate-400 mt-0.5">{lead.contact_name}{lead.hospital_name ? ` · ${lead.hospital_name}` : ''}</div>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">연결할 견적번호 <span className="text-slate-400 font-normal">(선택)</span></label>
-            <input
-              value={quoteNo}
-              onChange={e => setQuoteNo(e.target.value)}
-              placeholder="예) DW-2026-001"
-              autoFocus
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-            <p className="text-xs text-slate-400 mt-1.5">견적번호를 입력하면 리드 행에서 견적서를 바로 불러올 수 있습니다.</p>
-          </div>
-        </div>
-        <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
-          <button onClick={() => onConfirm(quoteNo)}
-            className="px-5 py-2 text-sm bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-500">
-            견적발송으로 변경
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ============================================================
    LEADS PAGE (영업 파이프라인)
    ============================================================ */
@@ -4126,6 +4087,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
       // 빈 문자열 DATE 필드 → null 변환 (PostgreSQL DATE 타입 오류 방지)
       const payload = { ...form };
       ['quote_sent_date','contracted_at','delivered_at','purchase_complete_at','sales_complete_at','lost_at'].forEach(f => { if (payload[f] === '') payload[f] = null; });
+      if (payload.quote_no === '') payload.quote_no = null;
       // meetings 빈 date 항목 제거
       payload.meetings = (payload.meetings || []).map(m => ({ ...m, date: m.date || null }));
       if (editingLead) {
@@ -4150,7 +4112,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
       if (stage === '타사계약' && !lead.lost_at)         updates.lost_at         = today;
       await dbUpdateLead(lead.id, updates);
       setLeads(p => p.map(l => l.id === lead.id ? { ...l, ...updates } : l));
-    } catch(e) { console.error(e); }
+    } catch(e) { console.error(e); alert('단계 변경 중 오류가 발생했습니다.'); }
   };
 
   const handleDelete = async (id) => {
@@ -4804,7 +4766,6 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
 
   const today = new Date();
   today.setHours(0,0,0,0);
-  const pad = n => String(n).padStart(2, '0');
   const fmtDate = d => `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}`;
   const daysDiff = d => Math.ceil((new Date(d) - today) / (1000*60*60*24));
   const daysPast = d => Math.floor((today - new Date(d)) / (1000*60*60*24));
@@ -6942,8 +6903,6 @@ function App() {
     addToast(`${item.name}: ${model?.name} 선택됨`, 'success');
   }, [categories, updateItem, addToast]);
 
-  const visibleCategories = categories;
-
   // row offset for each category (for sequential numbering)
   const catOffsets = useMemo(() => {
     const offsets = {};
@@ -7091,7 +7050,7 @@ function App() {
               </tr>
             </thead>
 
-            {visibleCategories.map(cat => (
+            {categories.map(cat => (
               <CategorySection
                 key={cat.id}
                 category={cat}
@@ -7109,7 +7068,7 @@ function App() {
             ))}
 
             {/* Empty state */}
-            {search && visibleCategories.every(cat =>
+            {search && categories.every(cat =>
               !cat.items.some(i =>
                 i.name.toLowerCase().includes(search.toLowerCase()) ||
                 getModel(i)?.name.toLowerCase().includes(search.toLowerCase()) ||
