@@ -3838,12 +3838,15 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
 /* ============================================================
    LEADS PAGE (영업 파이프라인)
    ============================================================ */
-const LEAD_STAGES = ['신규문의', '견적발송', '상담중', '계약완료', '타사계약'];
+const LEAD_STAGES = ['신규문의', '견적발송', '상담중', '계약완료', '납품', '매입완료', '매출완료', '타사계약'];
 const LEAD_STAGE_COLORS = {
   '신규문의': 'bg-slate-100 text-slate-600',
   '견적발송': 'bg-violet-100 text-violet-700',
   '상담중':   'bg-blue-100 text-blue-700',
   '계약완료': 'bg-emerald-100 text-emerald-700',
+  '납품':     'bg-orange-100 text-orange-700',
+  '매입완료': 'bg-cyan-100 text-cyan-700',
+  '매출완료': 'bg-teal-100 text-teal-800',
   '타사계약': 'bg-red-100 text-red-600',
 };
 const LEAD_STAGE_BTN = {
@@ -3851,6 +3854,9 @@ const LEAD_STAGE_BTN = {
   '견적발송': 'bg-violet-500',
   '상담중':   'bg-blue-500',
   '계약완료': 'bg-emerald-500',
+  '납품':     'bg-orange-500',
+  '매입완료': 'bg-cyan-500',
+  '매출완료': 'bg-teal-600',
   '타사계약': 'bg-red-500',
 };
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
@@ -4004,8 +4010,8 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
       {/* 파이프라인 진행 바 */}
       {!showDashboard && !showCalendar && filter === 'all' && leads.length > 0 && (
         <div className="bg-white border-b border-slate-100 px-6 py-2.5 flex items-center gap-1 shrink-0 flex-wrap">
-          {['신규문의','견적발송','상담중','계약완료'].map((s, i) => {
-            const colors = ['bg-slate-400','bg-violet-400','bg-blue-400','bg-emerald-400'];
+          {['신규문의','견적발송','상담중','계약완료','납품','매입완료','매출완료'].map((s, i) => {
+            const colors = ['bg-slate-400','bg-violet-400','bg-blue-400','bg-emerald-400','bg-orange-400','bg-cyan-400','bg-teal-500'];
             return (
               <React.Fragment key={s}>
                 {i > 0 && <svg className="w-3 h-3 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>}
