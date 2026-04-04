@@ -233,6 +233,29 @@ async function dbGenerateQuoteNo() {
   return `DW-${year}-${String((isNaN(seq) ? 0 : seq) + 1).padStart(3, '0')}`;
 }
 
+async function dbLoadQuoteByNo(quoteNo) {
+  const { data, error } = await sb.from('quotes').select('*').eq('quote_no', quoteNo).single();
+  if (error || !data) return null;
+  return {
+    id: data.id, quoteNo: data.quote_no,
+    hospital: data.hospital, doctor: data.doctor,
+    savedAt: new Date(data.created_at).toLocaleString('ko-KR'),
+    finalAmt: data.final_amt, dept: data.dept || '',
+    quoteInfo: { hospital: data.hospital, doctor: data.doctor, dept: data.dept || '', quoteNo: data.quote_no, date: data.date, validity: data.validity },
+    categories: data.categories, globalDiscount: data.global_discount,
+    vatIncluded: data.vat_included, author: data.author || '', lead_id: data.lead_id || null,
+  };
+}
+
+async function dbGenerateRevisionNo(baseQuoteNo) {
+  const cleanBase = baseQuoteNo.replace(/-R\d+$/, '');
+  const { data, error } = await sb.from('quotes').select('quote_no').like('quote_no', `${cleanBase}-R%`).order('quote_no', { ascending: false }).limit(1);
+  if (error || !data || data.length === 0) return `${cleanBase}-R2`;
+  const match = data[0].quote_no.match(/-R(\d+)$/);
+  const revNum = match ? parseInt(match[1], 10) : 1;
+  return `${cleanBase}-R${revNum + 1}`;
+}
+
 /* ---------- Dynamic Categories DB ---------- */
 async function dbLoadDynCats() {
   const { data, error } = await sb.from('categories').select('*').order('sort_order').order('created_at');
@@ -1738,7 +1761,7 @@ function CategorySection({ category, collapsed, onToggle, onUpdateItem, onDelete
 /* ============================================================
    SUMMARY PANEL
    ============================================================ */
-function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatIncluded, setVatIncluded, onPdfPreview, onSave }) {
+function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatIncluded, setVatIncluded, onPdfPreview, onSave, onRevisionSave, saving, currentQuoteNo }) {
   const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
   // VAT 별도: finalAmt에 10% 가산 / VAT 포함: finalAmt를 역산하여 공급가·부가세 분리
   const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
@@ -1900,13 +1923,24 @@ function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatInclud
 
         {/* PDF 버튼 */}
         <div className="mt-auto pt-2 flex flex-col gap-2">
+          {onRevisionSave && currentQuoteNo && (
+            <button
+              onClick={onRevisionSave}
+              disabled={saving}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              {saving ? '저장 중...' : '수정 저장'}
+            </button>
+          )}
           {onSave && (
             <button
               onClick={onSave}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 transition-colors"
+              disabled={saving}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
-              견적 저장
+              {saving ? '저장 중...' : '견적 저장'}
             </button>
           )}
           <button
@@ -3603,7 +3637,7 @@ function LeadsDashboard({ leads, loading }) {
 /* ============================================================
    LEADS CALENDAR 컴포넌트
    ============================================================ */
-function LeadsCalendar({ leads, onEdit, onNewLead }) {
+function LeadsCalendar({ leads, onEdit, onNewLead, onLoadQuote }) {
   const [currentDate, setCurrentDate] = React.useState(new Date());
   const [selectedAssignee, setSelectedAssignee] = React.useState('all');
   const [selectedDay, setSelectedDay] = React.useState(null);
@@ -3835,6 +3869,14 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
                         {lead.hospital_name && <span className="text-xs text-slate-400">{lead.hospital_name}</span>}
                         {lead.dept && <span className="text-xs text-slate-400">{lead.dept}</span>}
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${LEAD_STAGE_COLORS[lead.stage]||'bg-slate-100 text-slate-600'}`}>{lead.stage}</span>
+                        {lead.quote_no && onLoadQuote && (
+                          <button onClick={() => onLoadQuote(lead, lead.quote_no)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-violet-50 text-violet-600 border border-violet-200 rounded text-[10px] font-mono font-medium hover:bg-violet-100 transition-colors"
+                            title="견적서 불러오기">
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                            {lead.quote_no}
+                          </button>
+                        )}
                         {lead.assignee && <span className={`text-xs font-medium ${ac ? ac.text : 'text-slate-500'}`}>{lead.assignee}</span>}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -3903,6 +3945,115 @@ function LeadsCalendar({ leads, onEdit, onNewLead }) {
 }
 
 /* ============================================================
+   QUOTE PICKER MODAL (견적서 선택)
+   ============================================================ */
+function QuotePickerModal({ onSelect, onClose }) {
+  const [quotes, setQuotes] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+
+  React.useEffect(() => {
+    dbLoadQuotes().then(data => { setQuotes(data); setLoading(false); });
+  }, []);
+
+  const filtered = React.useMemo(() => {
+    if (!search.trim()) return quotes;
+    const q = search.toLowerCase();
+    return quotes.filter(e =>
+      (e.quoteNo || '').toLowerCase().includes(q) ||
+      (e.hospital || '').toLowerCase().includes(q) ||
+      (e.doctor || '').toLowerCase().includes(q) ||
+      (e.dept || '').toLowerCase().includes(q)
+    );
+  }, [quotes, search]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{background:'rgba(0,0,0,0.6)'}}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col" style={{maxHeight:'80vh'}}>
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+          <div className="font-bold text-slate-900">견적서 선택</div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="견적번호, 병원명, 원장명, 진료과 검색..."
+            autoFocus
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          {loading ? (
+            <div className="py-10 text-center text-slate-400 text-sm">불러오는 중...</div>
+          ) : filtered.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">검색 결과가 없습니다</div>
+          ) : filtered.map(e => (
+            <button key={e.id} onClick={() => { onSelect(e.quoteNo); onClose(); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-violet-50 border-b border-slate-50 last:border-0 transition-colors text-left">
+              <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold text-violet-700 text-sm">{e.quoteNo}</span>
+                  {e.dept && <span className="text-xs px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">{e.dept}</span>}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5 truncate">
+                  {[e.hospital, e.doctor].filter(Boolean).join(' · ') || '—'}
+                </div>
+              </div>
+              <div className="text-xs text-slate-400 shrink-0">{e.savedAt?.slice(0,10) || ''}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   QUOTE NO INPUT MODAL (견적발송 단계 전환 시)
+   ============================================================ */
+function QuoteNoInputModal({ lead, onConfirm, onClose }) {
+  const [quoteNo, setQuoteNo] = React.useState(lead.quote_no || '');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <div className="font-bold text-slate-900">견적발송 단계 전환</div>
+            <div className="text-xs text-slate-400 mt-0.5">{lead.contact_name}{lead.hospital_name ? ` · ${lead.hospital_name}` : ''}</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">연결할 견적번호 <span className="text-slate-400 font-normal">(선택)</span></label>
+            <input
+              value={quoteNo}
+              onChange={e => setQuoteNo(e.target.value)}
+              placeholder="예) DW-2026-001"
+              autoFocus
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+            <p className="text-xs text-slate-400 mt-1.5">견적번호를 입력하면 리드 행에서 견적서를 바로 불러올 수 있습니다.</p>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+          <button onClick={() => onConfirm(quoteNo)}
+            className="px-5 py-2 text-sm bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-500">
+            견적발송으로 변경
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    LEADS PAGE (영업 파이프라인)
    ============================================================ */
 const LEAD_STAGES = ['신규문의', '견적발송', '상담중', '계약완료', '타사계약'];
@@ -3921,7 +4072,7 @@ const LEAD_STAGE_BTN = {
   '타사계약': 'bg-red-500',
 };
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
-const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', quote_sent_date:'', contracted_at:'', delivered_at:'', purchase_complete_at:'', sales_complete_at:'', lost_at:'', meetings:[] };
+const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', quote_sent_date:'', contracted_at:'', delivered_at:'', purchase_complete_at:'', sales_complete_at:'', lost_at:'', meetings:[], quote_no:'' };
 
 function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const [leads, setLeads] = React.useState([]);
@@ -3936,6 +4087,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const [stagePopup, setStagePopup] = React.useState(null);
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [quoteOptionsLead, setQuoteOptionsLead] = React.useState(null); // 견적작성 옵션 팝업
+  const [showQuotePicker, setShowQuotePicker] = React.useState(false); // 견적서 연결 팝업
 
   const load = async () => {
     setLoading(true);
@@ -3963,7 +4115,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   };
   const openEdit = (lead) => {
     setEditingLead(lead);
-    setForm({ hospital_name:lead.hospital_name||'', contact_name:lead.contact_name||'', contact_phone:lead.contact_phone||'', dept:lead.dept||'', opening_date:lead.opening_date||'', source:lead.source||'직접입력', stage:lead.stage||'신규문의', assignee:lead.assignee||'', notes:lead.notes||'', quote_sent_date:lead.quote_sent_date||'', contracted_at:lead.contracted_at||'', delivered_at:lead.delivered_at||'', purchase_complete_at:lead.purchase_complete_at||'', sales_complete_at:lead.sales_complete_at||'', lost_at:lead.lost_at||'', meetings:Array.isArray(lead.meetings)?lead.meetings:[] });
+    setForm({ hospital_name:lead.hospital_name||'', contact_name:lead.contact_name||'', contact_phone:lead.contact_phone||'', dept:lead.dept||'', opening_date:lead.opening_date||'', source:lead.source||'직접입력', stage:lead.stage||'신규문의', assignee:lead.assignee||'', notes:lead.notes||'', quote_sent_date:lead.quote_sent_date||'', contracted_at:lead.contracted_at||'', delivered_at:lead.delivered_at||'', purchase_complete_at:lead.purchase_complete_at||'', sales_complete_at:lead.sales_complete_at||'', lost_at:lead.lost_at||'', meetings:Array.isArray(lead.meetings)?lead.meetings:[], quote_no:lead.quote_no||'' });
     setShowForm(true);
   };
 
@@ -4103,7 +4255,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
           {showDashboard && <LeadsDashboard leads={leads} loading={loading} />}
         </div>
         <div>
-          {showCalendar && <LeadsCalendar leads={leads} onEdit={openEdit} onNewLead={openNew} />}
+          {showCalendar && <LeadsCalendar leads={leads} onEdit={openEdit} onNewLead={openNew} onLoadQuote={onCreateQuote ? (lead, qNo) => onCreateQuote(lead, 'load', qNo) : null} />}
         </div>
         <div style={{display: (showDashboard || showCalendar) ? 'none' : 'block'}}>
           {loading ? (
@@ -4119,40 +4271,41 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 rounded-t-xl">
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">이름</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">연락처</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">진료과</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">개원예정일</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">영업담당</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">유입경로</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">미팅일</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">영업단계</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">기타</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">등록일</th>
-                    <th className="px-4 py-3 w-36"></th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">이름</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">연락처</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">진료과</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">개원예정일</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">영업담당</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">유입경로</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">미팅일</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">영업단계</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">견적번호</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">기타</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">등록일</th>
+                    <th className="px-3 py-3 w-32"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(lead => (
                     <tr key={lead.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-3">
-                        <div className="font-semibold text-slate-800">{lead.contact_name || <span className="text-slate-400">이름 없음</span>}</div>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-800 text-sm">{lead.contact_name || <span className="text-slate-400">이름 없음</span>}</div>
                         {lead.hospital_name && <div className="text-xs text-slate-400 mt-0.5">{lead.hospital_name}</div>}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">{lead.contact_phone || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">{lead.dept || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3 text-slate-500 text-xs whitespace-nowrap">{lead.contact_phone || <span className="text-slate-300">—</span>}</td>
+                      <td className="px-3 py-3 text-slate-500 text-xs">{lead.dept || <span className="text-slate-300">—</span>}</td>
+                      <td className="px-3 py-3">
                         {lead.opening_date
-                          ? <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs rounded-full font-medium border border-amber-200">{lead.opening_date}</span>
+                          ? <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs rounded-full font-medium border border-amber-200 whitespace-nowrap">{lead.opening_date}</span>
                           : <span className="text-slate-300 text-xs">—</span>}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         {lead.assignee
                           ? <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs rounded-full font-medium">{lead.assignee}</span>
                           : <span className="text-slate-300 text-xs">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">{lead.source || '—'}</td>
-                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                      <td className="px-3 py-3 text-slate-400 text-xs">{lead.source || '—'}</td>
+                      <td className="px-3 py-3 text-xs whitespace-nowrap">
                         {(() => {
                           const ms = Array.isArray(lead.meetings) ? lead.meetings.filter(m=>m.date) : [];
                           if (ms.length === 0) return <span className="text-slate-300">—</span>;
@@ -4165,10 +4318,10 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                           );
                         })()}
                       </td>
-                      <td className="px-4 py-3 relative">
+                      <td className="px-3 py-3 relative">
                         <button
                           onClick={e => { e.stopPropagation(); setStagePopup(stagePopup === lead.id ? null : lead.id); }}
-                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${LEAD_STAGE_COLORS[lead.stage] || 'bg-slate-100 text-slate-600'}`}>
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors whitespace-nowrap ${LEAD_STAGE_COLORS[lead.stage] || 'bg-slate-100 text-slate-600'}`}>
                           {lead.stage} ▾
                         </button>
                         {stagePopup === lead.id && (
@@ -4182,15 +4335,27 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[180px]">
+                      <td className="px-3 py-3">
+                        {lead.quote_no
+                          ? <button
+                              onClick={() => onCreateQuote && onCreateQuote(lead, 'load', lead.quote_no)}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-violet-50 text-violet-700 border border-violet-200 rounded-lg text-xs font-mono font-medium hover:bg-violet-100 transition-colors whitespace-nowrap"
+                              title="견적서 불러오기"
+                            >
+                              <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                              {lead.quote_no}
+                            </button>
+                          : <span className="text-slate-300 text-xs">—</span>}
+                      </td>
+                      <td className="px-3 py-3 text-xs max-w-[160px]">
                         {lead.notes
-                          ? <span className="line-clamp-2 leading-relaxed" title={lead.notes}>{lead.notes}</span>
+                          ? <span className="line-clamp-2 leading-relaxed text-slate-500" title={lead.notes}>{lead.notes}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">
+                      <td className="px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
                         {lead.created_at ? new Date(lead.created_at).toLocaleDateString('ko-KR') : '—'}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-3 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 justify-end flex-nowrap">
                           {onCreateQuote && (
                             <button onClick={() => setQuoteOptionsLead(lead)}
@@ -4381,6 +4546,31 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
                   placeholder="특이사항, 요청사항 등"
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"/>
               </div>
+              {/* 견적서 연결 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  견적서 연결 <span className="text-slate-400 font-normal">(선택)</span>
+                </label>
+                {form.quote_no ? (
+                  <div className="flex items-center gap-2 p-2.5 bg-violet-50 border border-violet-200 rounded-lg">
+                    <svg className="w-4 h-4 text-violet-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span className="flex-1 text-sm font-mono font-semibold text-violet-700">{form.quote_no}</span>
+                    <button type="button" onClick={() => setShowQuotePicker(true)}
+                      className="text-xs text-violet-500 hover:text-violet-700 font-medium">변경</button>
+                    <button type="button" onClick={() => setForm(p=>({...p,quote_no:''}))}
+                      className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-100 text-slate-300 hover:text-red-400 transition-colors">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setShowQuotePicker(true)}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 border-2 border-dashed border-slate-200 rounded-lg text-sm text-slate-400 hover:border-violet-300 hover:text-violet-500 transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                    견적서 선택하기
+                  </button>
+                )}
+                <p className="text-xs text-slate-400 mt-1">연결하면 리드 목록에서 견적서를 바로 불러올 수 있고, 수정 저장 시 자동으로 업데이트됩니다.</p>
+              </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">
               <button onClick={() => { setShowForm(false); setEditingLead(null); }} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
@@ -4393,7 +4583,13 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
         </div>
       )}
 
-      {/* 견적작성 옵션 모달 */}
+      {showQuotePicker && (
+        <QuotePickerModal
+          onSelect={qNo => setForm(p => ({ ...p, quote_no: qNo }))}
+          onClose={() => setShowQuotePicker(false)}
+        />
+      )}
+
       {quoteOptionsLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
@@ -6572,12 +6768,13 @@ function App() {
   const [productModal, setProductModal] = useState(null);   // { modelId, modelName, manufacturer, catName, catColorKey }
   const [mfrModal, setMfrModal] = useState(null);           // manufacturerName string
   const [toasts, setToasts] = useState([]);
-  const [view, setView] = useState('list'); // 'editor' | 'list' | 'manage'
+  const [view, setView] = useState('leads'); // 'editor' | 'list' | 'manage' | 'leads'
   const [listInitialTab, setListInitialTab] = useState('saved');
   const [listInitialDept, setListInitialDept] = useState(null);
   const [hospitalsInitialHospId, setHospitalsInitialHospId] = useState(null);
   const [hospitalsInitialTab, setHospitalsInitialTab] = useState('info');
   const [currentLead, setCurrentLead] = useState(null);
+  const [quoteSaving, setQuoteSaving] = useState(false);
 
   const goToHospital = (hospId, tab = 'info') => {
     setHospitalsInitialHospId(hospId);
@@ -6620,6 +6817,8 @@ function App() {
   }, []);
 
   const handleSave = useCallback(async () => {
+    if (quoteSaving) return;
+    setQuoteSaving(true);
     try {
       const quoteNo = await dbGenerateQuoteNo();
       const s = calcSummary(categories, globalDiscount);
@@ -6640,8 +6839,44 @@ function App() {
     } catch(e) {
       console.error('견적 저장 오류:', e);
       addToast('저장 중 오류가 발생했습니다.', 'error');
+    } finally {
+      setQuoteSaving(false);
     }
-  }, [quoteInfo, categories, globalDiscount, vatIncluded, addToast]);
+  }, [quoteSaving, quoteInfo, categories, globalDiscount, vatIncluded, addToast]);
+
+  const handleRevisionSave = useCallback(async () => {
+    if (quoteSaving) return;
+    if (!quoteInfo.quoteNo) { addToast('먼저 견적을 저장한 후 수정 저장하세요.', 'error'); return; }
+    setQuoteSaving(true);
+    try {
+      const revNo = await dbGenerateRevisionNo(quoteInfo.quoteNo);
+      const s = calcSummary(categories, globalDiscount);
+      const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
+      const entry = {
+        quoteNo: revNo,
+        finalAmt: supplyAmt,
+        quoteInfo: { ...quoteInfo, quoteNo: revNo },
+        categories: JSON.parse(JSON.stringify(categories)),
+        globalDiscount: { ...globalDiscount },
+        vatIncluded,
+        author: user?.email || null,
+        lead_id: currentLead?.id || null,
+      };
+      await dbSaveQuote(entry);
+      setQuoteInfo(p => ({ ...p, quoteNo: revNo }));
+      // 연결된 리드가 있으면 quote_no 자동 업데이트
+      if (currentLead?.id) {
+        await dbUpdateLead(currentLead.id, { quote_no: revNo });
+        setCurrentLead(p => p ? { ...p, quote_no: revNo } : p);
+      }
+      addToast(`수정 견적이 저장되었습니다. (${revNo})`, 'success');
+    } catch(e) {
+      console.error('수정 저장 오류:', e);
+      addToast('저장 중 오류가 발생했습니다.', 'error');
+    } finally {
+      setQuoteSaving(false);
+    }
+  }, [quoteSaving, quoteInfo, categories, globalDiscount, vatIncluded, currentLead, addToast]);
 
   const handleLoadEntry = useCallback((entry) => {
     setQuoteInfo(entry.quoteInfo);
@@ -6783,8 +7018,17 @@ function App() {
       user={user}
       onLogout={handleLogout}
       nav={nav}
-      onCreateQuote={(lead, type) => {
-        if (type === 'standard') {
+      onCreateQuote={async (lead, type, quoteNo) => {
+        if (type === 'load' && quoteNo) {
+          addToast('견적서 불러오는 중...', 'info');
+          const entry = await dbLoadQuoteByNo(quoteNo);
+          if (entry) {
+            setCurrentLead(lead);
+            handleLoadEntry(entry);
+          } else {
+            addToast(`견적번호 ${quoteNo}를 찾을 수 없습니다.`, 'error');
+          }
+        } else if (type === 'standard') {
           setListInitialTab('standard');
           setListInitialDept(lead.dept || null);
           setCurrentLead(lead);
@@ -6896,6 +7140,9 @@ function App() {
           setVatIncluded={setVatIncluded}
           onPdfPreview={() => setPdfModal(true)}
           onSave={handleSave}
+          onRevisionSave={handleRevisionSave}
+          saving={quoteSaving}
+          currentQuoteNo={quoteInfo.quoteNo}
         />
       </div>
 
