@@ -3947,14 +3947,9 @@ function LeadsCalendar({ leads, onEdit, onNewLead, onLoadQuote }) {
 /* ============================================================
    QUOTE PICKER MODAL (견적서 선택)
    ============================================================ */
-function QuotePickerModal({ onSelect, onClose }) {
-  const [quotes, setQuotes] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+function QuotePickerModal({ onSelect, onClose, quotes = [] }) {
+  const [loading] = React.useState(false);
   const [search, setSearch] = React.useState('');
-
-  React.useEffect(() => {
-    dbLoadQuotes().then(data => { setQuotes(data); setLoading(false); });
-  }, []);
 
   const filtered = React.useMemo(() => {
     if (!search.trim()) return quotes;
@@ -4035,9 +4030,8 @@ const LEAD_STAGE_BTN = {
 const OPENING_DATE_OPTIONS = ['3개월 미만', '6개월 미만', '1년 미만', '1년 이상'];
 const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'', opening_date:'', source:'직접입력', stage:'신규문의', assignee:'', notes:'', quote_sent_date:'', contracted_at:'', delivered_at:'', purchase_complete_at:'', sales_complete_at:'', lost_at:'', meetings:[], quote_no:'' };
 
-function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
-  const [leads, setLeads] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], setLeads, leadsLoading = false, quotes = [] }) {
+  const loading = leadsLoading;
   const [filter, setFilter] = React.useState('신규문의');
   const [showDashboard, setShowDashboard] = React.useState(false);
   const [showCalendar, setShowCalendar] = React.useState(false);
@@ -4047,15 +4041,8 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
   const [saving, setSaving] = React.useState(false);
   const [stagePopup, setStagePopup] = React.useState(null);
   const [confirmDel, setConfirmDel] = React.useState(null);
-  const [quoteOptionsLead, setQuoteOptionsLead] = React.useState(null); // 견적작성 옵션 팝업
-  const [showQuotePicker, setShowQuotePicker] = React.useState(false); // 견적서 연결 팝업
-
-  const load = async () => {
-    setLoading(true);
-    setLeads(await dbLoadLeads());
-    setLoading(false);
-  };
-  React.useEffect(() => { load(); }, []);
+  const [quoteOptionsLead, setQuoteOptionsLead] = React.useState(null);
+  const [showQuotePicker, setShowQuotePicker] = React.useState(false);
 
   // 바깥 클릭 시 단계 팝업 닫기
   React.useEffect(() => {
@@ -4549,6 +4536,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav }) {
         <QuotePickerModal
           onSelect={qNo => setForm(p => ({ ...p, quote_no: qNo }))}
           onClose={() => setShowQuotePicker(false)}
+          quotes={quotes}
         />
       )}
 
@@ -6015,9 +6003,13 @@ function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
 /* ============================================================
    SAVED QUOTES LIST
    ============================================================ */
-function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, customEquips = [], dynCats = [], initialTab = 'saved', initialDept = null, user, onLogout, nav }) {
-  const [saves, setSaves] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, customEquips = [], dynCats = [], initialTab = 'saved', initialDept = null, user, onLogout, nav, saves: savesProp = [], setSaves: setSavesProp, quotesLoading = false, allLeads: allLeadsProp = [] }) {
+  const [saves, setSavesLocal] = React.useState(savesProp);
+  const [loading, setLoading] = React.useState(quotesLoading);
+  const setSaves = React.useCallback((updater) => {
+    setSavesLocal(updater);
+    if (setSavesProp) setSavesProp(updater);
+  }, [setSavesProp]);
   const [confirmId, setConfirmId] = React.useState(null);
   const [contractModalQuote, setContractModalQuote] = React.useState(null);
   const [activeTab, setActiveTab] = React.useState(initialTab === 'standard' ? 'standard' : 'list');
@@ -6034,7 +6026,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
   const [showTplEquipModal, setShowTplEquipModal] = React.useState(false);
   const [allContracts, setAllContracts] = React.useState([]);
   const [updatingContractId, setUpdatingContractId] = React.useState(null);
-  const [allLeads, setAllLeads] = React.useState([]);
+  const allLeads = allLeadsProp;
   const [toasts, setToasts] = React.useState([]);
   const addToast = React.useCallback((msg, type='success') => {
     const id = Date.now();
@@ -6042,11 +6034,12 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
   }, []);
 
+  // props에서 받은 데이터가 바뀌면 local state 동기화
+  React.useEffect(() => { setSavesLocal(savesProp); setLoading(quotesLoading); }, [savesProp, quotesLoading]);
+
   React.useEffect(() => {
-    dbLoadQuotes().then(data => { setSaves(data); setLoading(false); });
     dbLoadTemplates().then(data => { setTemplates(data); setLoadingTpls(false); });
     dbLoadContracts().then(data => setAllContracts(data || []));
-    dbLoadLeads().then(data => setAllLeads(data || []));
   }, []);
 
   const handleContractStatusChange = async (contractId, newStatus) => {
@@ -6737,11 +6730,17 @@ function App() {
   const [currentLead, setCurrentLead] = useState(null);
   const [quoteSaving, setQuoteSaving] = useState(false);
 
+  // ── 앱 레벨 캐시 ──────────────────────────────────────────
+  const [appLeads, setAppLeads] = useState([]);
+  const [appLeadsLoading, setAppLeadsLoading] = useState(true);
+  const [appQuotes, setAppQuotes] = useState([]);
+  const [appQuotesLoading, setAppQuotesLoading] = useState(true);
+
   const goToHospital = (hospId, tab = 'info') => {
     setHospitalsInitialHospId(hospId);
     setHospitalsInitialTab(tab);
     setView('hospitals');
-  }; // 리드에서 견적 작성 시 연결 리드
+  };
   const [customEquips, setCustomEquips] = useState([]);
   const [dynCats, setDynCats] = useState([]);
   const [dynItems, setDynItems] = useState([]);
@@ -6762,6 +6761,16 @@ function App() {
 
   const handleLogout = useCallback(async () => {
     await sb.auth.signOut();
+  }, []);
+
+  // 앱 시작 시 leads + quotes 동시 프리로드
+  useEffect(() => {
+    dbLoadLeads()
+      .then(data => { setAppLeads(data); setAppLeadsLoading(false); })
+      .catch(e => { console.error(e); setAppLeadsLoading(false); });
+    dbLoadQuotes()
+      .then(data => { setAppQuotes(data); setAppQuotesLoading(false); })
+      .catch(e => { console.error(e); setAppQuotesLoading(false); });
   }, []);
 
   // Supabase에서 등록 장비 + 동적 카테고리 로드
@@ -6796,6 +6805,8 @@ function App() {
       };
       await dbSaveQuote(entry);
       setQuoteInfo(p => ({ ...p, quoteNo }));
+      // 앱 캐시 갱신
+      dbLoadQuotes().then(setAppQuotes).catch(console.error);
       addToast(`견적이 저장되었습니다. (${quoteNo})`, 'success');
     } catch(e) {
       console.error('견적 저장 오류:', e);
@@ -6829,7 +6840,10 @@ function App() {
       if (currentLead?.id) {
         await dbUpdateLead(currentLead.id, { quote_no: revNo });
         setCurrentLead(p => p ? { ...p, quote_no: revNo } : p);
+        setAppLeads(p => p.map(l => l.id === currentLead.id ? { ...l, quote_no: revNo } : l));
       }
+      // 앱 캐시 갱신
+      dbLoadQuotes().then(setAppQuotes).catch(console.error);
       addToast(`수정 견적이 저장되었습니다. (${revNo})`, 'success');
     } catch(e) {
       console.error('수정 저장 오류:', e);
@@ -6977,6 +6991,10 @@ function App() {
       user={user}
       onLogout={handleLogout}
       nav={nav}
+      leads={appLeads}
+      setLeads={setAppLeads}
+      leadsLoading={appLeadsLoading}
+      quotes={appQuotes}
       onCreateQuote={async (lead, type, quoteNo) => {
         if (type === 'load' && quoteNo) {
           addToast('견적서 불러오는 중...', 'info');
@@ -7020,6 +7038,10 @@ function App() {
         user={user}
         onLogout={handleLogout}
         nav={nav}
+        saves={appQuotes}
+        setSaves={setAppQuotes}
+        quotesLoading={appQuotesLoading}
+        allLeads={appLeads}
       />
     );
   }
