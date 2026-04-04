@@ -1469,7 +1469,7 @@ function ControlsBar({ search, setSearch, onAddEquip }) {
 /* ============================================================
    ITEM ROW
    ============================================================ */
-function ItemRow({ item, catColorKey, rowNum, onUpdate, onOpenAlt, onViewProduct, onViewManufacturer, catName, customEquips = [] }) {
+function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onViewProduct, onViewManufacturer, catName, customEquips = [] }) {
   const model = getModel(item);
   const gross = getGross(item);
   const net = getNet(item);
@@ -1652,6 +1652,18 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onOpenAlt, onViewProduct
           className="w-full min-w-[80px] px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-transparent placeholder-slate-300"
         />
       </td>
+      {/* 삭제 */}
+      <td className="px-2 py-2 w-8 text-center">
+        <button
+          onClick={onDelete}
+          title="항목 삭제"
+          className="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors mx-auto"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </td>
     </tr>
   );
 }
@@ -1659,7 +1671,7 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onOpenAlt, onViewProduct
 /* ============================================================
    CATEGORY SECTION
    ============================================================ */
-function CategorySection({ category, collapsed, onToggle, onUpdateItem, onOpenAlt, search, rowOffset, onViewProduct, onViewManufacturer, customEquips }) {
+function CategorySection({ category, collapsed, onToggle, onUpdateItem, onDeleteItem, onOpenAlt, search, rowOffset, onViewProduct, onViewManufacturer, customEquips }) {
   const colors = NEUTRAL_COLORS;
   const activeCount = category.items.filter(i => !i.excluded).length;
   const filteredItems = search
@@ -1705,6 +1717,7 @@ function CategorySection({ category, collapsed, onToggle, onUpdateItem, onOpenAl
           catColorKey={category.colorKey}
           rowNum={rowOffset + idx + 1}
           onUpdate={updated => onUpdateItem(category.id, updated)}
+          onDelete={() => onDeleteItem(category.id, item.id)}
           onOpenAlt={onOpenAlt}
           onViewProduct={onViewProduct}
           onViewManufacturer={onViewManufacturer}
@@ -6106,6 +6119,13 @@ function App() {
     ));
   }, []);
 
+  const deleteItem = useCallback((catId, itemId) => {
+    setCategories(prev => prev
+      .map(cat => cat.id !== catId ? cat : { ...cat, items: cat.items.filter(i => i.id !== itemId) })
+      .filter(cat => cat.items.length > 0)
+    );
+  }, []);
+
   const handleAddEquip = useCallback(({ catId, itemName, modelName, manufacturer, price, notes, image, altModels = [] }) => {
     const rand = () => Math.random().toString(36).slice(2, 7);
     const mid = 'custom-model-' + Date.now() + '-' + rand();
@@ -6295,6 +6315,7 @@ function App() {
                 collapsed={!!collapsed[cat.id]}
                 onToggle={() => setCollapsed(p => ({...p, [cat.id]: !p[cat.id]}))}
                 onUpdateItem={updateItem}
+                onDeleteItem={deleteItem}
                 onOpenAlt={(item) => setAltModal({item, catColorKey: cat.colorKey})}
                 search={search}
                 rowOffset={catOffsets[cat.id] || 0}
