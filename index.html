@@ -4033,6 +4033,7 @@ const EMPTY_LEAD = { hospital_name:'', contact_name:'', contact_phone:'', dept:'
 function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], setLeads, leadsLoading = false, quotes = [] }) {
   const loading = leadsLoading;
   const [filter, setFilter] = React.useState('신규문의');
+  const [sortDesc, setSortDesc] = React.useState(true); // true=최신순
   const [showDashboard, setShowDashboard] = React.useState(false);
   const [showCalendar, setShowCalendar] = React.useState(false);
   const [showForm, setShowForm] = React.useState(false);
@@ -4110,7 +4111,12 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
     } catch(e) { console.error(e); alert('삭제 중 오류가 발생했습니다.'); }
   };
 
-  const filtered = filter === 'all' ? leads : leads.filter(l => l.stage === filter);
+  const filtered = (filter === 'all' ? leads : leads.filter(l => l.stage === filter))
+    .slice()
+    .sort((a, b) => {
+      const da = a.created_at || '', db = b.created_at || '';
+      return sortDesc ? db.localeCompare(da) : da.localeCompare(db);
+    });
   const counts = Object.fromEntries(['all', ...LEAD_STAGES].map(s => [s, s === 'all' ? leads.length : leads.filter(l => l.stage === s).length]));
 
   return (
@@ -4155,7 +4161,13 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
             </button>
           ))}
         </>}
-        <div className="ml-auto shrink-0 flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
+        <div className="ml-auto shrink-0 flex items-center gap-2">
+        {!showCalendar && <button onClick={() => setSortDesc(p => !p)}
+          className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
+          {sortDesc ? '최신순' : '오래된순'}
+        </button>}
+        <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
           <button onClick={() => setShowCalendar(false)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${!showCalendar ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
@@ -4166,6 +4178,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             캘린더
           </button>
+        </div>
         </div>
       </div>}
 
@@ -4216,21 +4229,21 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
               {filter === 'all' && <div className="text-xs mt-1">"새 리드" 버튼으로 추가하세요</div>}
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-visible" style={{minHeight:'400px'}}>
-              <table className="w-full text-sm">
+            <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto" style={{minHeight:'400px'}}>
+              <table className="w-full text-sm" style={{minWidth:'1100px'}}>
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 rounded-t-xl">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">이름</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">연락처</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">진료과</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">개원예정일</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">영업담당</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">유입경로</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">미팅일</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">영업단계</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">견적번호</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">기타</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500">등록일</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 w-32">이름</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-28">연락처</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-20">진료과</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-24">개원예정일</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-20">영업담당</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-20">유입경로</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-28">미팅일</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-24">영업단계</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-32">견적번호</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-32">기타</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 w-36">등록일</th>
                     <th className="px-3 py-3 w-32"></th>
                   </tr>
                 </thead>
@@ -4238,7 +4251,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
                   {filtered.map(lead => (
                     <tr key={lead.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-800 text-sm">{lead.contact_name || <span className="text-slate-400">이름 없음</span>}</div>
+                        <div className="font-semibold text-slate-800 text-sm cursor-pointer hover:text-blue-600 transition-colors" onClick={() => openEdit(lead)}>{lead.contact_name || <span className="text-slate-400">이름 없음</span>}</div>
                         {lead.hospital_name && <div className="text-xs text-slate-400 mt-0.5">{lead.hospital_name}</div>}
                       </td>
                       <td className="px-3 py-3 text-slate-500 text-xs whitespace-nowrap">{lead.contact_phone || <span className="text-slate-300">—</span>}</td>
