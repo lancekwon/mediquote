@@ -4307,10 +4307,15 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
                       <td className="px-3 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 justify-end flex-nowrap">
                           {onCreateQuote && (
-                            <button onClick={() => setQuoteOptionsLead(lead)}
-                              className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded font-semibold hover:bg-blue-500 transition-colors whitespace-nowrap">
-                              견적작성
-                            </button>
+                            lead.quote_no
+                              ? <button onClick={() => onCreateQuote(lead, 'load', lead.quote_no)}
+                                  className="px-2.5 py-1 text-xs bg-amber-500 text-white rounded font-semibold hover:bg-amber-400 transition-colors whitespace-nowrap">
+                                  견적수정
+                                </button>
+                              : <button onClick={() => setQuoteOptionsLead(lead)}
+                                  className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded font-semibold hover:bg-blue-500 transition-colors whitespace-nowrap">
+                                  견적작성
+                                </button>
                           )}
                           <button onClick={() => openEdit(lead)}
                             className="px-2.5 py-1 text-xs border border-slate-200 text-slate-500 rounded hover:bg-slate-50 transition-colors whitespace-nowrap">
