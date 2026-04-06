@@ -4302,7 +4302,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
                           : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
-                        {lead.created_at ? new Date(lead.created_at).toLocaleDateString('ko-KR') : '—'}
+                        {lead.created_at ? new Date(lead.created_at).toLocaleString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1 justify-end flex-nowrap">
