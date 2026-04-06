@@ -6160,8 +6160,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
     const tpl = templates[tplKey(selectedDept, selectedTier)];
     const tier = BUDGET_TIERS.find(t => t.key === selectedTier);
     if (tpl && tpl.categories.length > 0) {
-      const quoteNo = 'STD-' + selectedDept.replace(/\//g, '');
-      onLoad({ quoteNo, quoteInfo: { hospital: '○○○○ 의원', doctor: '홍길동', dept: selectedDept, quoteNo, date: getToday(), validity: getValidity() }, categories: JSON.parse(JSON.stringify(tpl.categories)), globalDiscount: { type: 'rate', value: 0 }, vatIncluded: false });
+      onLoad({ quoteNo: '', quoteInfo: { hospital: '○○○○ 의원', doctor: '홍길동', dept: selectedDept, quoteNo: '', date: getToday(), validity: getValidity() }, categories: JSON.parse(JSON.stringify(tpl.categories)), globalDiscount: { type: 'rate', value: 0 }, vatIncluded: false });
     } else {
       generateStandardQuote(selectedDept, tier);
     }
@@ -6287,10 +6286,9 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
       });
     }
 
-    const quoteNo = 'STD-' + dept.replace(/\//g,'');
     onLoad({
-      quoteNo,
-      quoteInfo: { hospital: '○○○○ 의원', doctor: '홍길동', dept, quoteNo, date: getToday(), validity: getValidity() },
+      quoteNo: '',
+      quoteInfo: { hospital: '○○○○ 의원', doctor: '홍길동', dept, quoteNo: '', date: getToday(), validity: getValidity() },
       categories: Object.values(catMap),
       globalDiscount: { type: 'rate', value: 0 },
       vatIncluded: false,
@@ -6805,6 +6803,12 @@ function App() {
       };
       await dbSaveQuote(entry);
       setQuoteInfo(p => ({ ...p, quoteNo }));
+      // 연결된 리드가 있으면 quote_no 자동 업데이트
+      if (currentLead?.id) {
+        await dbUpdateLead(currentLead.id, { quote_no: quoteNo });
+        setCurrentLead(p => p ? { ...p, quote_no: quoteNo } : p);
+        setAppLeads(p => p.map(l => l.id === currentLead.id ? { ...l, quote_no: quoteNo } : l));
+      }
       // 앱 캐시 갱신
       dbLoadQuotes().then(setAppQuotes).catch(console.error);
       addToast(`견적이 저장되었습니다. (${quoteNo})`, 'success');
@@ -6814,7 +6818,7 @@ function App() {
     } finally {
       setQuoteSaving(false);
     }
-  }, [quoteSaving, quoteInfo, categories, globalDiscount, vatIncluded, addToast]);
+  }, [quoteSaving, quoteInfo, categories, globalDiscount, vatIncluded, currentLead, addToast]);
 
   const handleRevisionSave = useCallback(async () => {
     if (quoteSaving) return;
@@ -6859,7 +6863,7 @@ function App() {
     setGlobalDiscount(entry.globalDiscount);
     setVatIncluded(entry.vatIncluded);
     setView('editor');
-    addToast(`견적 ${entry.quoteNo} 불러왔습니다.`, 'success');
+    addToast(entry.quoteNo ? `견적 ${entry.quoteNo} 불러왔습니다.` : '견적 내용을 불러왔습니다.', 'success');
   }, [addToast]);
 
   const updateItem = useCallback((catId, updatedItem) => {
