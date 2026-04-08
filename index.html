@@ -2155,7 +2155,6 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       <div class="cover-header">
         <div class="cover-header-left">
           ${logoBase64 ? `<img src="${logoBase64}" alt="DW Logo" class="cover-header-logo"/>` : ''}
-          <div class="cover-header-title">의료기기 턴키 납품 견적서</div>
         </div>
         <div class="cover-header-info">
           견적일자 : ${quoteInfo.date}<br/>
@@ -2166,8 +2165,9 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         </div>
       </div>
       <div class="cover-body">
+        <div style="font-size:20px;font-weight:800;color:#1e3a5f;text-align:center;margin-bottom:24px;letter-spacing:-0.5px;">의료기기 턴키 납품 견적서</div>
         <div class="cover-greeting">
-          <strong>성공적인 개원을 기원합니다. ${quoteInfo.doctor} 원장님</strong> 안녕하세요, 대원메디칼입니다.<br/><br/>
+          <strong>성공적인 개원을 기원합니다. ${quoteInfo.doctor} 원장님</strong> 안녕하세요, 대원메디칼입니다.<br/>
           대원메디칼은 1989년 설립 이래, 대한민국 의료 현장과 함께 성장해 왔습니다.<br/>
           수많은 병·의원의 개원과 성장을 지켜보며, 단순히 장비를 납품하는 것이 아닌 병원의 동반자로서 함께해 왔습니다.<br/>
           원장님께서 환자 진료에만 집중하실 수 있도록, 개원 준비부터 사후관리까지 모든 과정을 원스톱으로 책임지겠습니다.
@@ -2204,7 +2204,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
           </div>
           <div class="cover-bottom-box">
             <div class="cover-bottom-box-title">A/S 및 금융 지원</div>
-            <div class="cover-bottom-box-desc">무상 보증 : 장비별 1년~5년<br/>긴급 출동 : 전담 서비스 상시대응<br/>금융연계 : 리스/할부 최저금리 최대 60개월 적용</div>
+            <div class="cover-bottom-box-desc">무상 보증 : 장비별 1년~5년<br/>금융연계 : 리스/할부 최저금리 최대 60개월 적용</div>
           </div>
         </div>
         <div class="cover-note">일부 기기는 제조사의 유통정책으로 인해 미팅 후 가격안내가 가능합니다</div>
@@ -2357,7 +2357,6 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                       ? <img src={logoBase64} alt="DW Logo" className="h-24 object-contain"/>
                       : <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-[#1e3a5f] font-bold text-lg shadow-md">DW</div>
                     }
-                    <div className="text-xl font-extrabold tracking-tight">의료기기 턴키 납품 견적서</div>
                   </div>
                   <div className="text-right text-[11px] leading-loose opacity-90">
                     <div>견적일자 : {quoteInfo.date}</div>
@@ -2369,9 +2368,10 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                 </div>
                 {/* Body */}
                 <div className="px-10 py-8">
+                  <div className="text-lg font-extrabold text-[#1e3a5f] text-center mb-5 tracking-tight">의료기기 턴키 납품 견적서</div>
                   {/* Greeting */}
                   <div className="text-[11.5px] text-slate-700 leading-loose mb-7">
-                    <p className="mb-2"><strong className="text-[#1e3a5f] text-[14px] block mb-2">성공적인 개원을 기원합니다. {quoteInfo.doctor} 원장님</strong> 안녕하세요, 대원메디칼입니다.</p>
+                    <p className="mb-1"><strong className="text-[#1e3a5f] text-[14px] block mb-2">성공적인 개원을 기원합니다. {quoteInfo.doctor} 원장님</strong> 안녕하세요, 대원메디칼입니다.</p>
                     <p className="mb-1">대원메디칼은 1989년 설립 이래, 대한민국 의료 현장과 함께 성장해 왔습니다.</p>
                     <p className="mb-1">수많은 병·의원의 개원과 성장을 지켜보며, 단순히 장비를 납품하는 것이 아닌 병원의 동반자로서 함께해 왔습니다.</p>
                     <p>원장님께서 환자 진료에만 집중하실 수 있도록, 개원 준비부터 사후관리까지 모든 과정을 원스톱으로 책임지겠습니다.</p>
@@ -2416,7 +2416,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                     </div>
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                       <div className="text-[10px] font-bold text-[#1e3a5f] mb-1.5">A/S 및 금융 지원</div>
-                      <div className="text-[9px] text-slate-600 leading-relaxed">무상 보증 : 장비별 1년~5년<br/>긴급 출동 : 전담 서비스 상시대응<br/>금융연계 : 리스/할부 최저금리 최대 60개월 적용</div>
+                      <div className="text-[9px] text-slate-600 leading-relaxed">무상 보증 : 장비별 1년~5년<br/>금융연계 : 리스/할부 최저금리 최대 60개월 적용</div>
                     </div>
                   </div>
                   <div className="text-[9.5px] text-[#1e3a5f] text-center bg-slate-100 border border-slate-200 rounded-md py-2 px-4">일부 기기는 제조사의 유통정책으로 인해 미팅 후 가격안내가 가능합니다</div>
