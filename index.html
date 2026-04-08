@@ -2075,15 +2075,18 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
   const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
 
   useEffect(() => {
-    fetch('/dw-logo.png')
-      .then(res => { if (!res.ok) throw new Error('logo fetch ' + res.status); return res.blob(); })
-      .then(blob => {
-        if (blob.type && !blob.type.startsWith('image')) throw new Error('not an image: ' + blob.type);
-        const reader = new FileReader();
-        reader.onloadend = () => setLogoBase64(reader.result);
-        reader.readAsDataURL(blob);
-      })
-      .catch(e => { console.warn('Logo load failed:', e); setLogoBase64(''); });
+    // file:// 에서는 fetch 불가 → img.onload로 canvas 변환
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      setLogoBase64(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => setLogoBase64('');
+    img.src = 'dw-logo.png';
   }, []);
 
   const handlePrint = () => {
