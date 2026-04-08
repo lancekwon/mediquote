@@ -2109,7 +2109,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         .cover { min-height:100vh; padding:0; display:flex; flex-direction:column; }
         .cover-header { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; padding:28px 64px; display:flex; justify-content:space-between; align-items:center; }
         .cover-header-left { display:flex; align-items:center; gap:20px; }
-        .cover-header-logo { height:80px; object-fit:contain; background:#fff; border-radius:12px; padding:6px; }
+        .cover-header-logo { height:120px; object-fit:contain; }
         .cover-header-title { font-size:24px; font-weight:800; letter-spacing:-0.5px; }
         .cover-header-info { text-align:right; font-size:11px; line-height:2.2; opacity:0.9; }
         .cover-body { flex:1; padding:36px 64px 28px; display:flex; flex-direction:column; justify-content:center; }
@@ -2120,7 +2120,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         .cover-pnode { position:absolute; display:flex; flex-direction:column; align-items:center; text-align:center; width:100px; margin-left:-50px; margin-top:-24px; }
         .cover-pnode-num { width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#1e3a5f,#2d5a8e); color:#fff; font-size:15px; font-weight:800; display:flex; align-items:center; justify-content:center; margin-bottom:6px; box-shadow:0 3px 12px rgba(30,58,95,0.25); }
         .cover-pnode-title { font-size:9.5px; font-weight:700; color:#1e3a5f; line-height:1.5; }
-        .cover-closing { font-size:11px; color:#475569; text-align:center; margin-bottom:28px; line-height:1.8; }
+        .cover-closing { font-size:11px; color:#475569; text-align:center; margin-top:28px; margin-bottom:28px; line-height:1.8; }
         .cover-summary { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; border-radius:14px; padding:22px 32px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; }
         .cover-summary-left { display:flex; flex-direction:column; gap:4px; }
         .cover-summary-label { font-size:12px; opacity:0.85; }
@@ -2354,7 +2354,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                 <div className="bg-gradient-to-br from-[#1e3a5f] to-[#2d5a8e] text-white px-10 py-6 flex justify-between items-center rounded-t-lg">
                   <div className="flex items-center gap-5">
                     {logoBase64
-                      ? <img src={logoBase64} alt="DW Logo" className="h-16 object-contain bg-white rounded-xl p-1"/>
+                      ? <img src={logoBase64} alt="DW Logo" className="h-24 object-contain"/>
                       : <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-[#1e3a5f] font-bold text-lg shadow-md">DW</div>
                     }
                     <div className="text-xl font-extrabold tracking-tight">의료기기 턴키 납품 견적서</div>
@@ -2399,7 +2399,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                       </div>
                     ))}
                   </div>
-                  <p className="text-[11px] text-slate-500 text-center mb-6 leading-relaxed">원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다.</p>
+                  <p className="text-[11px] text-slate-500 text-center mt-6 mb-6 leading-relaxed">원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다.</p>
                   {/* Summary */}
                   <div className="bg-gradient-to-br from-[#1e3a5f] to-[#2d5a8e] text-white rounded-2xl px-7 py-5 flex justify-between items-center mb-6">
                     <div>
