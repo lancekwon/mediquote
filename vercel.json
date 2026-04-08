@@ -2,6 +2,6 @@
   "version": 2,
   "rewrites": [
     { "source": "/hospital", "destination": "/hospital.html" },
-    { "source": "/((?!dw-logo\\.png|hospital\\.html).*)", "destination": "/index.html" }
+    { "source": "/((?!.*\\.(png|jpg|ico|svg|css|js)$).*)", "destination": "/index.html" }
   ]
 }

@@ -2075,14 +2075,15 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
   const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
 
   useEffect(() => {
-    fetch('./dw-logo.png')
-      .then(res => { if (!res.ok) throw new Error('logo fetch failed'); return res.blob(); })
+    fetch('/dw-logo.png')
+      .then(res => { if (!res.ok) throw new Error('logo fetch ' + res.status); return res.blob(); })
       .then(blob => {
+        if (blob.type && !blob.type.startsWith('image')) throw new Error('not an image: ' + blob.type);
         const reader = new FileReader();
         reader.onloadend = () => setLogoBase64(reader.result);
         reader.readAsDataURL(blob);
       })
-      .catch(() => setLogoBase64(''));
+      .catch(e => { console.warn('Logo load failed:', e); setLogoBase64(''); });
   }, []);
 
   const handlePrint = () => {
