@@ -2109,10 +2109,10 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         .cover { min-height:100vh; padding:0; display:flex; flex-direction:column; }
         .cover-header { padding:32px 64px 20px; display:flex; flex-direction:column; align-items:center; }
         .cover-header-logo-row { display:flex; align-items:center; gap:20px; width:100%; margin-bottom:16px; }
-        .cover-header-line { flex:1; height:2px; background:#1e3a5f; }
+        .cover-header-line { flex:1; height:1px; background:#1e3a5f; }
         .cover-header-logo { height:40px; object-fit:contain; }
-        .cover-header-title { font-size:22px; font-weight:800; color:#1e3a5f; letter-spacing:-0.5px; margin-bottom:14px; text-align:center; width:100%; }
-        .cover-header-info { font-size:11px; line-height:2.2; color:#475569; text-align:right; width:100%; }
+        .cover-header-title { font-size:22px; font-weight:800; color:#1e3a5f; letter-spacing:-0.5px; margin-bottom:7px; text-align:center; width:100%; }
+        .cover-header-info { font-size:11px; line-height:2.2; color:#475569; text-align:right; width:100%; margin-bottom:4px; }
         .cover-body { flex:1; padding:36px 64px 28px; display:flex; flex-direction:column; justify-content:center; }
         .cover-greeting { margin-bottom:32px; font-size:11.5px; line-height:2.2; color:#334155; }
         .cover-greeting strong { color:#1e3a5f; font-size:14px; display:block; margin-bottom:8px; }
@@ -2159,7 +2159,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
           ${logoBase64 ? `<img src="${logoBase64}" alt="DW Logo" class="cover-header-logo"/>` : ''}
           <div class="cover-header-line"></div>
         </div>
-        <div class="cover-header-title">의료기기 턴키 납품 견적서</div>
+        <div class="cover-header-title">의료기기 납품 견적서</div>
         <div class="cover-header-info">
           견적일자 : ${quoteInfo.date}<br/>
           견적번호 : ${quoteInfo.quoteNo}<br/>
@@ -2356,14 +2356,14 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                 {/* Header */}
                 <div className="px-10 pt-7 pb-4 flex flex-col items-center rounded-t-lg">
                   <div className="flex items-center gap-4 w-full mb-3">
-                    <div className="flex-1 h-[2px] bg-[#1e3a5f]"></div>
+                    <div className="flex-1 h-px bg-[#1e3a5f]"></div>
                     {logoBase64
                       ? <img src={logoBase64} alt="DW Logo" className="h-10 object-contain"/>
                       : <div className="w-10 h-10 bg-[#1e3a5f] rounded-lg flex items-center justify-center text-white font-bold text-sm">DW</div>
                     }
-                    <div className="flex-1 h-[2px] bg-[#1e3a5f]"></div>
+                    <div className="flex-1 h-px bg-[#1e3a5f]"></div>
                   </div>
-                  <div className="text-lg font-extrabold text-[#1e3a5f] tracking-tight mb-2.5 text-center">의료기기 턴키 납품 견적서</div>
+                  <div className="text-lg font-extrabold text-[#1e3a5f] tracking-tight mb-1 text-center">의료기기 납품 견적서</div>
                   <div className="text-[11px] text-slate-500 leading-loose text-right w-full">
                     <div>견적일자 : {quoteInfo.date}</div>
                     <div>견적번호 : {quoteInfo.quoteNo}</div>
