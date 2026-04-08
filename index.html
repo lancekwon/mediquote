@@ -2118,7 +2118,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         .cover { min-height:100vh; padding:0; display:flex; flex-direction:column; }
         .cover-header { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; padding:28px 64px; display:flex; justify-content:space-between; align-items:center; }
         .cover-header-left { display:flex; align-items:center; gap:20px; }
-        .cover-header-logo { height:80px; object-fit:contain; }
+        .cover-header-logo { height:80px; object-fit:contain; background:#fff; border-radius:12px; padding:6px; }
         .cover-header-title { font-size:24px; font-weight:800; letter-spacing:-0.5px; }
         .cover-header-info { text-align:right; font-size:11px; line-height:2.2; opacity:0.9; }
         .cover-body { flex:1; padding:36px 64px 28px; display:flex; flex-direction:column; justify-content:center; }
@@ -2363,7 +2363,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                 <div className="bg-gradient-to-br from-[#1e3a5f] to-[#2d5a8e] text-white px-10 py-6 flex justify-between items-center rounded-t-lg">
                   <div className="flex items-center gap-5">
                     {logoBase64
-                      ? <img src={logoBase64} alt="DW Logo" className="h-16 object-contain"/>
+                      ? <img src={logoBase64} alt="DW Logo" className="h-16 object-contain bg-white rounded-xl p-1"/>
                       : <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-[#1e3a5f] font-bold text-lg shadow-md">DW</div>
                     }
                     <div className="text-xl font-extrabold tracking-tight">의료기기 턴키 납품 견적서</div>
