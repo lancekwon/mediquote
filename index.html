@@ -2069,9 +2069,21 @@ function AltModal({ item, catColorKey, onSelect, onClose }) {
    ============================================================ */
 function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, onClose, customEquips = [] }) {
   const [tab, setTab] = useState('summary');
+  const [logoBase64, setLogoBase64] = useState('');
   const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
   const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
   const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
+
+  useEffect(() => {
+    fetch('./dw-logo.png')
+      .then(res => { if (!res.ok) throw new Error('logo fetch failed'); return res.blob(); })
+      .then(blob => {
+        const reader = new FileReader();
+        reader.onloadend = () => setLogoBase64(reader.result);
+        reader.readAsDataURL(blob);
+      })
+      .catch(() => setLogoBase64(''));
+  }, []);
 
   const handlePrint = () => {
     const printWin = window.open('', '_blank', 'width=900,height=700');
@@ -2132,6 +2144,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
 
     <!-- 표지 -->
     <div class="cover">
+      ${logoBase64 ? `<img src="${logoBase64}" alt="DW Logo" style="width:120px;height:120px;object-fit:contain;margin-bottom:24px"/>` : ''}
       <div class="cover-title">의료장비 공급 견적서</div>
       <div class="cover-sub">Medical Equipment Supply Quotation</div>
       <div class="cover-info">
@@ -2280,7 +2293,10 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
 
             {tab==='cover' && (
               <div className="p-10 flex flex-col items-center text-center">
-                <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-6">DW</div>
+                {logoBase64
+                  ? <img src={logoBase64} alt="DW Logo" className="w-24 h-24 object-contain mb-6"/>
+                  : <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-6">DW</div>
+                }
                 <h1 className="text-3xl font-black text-slate-900 tracking-tight">의료장비 공급 견적서</h1>
                 <p className="text-slate-500 mt-2 mb-10">Medical Equipment Supply Quotation</p>
                 <div className="bg-slate-50 rounded-xl p-8 w-full max-w-sm text-left border border-slate-200">
