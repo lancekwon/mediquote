@@ -1946,10 +1946,17 @@ function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatInclud
           )}
           <button
             onClick={onPdfPreview}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-slate-800 text-slate-800 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            PDF 미리보기
+          </button>
+          <button
+            onClick={onPdfPreview}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-            PDF 생성
+            최종 PDF 생성
           </button>
         </div>
       </div>
@@ -2058,13 +2065,17 @@ function AltModal({ item, catColorKey, onSelect, onClose }) {
 }
 
 /* ============================================================
-   PDF GENERATION
+   PDF PREVIEW MODAL
    ============================================================ */
-function generatePdf(quoteInfo, categories, globalDiscount, vatIncluded, customEquips = []) {
-  const s = calcSummary(categories, globalDiscount);
+function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, onClose, customEquips = [] }) {
+  const [tab, setTab] = useState('summary');
+  const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
+  const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
+  const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
 
-  const printWin = window.open('', '_blank', 'width=900,height=700');
-  if (!printWin) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요.'); return; }
+  const handlePrint = () => {
+    const printWin = window.open('', '_blank', 'width=900,height=700');
+    if (!printWin) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요.'); return; }
 
     let rowNum = 0;
     const activeItems = [];
@@ -2087,12 +2098,19 @@ function generatePdf(quoteInfo, categories, globalDiscount, vatIncluded, customE
       </tr>`).join('');
 
     printWin.document.write(`<!DOCTYPE html><html lang="ko"><head>
-      <meta charset="UTF-8"><title>의료기기 턴키 납품 견적서</title>
+      <meta charset="UTF-8"><title>의료장비 견적서</title>
       <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Noto Sans KR',sans-serif; font-size:11px; color:#1e293b; }
-        .cover { padding:44px 52px; min-height:100vh; display:flex; flex-direction:column; }
+        .cover { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px; border-bottom:3px solid #1e3a5f; }
+        .cover-title { font-size:32px; font-weight:900; color:#1e3a5f; letter-spacing:-1px; margin-bottom:8px; }
+        .cover-sub { font-size:14px; color:#64748b; margin-bottom:60px; }
+        .cover-info { background:#f8fafc; border-radius:12px; padding:32px 48px; min-width:400px; }
+        .cover-info table { width:100%; border-collapse:collapse; }
+        .cover-info td { padding:8px 0; border-bottom:1px solid #e2e8f0; }
+        .cover-info td:first-child { color:#64748b; width:100px; font-size:12px; }
+        .cover-info td:last-child { font-weight:600; font-size:13px; }
         .page-break { page-break-before:always; }
         .page { padding:40px 50px; }
         .section-title { font-size:16px; font-weight:700; color:#1e3a5f; border-bottom:2px solid #1e3a5f; padding-bottom:8px; margin-bottom:16px; }
@@ -2114,85 +2132,20 @@ function generatePdf(quoteInfo, categories, globalDiscount, vatIncluded, customE
 
     <!-- 표지 -->
     <div class="cover">
-      <!-- 상단: 로고 + 견적 정보 -->
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:38px;">
-        <svg width="88" height="46" viewBox="0 0 88 46" xmlns="http://www.w3.org/2000/svg">
-          <rect x="0" y="1" width="10" height="44" rx="2" fill="#cc0000"/>
-          <text x="16" y="36" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="32" fill="#cc0000">DW</text>
-        </svg>
-        <div style="text-align:right;font-size:11px;color:#64748b;line-height:2.1;">
-          <div>견적일자 : <span style="color:#1e293b;font-weight:600">${quoteInfo.date}</span></div>
-          <div>견적번호 : <span style="color:#1e293b;font-weight:600">${quoteInfo.quoteNo || '—'}</span></div>
-          <div>수신 :&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#1e293b;font-weight:600">${quoteInfo.hospital} ${quoteInfo.doctor} 귀하</span></div>
-          <div>유효기간 : <span style="color:#1e293b;font-weight:600">${quoteInfo.validity}</span></div>
-          <div>담당자 : <span style="color:#1e293b;font-weight:600">010-2210-9800</span></div>
-        </div>
-      </div>
-
-      <!-- 제목 -->
-      <div style="text-align:center;margin-bottom:30px;">
-        <h1 style="font-size:26px;font-weight:900;letter-spacing:5px;color:#1e3a5f;margin-bottom:10px;">의료기기&nbsp; 턴키&nbsp; 납품&nbsp; 견적서</h1>
-        <div style="height:2px;background:linear-gradient(to right,#3b82f6,#1e3a5f);width:220px;margin:0 auto;"></div>
-      </div>
-
-      <!-- 본문 박스 -->
-      <div style="border:1px solid #cbd5e1;border-radius:8px;padding:22px 26px;margin-bottom:22px;color:#374151;line-height:1.85;font-size:11px;">
-        <p style="margin-bottom:10px;">성공적인 개원을 기원합니다. <strong>${quoteInfo.doctor} 원장님</strong> 안녕하세요 대원메디칼입니다.</p>
-        <p style="margin-bottom:10px;">대원메디칼은 1989년 설립 이래, 대한민국 의료 현장과 함께 성장해 왔습니다. 수많은 병·의원의 개원과 성장을 지켜보며, 단순히 장비를 납품하는 것이 아닌 병원의 동반자로서 함께해 왔습니다.</p>
-        <p style="margin-bottom:16px;">원장님께서 환자 진료에만 집중하실 수 있도록, 개원 준비부터 사후관리까지 모든 과정을 원스톱으로 책임지겠습니다.</p>
-        <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:16px;">
-          <div>✓ <strong>46년 축적된 의료기기 턴키 노하우</strong> - 4600곳 이상의 개원 경험을 통한 검증된 장비조합</div>
-          <div>✓ <strong>개원 트렌드를 반영한 병원 구축</strong> - 디지털 헬스케어 시대에 맞는 최신 장비 구성 반영</div>
-          <div>✓ <strong>신뢰할 수 있는 A/S 시스템</strong> - 전국 네트워크 기반 신속한 사후관리</div>
-          <div>✓ <strong>합리적인 가격 경쟁력</strong> - 제조사 직접 공급을 통한 최적의 조건 제시</div>
-        </div>
-        <p style="margin-bottom:8px;">원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다.</p>
-        <p>감사합니다.</p>
-      </div>
-
-      <!-- 아이콘 카드 3개 -->
-      <div style="display:flex;gap:16px;margin-bottom:20px;text-align:center;">
-        <div style="flex:1;padding:14px 8px;">
-          <div style="font-size:34px;margin-bottom:8px;">🏆</div>
-          <div style="font-size:10px;color:#374151;line-height:1.7;">46년 4500개 개원<br/><strong>턴키 납품 경험 1위</strong></div>
-        </div>
-        <div style="flex:1;padding:14px 8px;">
-          <div style="font-size:34px;margin-bottom:8px;">🚚</div>
-          <div style="font-size:10px;color:#374151;line-height:1.7;">맞춤 물류 시스템<br/><strong>인테리어 및 개원일정 완벽 조율</strong></div>
-        </div>
-        <div style="flex:1;padding:14px 8px;">
-          <div style="font-size:34px;margin-bottom:8px;">🔧</div>
-          <div style="font-size:10px;color:#374151;line-height:1.7;">24시간 밀착 캐어<br/><strong>긴급 a/s 전담팀 운영</strong></div>
-        </div>
-      </div>
-
-      <!-- 혜택 테이블 -->
-      <div style="border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-bottom:18px;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;">
-          <div style="padding:16px 20px;border-right:1px solid #e2e8f0;">
-            <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:#1e3a5f;">개원 패키지 특전</div>
-            <div style="font-size:10px;color:#374151;line-height:1.9;">
-              총 견적액 비교가 대비 추가 할인 적용<br/>
-              소모 및 스텐류<br/>
-              &nbsp;&nbsp;: 첫 주문 DWmall 10% 할인권 증정
-            </div>
-          </div>
-          <div style="padding:16px 20px;">
-            <div style="font-weight:700;font-size:11px;margin-bottom:8px;color:#1e3a5f;">A/S 및 금융 지원</div>
-            <div style="font-size:10px;color:#374151;line-height:1.9;">
-              무상 보증 : 장비별 1년 ~ 5년<br/>
-              긴급 출동 : 전담 서비스 상시대응<br/>
-              금융연계 : 리스/할부 최저금리<br/>
-              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;최대 60개월 적용
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 하단 -->
-      <div style="text-align:right;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:10px;margin-top:auto;">
-        총 제안 품목 : ${s.activeItems}종 (주요 의료기기, 소모품 일체)<br/>
-        일부 기기는 제조사의 유통정책으로 인해 미팅 후 가격안내가 가능합니다.
+      <div class="cover-title">의료장비 공급 견적서</div>
+      <div class="cover-sub">Medical Equipment Supply Quotation</div>
+      <div class="cover-info">
+        <table>
+          <tr><td>수신</td><td>${quoteInfo.hospital} ${quoteInfo.doctor} 원장님</td></tr>
+          ${quoteInfo.dept ? `<tr><td>진료과</td><td>${quoteInfo.dept}</td></tr>` : ''}
+          <tr><td>견적번호</td><td>${quoteInfo.quoteNo}</td></tr>
+          <tr><td>견적일자</td><td>${quoteInfo.date}</td></tr>
+          <tr><td>유효기간</td><td>${quoteInfo.validity}</td></tr>
+          <tr><td>총 견적 품목</td><td>${s.activeItems}개</td></tr>
+          <tr><td>최종 제안금액</td><td style="font-size:16px;font-weight:900;color:#1e3a5f">${vatIncluded?Math.floor(s.finalAmt/1.1).toLocaleString('ko-KR'):s.finalAmt.toLocaleString('ko-KR')}원 (VAT ${vatIncluded?'포함':'별도'})</td></tr>
+          <tr><td>부가세 (10%)</td><td>${vatIncluded?(s.finalAmt-Math.floor(s.finalAmt/1.1)).toLocaleString('ko-KR'):Math.floor(s.finalAmt*0.1).toLocaleString('ko-KR')}원</td></tr>
+          <tr><td style="font-weight:700">VAT 포함 합계</td><td style="font-size:15px;font-weight:700;color:#1e3a5f">${vatIncluded?s.finalAmt.toLocaleString('ko-KR'):Math.floor(s.finalAmt*1.1).toLocaleString('ko-KR')}원</td></tr>
+        </table>
       </div>
     </div>
 
@@ -2286,8 +2239,253 @@ function generatePdf(quoteInfo, categories, globalDiscount, vatIncluded, customE
     <script>window.onload=function(){window.print();}<\/script>
     </body></html>`);
     printWin.document.close();
-}
+  };
 
+  const s_all = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
+  let rowCounter = 0;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose}/>
+      <div className="relative bg-white rounded-xl shadow-2xl w-[820px] max-h-[90vh] flex flex-col animate-fs">
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
+          <div>
+            <div className="text-xs text-slate-400">PDF 미리보기</div>
+            <div className="text-sm font-bold">의료장비 공급 견적서</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handlePrint} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+              PDF 인쇄 / 저장
+            </button>
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 bg-slate-50">
+          {[{id:'cover',label:'표지'},{ id:'summary',label:'총괄표'},{ id:'detail',label:'상세 내역'}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab===t.id?'border-blue-600 text-blue-700 bg-white':'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Preview content */}
+        <div className="flex-1 overflow-y-auto bg-slate-100 p-6">
+          <div className="bg-white shadow-sm rounded-lg max-w-2xl mx-auto min-h-full">
+
+            {tab==='cover' && (
+              <div className="p-10 flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center text-white font-bold text-xl mb-6">DW</div>
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight">의료장비 공급 견적서</h1>
+                <p className="text-slate-500 mt-2 mb-10">Medical Equipment Supply Quotation</p>
+                <div className="bg-slate-50 rounded-xl p-8 w-full max-w-sm text-left border border-slate-200">
+                  {[
+                    ['수신', `${quoteInfo.hospital} ${quoteInfo.doctor} 원장님`],
+                    ['견적번호', quoteInfo.quoteNo],
+                    ['견적일자', quoteInfo.date],
+                    ['유효기간', quoteInfo.validity],
+                    ['총 견적 품목', `${s_all.activeItems}개`],
+                    ['최종 제안금액', `${s_all.finalAmt.toLocaleString('ko-KR')}원 (VAT ${vatIncluded?'포함':'별도'})`],
+                  ].map(([k,v]) => (
+                    <div key={k} className="flex py-2 border-b border-slate-200 last:border-0">
+                      <span className="w-28 text-slate-500 text-sm shrink-0">{k}</span>
+                      <span className="font-semibold text-sm text-slate-900">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tab==='summary' && (
+              <div className="p-6">
+                <h2 className="text-base font-bold text-slate-900 border-b-2 border-slate-900 pb-2 mb-4">총괄표</h2>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white">
+                      <th className="px-2 py-2 text-center w-8">No.</th>
+                      <th className="px-2 py-2 text-left">품목명 · 모델</th>
+                      <th className="px-2 py-2 text-center w-12">수량</th>
+                      <th className="px-2 py-2 text-right w-32">최종금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categories.map(cat => [
+                      <tr key={'cat-'+cat.id} className={`${NEUTRAL_COLORS.header}`}>
+                        <td colSpan={4} className={`px-3 py-1.5 font-semibold text-xs ${NEUTRAL_COLORS.headText}`}>{cat.name}</td>
+                      </tr>,
+                      ...cat.items.filter(i=>!i.excluded).map(item => {
+                        rowCounter++;
+                        const m = getModel(item);
+                        const n = getNet(item);
+                        return (
+                          <tr key={item.id} className="border-b border-slate-100">
+                            <td className="px-2 py-2 text-center text-slate-400 text-xs">{rowCounter}</td>
+                            <td className="px-2 py-2">
+                              <div className="font-medium text-slate-800 text-xs">{item.name}</div>
+                              <div className="text-slate-500 text-xs">{m?.name} · {m?.manufacturer}</div>
+                            </td>
+                            <td className="px-2 py-2 text-center text-xs">{item.quantity}</td>
+                            <td className="px-2 py-2 text-right tnum font-semibold text-xs">{n!=null?n.toLocaleString('ko-KR')+'원':'—'}</td>
+                          </tr>
+                        );
+                      })
+                    ])}
+                  </tbody>
+                </table>
+                <div className="mt-4 bg-slate-900 text-white rounded-lg p-4 text-sm">
+                  {[
+                    ['공급가액 합계', s_all.grossSum.toLocaleString('ko-KR')+'원'],
+                    ...(s_all.discountSum>0?[['품목별 할인', '−'+s_all.discountSum.toLocaleString('ko-KR')+'원']]:[]),
+                    [`전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})`, '−'+s_all.globalAmt.toLocaleString('ko-KR')+'원'],
+                    ...(vatIncluded
+                      ? [
+                          ['공급가 (역산 ÷1.1)', Math.floor(s_all.finalAmt/1.1).toLocaleString('ko-KR')+'원'],
+                          ['부가세 (10%)', (s_all.finalAmt-Math.floor(s_all.finalAmt/1.1)).toLocaleString('ko-KR')+'원'],
+                        ]
+                      : [
+                          ['부가세 (10%)', Math.floor(s_all.finalAmt*0.1).toLocaleString('ko-KR')+'원'],
+                        ]
+                    ),
+                  ].map(([k,v]) => (
+                    <div key={k} className="flex justify-between py-1 text-slate-300 text-xs">
+                      <span>{k}</span><span className="tnum">{v}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between pt-3 mt-2 border-t border-slate-600 font-bold text-sm">
+                    <span>{vatIncluded ? '최종 제안 금액 (공급가)' : '최종 제안 금액'}</span>
+                    <span className="tnum">{vatIncluded ? Math.floor(s_all.finalAmt/1.1).toLocaleString('ko-KR') : s_all.finalAmt.toLocaleString('ko-KR')}원</span>
+                  </div>
+                  <div className="flex justify-between pt-2 mt-1 border-t border-slate-500 font-bold text-base text-blue-300">
+                    <span>VAT 포함 합계</span>
+                    <span className="tnum">{vatIncluded ? s_all.finalAmt.toLocaleString('ko-KR') : Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">VAT {vatIncluded?'포함 (역산)':'별도'} · 유효기간 {quoteInfo.validity}까지</div>
+                </div>
+              </div>
+            )}
+
+            {tab==='detail' && (() => {
+              let detailCounter = 0;
+              const allActive = [];
+              categories.forEach(cat => cat.items.forEach(item => {
+                if (!item.excluded) allActive.push({ cat, item });
+              }));
+              if (allActive.length === 0) return (
+                <div className="p-10 text-center text-slate-400 text-sm">반영된 품목이 없습니다.</div>
+              );
+              return (
+                <div className="p-6 flex flex-col gap-6">
+                  <h2 className="text-base font-bold text-slate-900 border-b-2 border-slate-900 pb-2">상세 내역</h2>
+                  {allActive.map(({ cat, item }) => {
+                    detailCounter++;
+                    const m = getModel(item);
+                    const spec = PRODUCT_SPECS[m?.id] || PRODUCT_SPECS['_default'];
+                    const colors = NEUTRAL_COLORS;
+                    const n = getNet(item);
+                    const dbE2 = customEquips.find(e => e.model.id === m?.id || (e.model.name === m?.name && e.model.manufacturer === m?.manufacturer));
+                    const itemImage = m?.image || dbE2?.image || null;
+                    const iDesc     = dbE2?.spec?.desc     || spec.desc;
+                    const iSpecs    = (dbE2?.spec?.specs?.length ? dbE2.spec.specs : spec.specs);
+                    const iOrigin   = dbE2?.spec?.origin   || spec.origin;
+                    const iCert     = dbE2?.spec?.cert ? (typeof dbE2.spec.cert==='string'?dbE2.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE2.spec.cert) : spec.cert;
+                    const iAs       = dbE2?.spec?.as       || spec.as;
+                    const iWarranty = dbE2?.spec?.warranty || spec.warranty;
+                    return (
+                      <div key={item.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        {/* Card header */}
+                        <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-400 text-xs tnum">#{detailCounter}</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 text-xs rounded font-medium ${colors.badge}`}>{cat.name}</span>
+                                <span className="font-semibold text-sm">{item.name}</span>
+                              </div>
+                              <div className="text-xs text-slate-400 mt-0.5">{m?.name} · {m?.manufacturer}</div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-xs text-slate-400 tnum">{m?.price!=null?m.price.toLocaleString('ko-KR')+'원 × '+item.quantity:'문의'}</div>
+                            {item.itemDiscount>0 && <div className="text-xs text-red-400 tnum">−{item.itemDiscount.toLocaleString('ko-KR')}원</div>}
+                            <div className="font-bold text-sm tnum text-white">{n!=null?n.toLocaleString('ko-KR')+'원':'—'}</div>
+                          </div>
+                        </div>
+                        {/* Card body */}
+                        <div className="flex">
+                          {/* Left — image + cert */}
+                          <div className="w-52 shrink-0 border-r border-slate-200 bg-slate-50 p-4 flex flex-col gap-3">
+                            {itemImage
+                              ? <img src={itemImage} alt={item.name} className="w-full aspect-square object-contain rounded-lg border border-slate-200 bg-white" onError={e=>{e.target.style.display='none';}}/>
+                              : <div className="w-full aspect-square rounded-lg border-2 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center gap-1.5 text-slate-400">
+                                  <svg className="w-8 h-8 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                  </svg>
+                                  <span className="text-xs">이미지 없음</span>
+                                </div>
+                            }
+                            <div className="flex flex-col gap-1 text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 w-10 shrink-0">원산지</span>
+                                <span className="font-medium text-slate-700">{iOrigin}</span>
+                              </div>
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-slate-400 w-10 shrink-0">인증</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {iCert.map(c => <span key={c} className="px-1 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200 text-xs">{c}</span>)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {/* Right — specs */}
+                          <div className="flex-1 p-4 flex flex-col gap-4">
+                            <div>
+                              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">제품 소개</div>
+                              <p className="text-xs text-slate-700 leading-relaxed">{iDesc}</p>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">주요 사양</div>
+                              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                <table className="w-full text-xs">
+                                  <tbody>
+                                    {iSpecs.map((sp, i) => (
+                                      <tr key={sp.l+i} className={i%2===0?'bg-white':'bg-slate-50'}>
+                                        <td className="px-3 py-2 font-medium text-slate-500 w-32 border-r border-slate-200">{sp.l}</td>
+                                        <td className="px-3 py-2 text-slate-800">{sp.v}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5">
+                                <div className="text-xs text-emerald-600 mb-0.5">A/S 기간</div>
+                                <div className="font-bold text-sm text-emerald-800">{iAs}</div>
+                              </div>
+                              <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5">
+                                <div className="text-xs text-blue-600 mb-0.5">제품 보증</div>
+                                <div className="font-bold text-sm text-blue-800">{iWarranty}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 /* ============================================================
@@ -6536,6 +6734,7 @@ function App() {
   const [collapsed, setCollapsed] = useState({});
   const [addEquipOpen, setAddEquipOpen] = useState(false);
   const [altModal, setAltModal] = useState(null);
+  const [pdfModal, setPdfModal] = useState(false);
   const [productModal, setProductModal] = useState(null);   // { modelId, modelName, manufacturer, catName, catColorKey }
   const [mfrModal, setMfrModal] = useState(null);           // manufacturerName string
   const [toasts, setToasts] = useState([]);
@@ -6942,7 +7141,7 @@ function App() {
           setGlobalDiscount={setGlobalDiscount}
           vatIncluded={vatIncluded}
           setVatIncluded={setVatIncluded}
-          onPdfPreview={() => generatePdf(quoteInfo, categories, globalDiscount, vatIncluded, customEquips)}
+          onPdfPreview={() => setPdfModal(true)}
           onSave={handleSave}
           onRevisionSave={handleRevisionSave}
           saving={quoteSaving}
@@ -6960,6 +7159,17 @@ function App() {
         />
       )}
 
+      {/* PDF modal */}
+      {pdfModal && (
+        <PdfPreviewModal
+          quoteInfo={quoteInfo}
+          categories={categories}
+          globalDiscount={globalDiscount}
+          vatIncluded={vatIncluded}
+          onClose={() => setPdfModal(false)}
+          customEquips={customEquips}
+        />
+      )}
 
       {/* Add Equipment Modal */}
       {addEquipOpen && (
