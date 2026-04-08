@@ -2116,30 +2116,32 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Noto Sans KR',sans-serif; font-size:11px; color:#1e293b; }
         .cover { min-height:100vh; padding:0; display:flex; flex-direction:column; }
-        .cover-header { background:#1e3a5f; color:#fff; padding:28px 40px; display:flex; justify-content:space-between; align-items:center; }
-        .cover-header-left { display:flex; align-items:center; gap:16px; }
-        .cover-header-logo { width:56px; height:56px; object-fit:contain; background:#fff; border-radius:8px; padding:4px; }
-        .cover-header-title { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
-        .cover-header-info { text-align:right; font-size:11px; line-height:1.8; }
-        .cover-body { flex:1; padding:32px 40px; }
-        .cover-greeting { margin-bottom:24px; font-size:12px; line-height:1.9; color:#334155; }
-        .cover-greeting strong { color:#1e3a5f; }
-        .cover-features { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:24px; }
-        .cover-feature { background:#f0f4f8; border-radius:8px; padding:12px 14px; border-left:3px solid #1e3a5f; }
-        .cover-feature-title { font-size:11px; font-weight:700; color:#1e3a5f; margin-bottom:3px; }
-        .cover-feature-desc { font-size:9.5px; color:#64748b; line-height:1.5; }
-        .cover-benefits { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:24px; }
-        .cover-benefit { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; text-align:center; }
+        .cover-header { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; padding:32px 56px; display:flex; justify-content:space-between; align-items:center; }
+        .cover-header-left { display:flex; align-items:center; gap:18px; }
+        .cover-header-logo { width:52px; height:52px; object-fit:contain; background:#fff; border-radius:10px; padding:5px; box-shadow:0 2px 8px rgba(0,0,0,0.15); }
+        .cover-header-title { font-size:24px; font-weight:800; letter-spacing:-0.5px; }
+        .cover-header-info { text-align:right; font-size:11px; line-height:2; opacity:0.9; }
+        .cover-body { flex:1; padding:36px 56px 28px; }
+        .cover-greeting { margin-bottom:28px; font-size:11.5px; line-height:2; color:#334155; }
+        .cover-greeting strong { color:#1e3a5f; font-size:13px; }
+        .cover-features { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:28px; }
+        .cover-feature { background:#f8fafc; border-radius:8px; padding:11px 16px; border-left:3px solid #2d5a8e; }
+        .cover-feature-title { font-size:10.5px; font-weight:700; color:#1e3a5f; margin-bottom:2px; }
+        .cover-feature-desc { font-size:9px; color:#64748b; line-height:1.5; }
+        .cover-closing { font-size:11px; color:#475569; text-align:center; margin-bottom:28px; line-height:1.8; }
+        .cover-benefits { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:28px; }
+        .cover-benefit { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 10px; text-align:center; }
+        .cover-benefit-icon { font-size:20px; margin-bottom:4px; }
         .cover-benefit-title { font-size:10px; font-weight:700; color:#1e3a5f; margin-bottom:2px; }
         .cover-benefit-desc { font-size:8.5px; color:#64748b; line-height:1.4; }
-        .cover-summary { background:#1e3a5f; color:#fff; border-radius:10px; padding:16px 20px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; }
-        .cover-summary-label { font-size:12px; }
-        .cover-summary-amt { font-size:20px; font-weight:800; }
-        .cover-bottom { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:16px; }
-        .cover-bottom-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; }
-        .cover-bottom-box-title { font-size:9px; font-weight:700; color:#1e3a5f; margin-bottom:4px; }
-        .cover-bottom-box-desc { font-size:8.5px; color:#475569; line-height:1.5; }
-        .cover-note { font-size:8.5px; color:#94a3b8; text-align:center; margin-top:8px; }
+        .cover-summary { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; border-radius:12px; padding:18px 24px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; }
+        .cover-summary-label { font-size:12px; opacity:0.9; }
+        .cover-summary-amt { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+        .cover-bottom { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px; }
+        .cover-bottom-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; }
+        .cover-bottom-box-title { font-size:9.5px; font-weight:700; color:#1e3a5f; margin-bottom:5px; }
+        .cover-bottom-box-desc { font-size:8.5px; color:#475569; line-height:1.6; }
+        .cover-note { font-size:8.5px; color:#94a3b8; text-align:center; margin-top:10px; }
         .page-break { page-break-before:always; }
         .page { padding:40px 50px; }
         .section-title { font-size:16px; font-weight:700; color:#1e3a5f; border-bottom:2px solid #1e3a5f; padding-bottom:8px; margin-bottom:16px; }
@@ -2198,23 +2200,27 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
             <div class="cover-feature-desc">제조사 직접 공급을 통한 최적의 조건 제시</div>
           </div>
         </div>
-        <div style="font-size:11px;color:#334155;line-height:1.7;margin-bottom:20px;text-align:center;">
-          원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다. 감사합니다.
+        <div class="cover-closing">
+          원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다.<br/>감사합니다.
         </div>
         <div class="cover-benefits">
           <div class="cover-benefit">
+            <div class="cover-benefit-icon">🏆</div>
             <div class="cover-benefit-title">46년 4,500개 개원</div>
             <div class="cover-benefit-desc">턴키 납품 경험 1위</div>
           </div>
           <div class="cover-benefit">
+            <div class="cover-benefit-icon">📦</div>
             <div class="cover-benefit-title">맞춤 물류 시스템</div>
             <div class="cover-benefit-desc">인테리어 및 개원일정 완벽 조율</div>
           </div>
           <div class="cover-benefit">
+            <div class="cover-benefit-icon">🔧</div>
             <div class="cover-benefit-title">24시간 밀착 케어</div>
             <div class="cover-benefit-desc">긴급 A/S 전담팀 운영</div>
           </div>
           <div class="cover-benefit">
+            <div class="cover-benefit-icon">💰</div>
             <div class="cover-benefit-title">개원 패키지 특전</div>
             <div class="cover-benefit-desc">총 견적액 대비 추가 할인 적용</div>
           </div>
@@ -2275,8 +2281,16 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       return activeItems.map(i => {
         detailNum++;
         const foundSpec = PRODUCT_SPECS[i.modelId] || PRODUCT_SPECS['_default'];
-        const certsHtml = foundSpec.cert.map(c => `<span style="display:inline-block;padding:1px 6px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:4px;font-size:9px;margin:1px">${c}</span>`).join('');
-        const specsHtml = foundSpec.specs.map((s,idx) => `<tr style="background:${idx%2===0?'#fff':'#f8fafc'}"><td style="padding:5px 8px;color:#64748b;width:120px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;font-size:10px">${s.l}</td><td style="padding:5px 8px;color:#1e293b;border-bottom:1px solid #e2e8f0;font-size:10px;font-weight:500">${s.v}</td></tr>`).join('');
+        const dbE = customEquips.find(e => e.model.id === i.modelId || (e.model.name === i.modelName && e.model.manufacturer === i.manufacturer));
+        const pDesc    = dbE?.spec?.desc     || foundSpec.desc;
+        const pSpecs   = (dbE?.spec?.specs?.length ? dbE.spec.specs : foundSpec.specs);
+        const pOrigin  = dbE?.spec?.origin   || foundSpec.origin;
+        const pCert    = dbE?.spec?.cert ? (typeof dbE.spec.cert==='string'?dbE.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE.spec.cert) : foundSpec.cert;
+        const pAs      = dbE?.spec?.as       || foundSpec.as;
+        const pWarranty= dbE?.spec?.warranty || foundSpec.warranty;
+        const pImage   = i.image || dbE?.image || null;
+        const certsHtml = pCert.map(c => `<span style="display:inline-block;padding:1px 6px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:4px;font-size:9px;margin:1px">${c}</span>`).join('');
+        const specsHtml = pSpecs.map((s,idx) => `<tr style="background:${idx%2===0?'#fff':'#f8fafc'}"><td style="padding:5px 8px;color:#64748b;width:120px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;font-size:10px">${s.l}</td><td style="padding:5px 8px;color:#1e293b;border-bottom:1px solid #e2e8f0;font-size:10px;font-weight:500">${s.v}</td></tr>`).join('');
         return `
     <div class="page page-break">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e3a5f">
@@ -2293,12 +2307,12 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       <div style="display:flex;gap:20px">
         <!-- 이미지 영역 -->
         <div style="width:180px;shrink:0;flex-shrink:0">
-          ${i.image
-            ? `<img src="${i.image}" alt="${i.itemName}" style="width:180px;height:180px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;background:#fff;margin-bottom:10px;display:block"/>`
+          ${pImage
+            ? `<img src="${pImage}" alt="${i.itemName}" style="width:180px;height:180px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;background:#fff;margin-bottom:10px;display:block"/>`
             : `<div style="width:180px;height:180px;border:2px dashed #cbd5e1;border-radius:10px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;margin-bottom:10px"><div style="font-size:24px;opacity:0.3">📷</div><div>이미지 없음</div></div>`
           }
           <div style="font-size:10px;display:flex;flex-direction:column;gap:4px">
-            <div style="display:flex;gap:4px"><span style="color:#94a3b8;width:36px">원산지</span><span style="font-weight:600;color:#1e293b">${foundSpec.origin}</span></div>
+            <div style="display:flex;gap:4px"><span style="color:#94a3b8;width:36px">원산지</span><span style="font-weight:600;color:#1e293b">${pOrigin}</span></div>
             <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:flex-start"><span style="color:#94a3b8;width:36px">인증</span><div>${certsHtml}</div></div>
           </div>
         </div>
@@ -2306,7 +2320,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         <div style="flex:1">
           <div style="margin-bottom:10px">
             <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">제품 소개</div>
-            <p style="font-size:10px;color:#475569;line-height:1.7">${foundSpec.desc}</p>
+            <p style="font-size:10px;color:#475569;line-height:1.7">${pDesc}</p>
           </div>
           <div style="margin-bottom:10px">
             <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">주요 사양</div>
@@ -2317,11 +2331,11 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div style="border:1px solid #a7f3d0;background:#ecfdf5;border-radius:8px;padding:10px">
               <div style="font-size:9px;color:#059669;margin-bottom:2px">A/S 기간</div>
-              <div style="font-size:12px;font-weight:700;color:#065f46">${foundSpec.as}</div>
+              <div style="font-size:12px;font-weight:700;color:#065f46">${pAs}</div>
             </div>
             <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:10px">
               <div style="font-size:9px;color:#2563eb;margin-bottom:2px">제품 보증</div>
-              <div style="font-size:12px;font-weight:700;color:#1e40af">${foundSpec.warranty}</div>
+              <div style="font-size:12px;font-weight:700;color:#1e40af">${pWarranty}</div>
             </div>
           </div>
         </div>
@@ -2375,15 +2389,15 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
             {tab==='cover' && (
               <div className="flex flex-col">
                 {/* Header */}
-                <div className="bg-[#1e3a5f] text-white px-6 py-5 flex justify-between items-center rounded-t-lg">
-                  <div className="flex items-center gap-3">
+                <div className="bg-gradient-to-br from-[#1e3a5f] to-[#2d5a8e] text-white px-8 py-6 flex justify-between items-center rounded-t-lg">
+                  <div className="flex items-center gap-4">
                     {logoBase64
-                      ? <img src={logoBase64} alt="DW Logo" className="w-12 h-12 object-contain bg-white rounded-lg p-1"/>
-                      : <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center text-[#1e3a5f] font-bold text-lg">DW</div>
+                      ? <img src={logoBase64} alt="DW Logo" className="w-12 h-12 object-contain bg-white rounded-xl p-1 shadow-md"/>
+                      : <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-[#1e3a5f] font-bold text-lg shadow-md">DW</div>
                     }
-                    <div className="text-lg font-extrabold">의료기기 턴키 납품 견적서</div>
+                    <div className="text-xl font-extrabold tracking-tight">의료기기 턴키 납품 견적서</div>
                   </div>
-                  <div className="text-right text-[11px] leading-relaxed">
+                  <div className="text-right text-[11px] leading-loose opacity-90">
                     <div>견적일자 : {quoteInfo.date}</div>
                     <div>견적번호 : {quoteInfo.quoteNo}</div>
                     <div>수신 : {quoteInfo.hospital} {quoteInfo.doctor} 귀하</div>
@@ -2392,60 +2406,61 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                   </div>
                 </div>
                 {/* Body */}
-                <div className="p-6">
+                <div className="px-8 py-7">
                   {/* Greeting */}
-                  <div className="text-xs text-slate-700 leading-relaxed mb-5">
-                    <p className="mb-2"><strong className="text-[#1e3a5f]">성공적인 개원을 기원합니다. {quoteInfo.doctor} 원장님</strong> 안녕하세요, 대원메디칼입니다.</p>
-                    <p className="mb-2">대원메디칼은 1989년 설립 이래, 대한민국 의료 현장과 함께 성장해 왔습니다. 수많은 병·의원의 개원과 성장을 지켜보며, 단순히 장비를 납품하는 것이 아닌 병원의 동반자로서 함께해 왔습니다.</p>
+                  <div className="text-[11.5px] text-slate-700 leading-loose mb-6">
+                    <p className="mb-3"><strong className="text-[#1e3a5f] text-[13px]">성공적인 개원을 기원합니다. {quoteInfo.doctor} 원장님</strong> 안녕하세요, 대원메디칼입니다.</p>
+                    <p className="mb-3">대원메디칼은 1989년 설립 이래, 대한민국 의료 현장과 함께 성장해 왔습니다. 수많은 병·의원의 개원과 성장을 지켜보며, 단순히 장비를 납품하는 것이 아닌 병원의 동반자로서 함께해 왔습니다.</p>
                     <p>원장님께서 환자 진료에만 집중하실 수 있도록, 개원 준비부터 사후관리까지 모든 과정을 원스톱으로 책임지겠습니다.</p>
                   </div>
                   {/* Features */}
-                  <div className="grid grid-cols-2 gap-2 mb-5">
+                  <div className="grid grid-cols-2 gap-2.5 mb-6">
                     {[
                       ['✓ 46년 축적된 의료기기 턴키 노하우','4,600곳 이상의 개원 경험을 통한 검증된 장비조합'],
                       ['✓ 개원 트렌드를 반영한 병원 구축','디지털 헬스케어 시대에 맞는 최신 장비 구성 반영'],
                       ['✓ 신뢰할 수 있는 A/S 시스템','전국 네트워크 기반 신속한 사후관리'],
                       ['✓ 합리적인 가격 경쟁력','제조사 직접 공급을 통한 최적의 조건 제시'],
                     ].map(([t,d])=>(
-                      <div key={t} className="bg-slate-50 rounded-lg p-3 border-l-[3px] border-[#1e3a5f]">
-                        <div className="text-[11px] font-bold text-[#1e3a5f]">{t}</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">{d}</div>
+                      <div key={t} className="bg-slate-50 rounded-lg p-3.5 border-l-[3px] border-[#2d5a8e]">
+                        <div className="text-[10.5px] font-bold text-[#1e3a5f]">{t}</div>
+                        <div className="text-[9px] text-slate-500 mt-1">{d}</div>
                       </div>
                     ))}
                   </div>
-                  <p className="text-[11px] text-slate-600 text-center mb-5">원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다. 감사합니다.</p>
+                  <p className="text-[11px] text-slate-500 text-center mb-6 leading-relaxed">원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다.<br/>감사합니다.</p>
                   {/* Benefits */}
-                  <div className="grid grid-cols-4 gap-2 mb-5">
+                  <div className="grid grid-cols-4 gap-2.5 mb-6">
                     {[
-                      ['46년 4,500개 개원','턴키 납품 경험 1위'],
-                      ['맞춤 물류 시스템','인테리어 및 개원일정 완벽 조율'],
-                      ['24시간 밀착 케어','긴급 A/S 전담팀 운영'],
-                      ['개원 패키지 특전','총 견적액 대비 추가 할인 적용'],
-                    ].map(([t,d])=>(
-                      <div key={t} className="bg-white border border-slate-200 rounded-lg p-2.5 text-center">
+                      ['🏆','46년 4,500개 개원','턴키 납품 경험 1위'],
+                      ['📦','맞춤 물류 시스템','인테리어 및 개원일정 완벽 조율'],
+                      ['🔧','24시간 밀착 케어','긴급 A/S 전담팀 운영'],
+                      ['💰','개원 패키지 특전','총 견적액 대비 추가 할인 적용'],
+                    ].map(([icon,t,d])=>(
+                      <div key={t} className="bg-white border border-slate-200 rounded-xl p-3 text-center">
+                        <div className="text-xl mb-1">{icon}</div>
                         <div className="text-[10px] font-bold text-[#1e3a5f]">{t}</div>
-                        <div className="text-[9px] text-slate-500 mt-0.5">{d}</div>
+                        <div className="text-[8.5px] text-slate-500 mt-0.5">{d}</div>
                       </div>
                     ))}
                   </div>
                   {/* Summary */}
-                  <div className="bg-[#1e3a5f] text-white rounded-xl px-5 py-3.5 flex justify-between items-center mb-4">
-                    <div className="text-xs">총 제안 품목 : {s_all.activeItems}종 (주요 의료기기, 소모품 일체)</div>
-                    <div className="text-xl font-extrabold">{vatIncluded?s_all.finalAmt.toLocaleString('ko-KR'):Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</div>
+                  <div className="bg-gradient-to-br from-[#1e3a5f] to-[#2d5a8e] text-white rounded-xl px-6 py-4 flex justify-between items-center mb-5">
+                    <div className="text-xs opacity-90">총 제안 품목 : {s_all.activeItems}종 (주요 의료기기, 소모품 일체)</div>
+                    <div className="text-xl font-extrabold tracking-tight">{vatIncluded?s_all.finalAmt.toLocaleString('ko-KR'):Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</div>
                   </div>
                   {/* Bottom boxes */}
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                      <div className="text-[9px] font-bold text-[#1e3a5f] mb-1">소모품 및 스텐류</div>
+                  <div className="grid grid-cols-3 gap-2.5 mb-4">
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                      <div className="text-[9.5px] font-bold text-[#1e3a5f] mb-1.5">소모품 및 스텐류</div>
                       <div className="text-[9px] text-slate-600">첫 주문 DWmall 10% 할인권 증정</div>
                     </div>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                      <div className="text-[9px] font-bold text-[#1e3a5f] mb-1">A/S 및 금융 지원</div>
-                      <div className="text-[9px] text-slate-600 leading-snug">무상 보증 : 장비별 1년~5년<br/>긴급 출동 : 전담 서비스 상시대응<br/>금융연계 : 리스/할부 최저금리 최대 60개월 적용</div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                      <div className="text-[9.5px] font-bold text-[#1e3a5f] mb-1.5">A/S 및 금융 지원</div>
+                      <div className="text-[9px] text-slate-600 leading-relaxed">무상 보증 : 장비별 1년~5년<br/>긴급 출동 : 전담 서비스 상시대응<br/>금융연계 : 리스/할부 최저금리 최대 60개월 적용</div>
                     </div>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                      <div className="text-[9px] font-bold text-[#1e3a5f] mb-1">VAT 포함 합계</div>
-                      <div className="text-[13px] font-extrabold text-[#1e3a5f]">{vatIncluded?s_all.finalAmt.toLocaleString('ko-KR'):Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+                      <div className="text-[9.5px] font-bold text-[#1e3a5f] mb-1.5">VAT 포함 합계</div>
+                      <div className="text-[14px] font-extrabold text-[#1e3a5f]">{vatIncluded?s_all.finalAmt.toLocaleString('ko-KR'):Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</div>
                     </div>
                   </div>
                   <p className="text-[9px] text-slate-400 text-center">일부 기기는 제조사의 유통정책으로 인해 미팅 후 가격안내가 가능합니다</p>
