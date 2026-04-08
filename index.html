@@ -2113,7 +2113,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       <meta charset="UTF-8"><title>의료장비 견적서</title>
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap');
-        * { box-sizing:border-box; margin:0; padding:0; }
+        * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; color-adjust:exact !important; }
         body { font-family:'Noto Sans KR',sans-serif; font-size:11px; color:#1e293b; }
         .cover { min-height:100vh; padding:0; display:flex; flex-direction:column; }
         .cover-header { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; padding:36px 64px; display:flex; justify-content:space-between; align-items:center; }
