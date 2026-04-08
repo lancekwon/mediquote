@@ -1,14 +1,7 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "index.html", "use": "@vercel/static" },
-    { "src": "hospital.html", "use": "@vercel/static" },
-    { "src": "dw-logo.png", "use": "@vercel/static" }
-  ],
-  "routes": [
-    { "src": "/hospital", "dest": "/hospital.html" },
-    { "src": "/hospital.html", "dest": "/hospital.html" },
-    { "src": "/dw-logo.png", "dest": "/dw-logo.png" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/hospital", "destination": "/hospital.html" },
+    { "source": "/((?!dw-logo\\.png|hospital\\.html).*)", "destination": "/index.html" }
   ]
 }
