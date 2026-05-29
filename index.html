@@ -11267,6 +11267,9 @@ function PaymentBatchModal({ balances, cashCurrent, poByMfr = {}, onClose, onSav
 function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChanged, showToast }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [order, setOrder] = useState('asc'); // 원장 기본 = 시간순(오래된→최신)
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -11280,20 +11283,32 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
 
   useEffect(() => { load(); }, [load]);
 
-  // 잔액 진행 (역순으로 누적)
-  const withRunning = useMemo(() => {
-    const asc = [...rows].sort((a, b) => (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : a.created_at < b.created_at ? -1 : 1));
+  // 원장: 시간순 정렬 + 증가/감소/잔액 누적
+  const ledgerAsc = useMemo(() => {
+    const asc = [...rows].sort((a, b) =>
+      (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
     let running = 0;
-    const map = new Map();
-    asc.forEach(r => {
-      running += (r.tx_type === 'payment' ? -r.amount : r.amount);
-      map.set(r.id, running);
+    return asc.map(r => {
+      const signed = r.tx_type === 'payment' ? -r.amount : r.amount; // 잔액 영향(외상매입 기준)
+      running += signed;
+      return { ...r, inc: signed > 0 ? signed : 0, dec: signed < 0 ? -signed : 0, running };
     });
-    return rows.map(r => ({ ...r, running: map.get(r.id) }));
   }, [rows]);
 
-  const balance = withRunning.length > 0 ? Math.max(...withRunning.map(r => 0), withRunning.find(() => true)?.running ?? 0) : 0;
-  const currentBal = withRunning.reduce((s, r) => s + (r.tx_type === 'payment' ? -r.amount : r.amount), 0);
+  // 기간 필터
+  const filtered = useMemo(() => ledgerAsc.filter(r => {
+    if (from && r.tx_date < from) return false;
+    if (to && r.tx_date > to) return false;
+    return true;
+  }), [ledgerAsc, from, to]);
+
+  const display = order === 'asc' ? filtered : [...filtered].reverse();
+
+  const summary = useMemo(() => {
+    let totalIn = 0, totalPay = 0;
+    rows.forEach(r => { if (r.tx_type === 'payment') totalPay += r.amount; else totalIn += r.amount; });
+    return { totalIn, totalPay, balance: totalIn - totalPay, count: rows.length };
+  }, [rows]);
 
   const handleDelete = async (tx) => {
     if (!confirm(`이 거래를 삭제하시겠습니까?\n${tx.tx_date} / ${typeLabel(tx.tx_type)} / ${tx.amount.toLocaleString()}원`)) return;
@@ -11307,38 +11322,111 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
     }
   };
 
-  return (
-    <ModalShell title={`${name} — 거래 이력`} subtitle={vendorCode ? `코드 ${vendorCode}` : ''} onClose={onClose} wide>
-      <div className="mb-3 flex items-center gap-4 text-sm">
-        <div className="text-slate-500">현재 외상잔액</div>
-        <div className="text-xl font-bold text-slate-900 font-mono">{currentBal.toLocaleString()}원</div>
+  const handlePrint = () => {
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) { alert('팝업이 차단되었습니다.'); return; }
+    const today = new Date().toISOString().slice(0, 10);
+    const periodLabel = (from || to) ? `${from || '~'} ~ ${to || '~'}` : '전체 기간';
+    const bodyRows = filtered.map(r => `
+      <tr>
+        <td class="c">${r.tx_date}</td>
+        <td class="c">${typeLabel(r.tx_type)}</td>
+        <td>${(r.memo || '').replace(/</g, '&lt;')}</td>
+        <td class="r">${r.inc ? r.inc.toLocaleString() : ''}</td>
+        <td class="r">${r.dec ? r.dec.toLocaleString() : ''}</td>
+        <td class="r">${r.running.toLocaleString()}</td>
+      </tr>`).join('');
+    win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>거래처 원장 - ${name}</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:'Noto Sans KR',sans-serif;font-size:12px;color:#000;padding:30px 36px}
+        h1{font-size:22px;font-weight:700;margin-bottom:4px}
+        .meta{color:#555;font-size:11px;margin-bottom:16px}
+        .sum{display:flex;gap:24px;margin-bottom:14px;padding:12px 16px;background:#f5f5f5;border-radius:8px}
+        .sum div span{display:block}
+        .sum .lbl{font-size:10px;color:#777}
+        .sum .val{font-size:15px;font-weight:700;font-family:monospace}
+        table{width:100%;border-collapse:collapse}
+        th,td{border:1px solid #ccc;padding:6px 8px;font-size:11px}
+        th{background:#e8e8e8;font-weight:700}
+        td.c{text-align:center}td.r{text-align:right;font-family:monospace}
+        tfoot td{font-weight:700;background:#f5f5f5}
+        @media print{body{padding:0}}
+      </style></head><body>
+      <h1>거래처 원장</h1>
+      <div class="meta">거래처: <strong>${name}</strong>${vendorCode ? ` (코드 ${vendorCode})` : ''} · 기간: ${periodLabel} · 출력일: ${today}</div>
+      <div class="sum">
+        <div><span class="lbl">총 매입(증가)</span><span class="val">${summary.totalIn.toLocaleString()}</span></div>
+        <div><span class="lbl">총 지급(감소)</span><span class="val">${summary.totalPay.toLocaleString()}</span></div>
+        <div><span class="lbl">현재 잔액</span><span class="val">${summary.balance.toLocaleString()}</span></div>
       </div>
-      <div className="border border-slate-200 rounded-lg max-h-[60vh] overflow-y-auto">
+      <table>
+        <thead><tr><th style="width:90px">날짜</th><th style="width:60px">유형</th><th>적요</th><th style="width:110px">증가</th><th style="width:110px">감소</th><th style="width:120px">잔액</th></tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="6" class="c">내역 없음</td></tr>'}</tbody>
+        <tfoot><tr><td colspan="3" class="c">합계</td><td class="r">${summary.totalIn.toLocaleString()}</td><td class="r">${summary.totalPay.toLocaleString()}</td><td class="r">${summary.balance.toLocaleString()}</td></tr></tfoot>
+      </table>
+      <script>window.onload=function(){window.print()}<\/script>
+      </body></html>`);
+    win.document.close();
+  };
+
+  return (
+    <ModalShell title={`거래처 원장 — ${name}`} subtitle={vendorCode ? `코드 ${vendorCode}` : ''} onClose={onClose} wide>
+      {/* 요약 카드 */}
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="bg-amber-50 border border-amber-200 rounded p-3">
+          <div className="text-[10px] text-amber-700 mb-0.5">총 매입 (증가)</div>
+          <div className="text-base font-bold font-mono text-amber-800">{summary.totalIn.toLocaleString()}</div>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded p-3">
+          <div className="text-[10px] text-emerald-700 mb-0.5">총 지급 (감소)</div>
+          <div className="text-base font-bold font-mono text-emerald-800">{summary.totalPay.toLocaleString()}</div>
+        </div>
+        <div className="bg-slate-100 border border-slate-300 rounded p-3">
+          <div className="text-[10px] text-slate-500 mb-0.5">현재 외상잔액</div>
+          <div className={`text-base font-bold font-mono ${summary.balance < 0 ? 'text-red-600' : 'text-slate-900'}`}>{summary.balance.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {/* 필터 + 정렬 + 인쇄 */}
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-xs" title="시작일" />
+        <span className="text-xs text-slate-400">~</span>
+        <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-xs" title="종료일" />
+        {(from || to) && <button onClick={() => { setFrom(''); setTo(''); }} className="text-xs text-slate-500 hover:text-slate-700">초기화</button>}
+        <button onClick={() => setOrder(o => o === 'asc' ? 'desc' : 'asc')} className="text-xs text-slate-600 border border-slate-200 rounded px-2 py-1 hover:bg-slate-50">
+          {order === 'asc' ? '오래된순 ↓' : '최신순 ↑'}
+        </button>
+        <button onClick={handlePrint} className="ml-auto px-3 py-1 text-xs bg-slate-700 text-white rounded hover:bg-slate-600">🖨 원장 인쇄</button>
+      </div>
+
+      <div className="border border-slate-200 rounded-lg max-h-[55vh] overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0">
             <tr>
               <th className="px-3 py-2 text-left w-28">날짜</th>
-              <th className="px-3 py-2 text-left w-20">유형</th>
-              <th className="px-3 py-2 text-right w-32">금액</th>
+              <th className="px-3 py-2 text-left w-16">유형</th>
+              <th className="px-3 py-2 text-left">적요</th>
+              <th className="px-3 py-2 text-right w-28">증가</th>
+              <th className="px-3 py-2 text-right w-28">감소</th>
               <th className="px-3 py-2 text-right w-32">잔액</th>
-              <th className="px-3 py-2 text-left">메모</th>
-              <th className="px-3 py-2 text-center w-16"></th>
+              <th className="px-3 py-2 text-center w-12"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="py-8 text-center text-slate-400 text-sm">로딩 중...</td></tr>
-            ) : withRunning.length === 0 ? (
-              <tr><td colSpan={6} className="py-8 text-center text-slate-400 text-sm">거래 내역이 없습니다</td></tr>
-            ) : withRunning.map(r => (
+              <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">로딩 중...</td></tr>
+            ) : display.length === 0 ? (
+              <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">거래 내역이 없습니다</td></tr>
+            ) : display.map(r => (
               <tr key={r.id} className="border-t border-slate-100">
                 <td className="px-3 py-1.5 text-xs text-slate-700">{r.tx_date}</td>
                 <td className="px-3 py-1.5"><TypeBadge type={r.tx_type} /></td>
-                <td className={`px-3 py-1.5 text-right font-mono ${r.tx_type === 'payment' ? 'text-emerald-600' : (r.amount < 0 ? 'text-red-600' : 'text-slate-700')}`}>
-                  {r.tx_type === 'payment' ? '-' : (r.amount >= 0 ? '+' : '')}{r.amount.toLocaleString()}
-                </td>
-                <td className="px-3 py-1.5 text-right font-mono text-slate-500 text-xs">{r.running.toLocaleString()}</td>
-                <td className="px-3 py-1.5 text-slate-500 text-xs">{r.memo || '—'}</td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs">{r.memo || '—'}</td>
+                <td className="px-3 py-1.5 text-right font-mono text-amber-700 text-xs">{r.inc ? r.inc.toLocaleString() : ''}</td>
+                <td className="px-3 py-1.5 text-right font-mono text-emerald-600 text-xs">{r.dec ? r.dec.toLocaleString() : ''}</td>
+                <td className="px-3 py-1.5 text-right font-mono text-slate-700 text-xs font-semibold">{r.running.toLocaleString()}</td>
                 <td className="px-3 py-1.5 text-center">
                   <button onClick={() => handleDelete(r)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
                 </td>
