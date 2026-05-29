@@ -10657,7 +10657,6 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             {[
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처별 잔액' },
-              { k: 'history', l: '외상 거래원장' },
               { k: 'cash', l: '통장 출납' },
               { k: 'report', l: '리포트' },
             ].map(t => (
@@ -10744,8 +10743,6 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             </div>
           ) : tab === 'entry' ? (
             <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} onReload={reload} showToast={showToast} />
-          ) : tab === 'history' ? (
-            <PayableHistoryTable transactions={transactions} balances={balances} onReload={reload} showToast={showToast} />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} />
           ) : (
