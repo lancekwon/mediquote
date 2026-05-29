@@ -10608,7 +10608,18 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     return { totalBal, totalPurchase, totalPayment, activeCount };
   }, [balances]);
 
-  const cashCurrent = cashLogs.length > 0 && cashLogs[0].balance_after != null ? cashLogs[0].balance_after : null;
+  // 통장잔액 = 시간순 누적. balance_after가 명시된 행은 그 값을 기준점으로 리셋, 나머지는 delta 누적
+  const cashCurrent = useMemo(() => {
+    if (!cashLogs || cashLogs.length === 0) return null;
+    const asc = [...cashLogs].sort((a, b) =>
+      (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
+    let running = 0, seen = false;
+    asc.forEach(r => {
+      if (r.balance_after != null) { running = r.balance_after; seen = true; }
+      else { running += (r.delta || 0); seen = true; }
+    });
+    return seen ? running : null;
+  }, [cashLogs]);
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -10918,6 +10929,20 @@ function PayableHistoryTable({ transactions, balances, onReload, showToast }) {
 }
 
 function CashBalanceTable({ logs, onReload, showToast }) {
+  // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋)
+  const runningById = useMemo(() => {
+    const asc = [...logs].sort((a, b) =>
+      (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
+    let running = 0;
+    const map = new Map();
+    asc.forEach(r => {
+      if (r.balance_after != null) running = r.balance_after;
+      else running += (r.delta || 0);
+      map.set(r.id, running);
+    });
+    return map;
+  }, [logs]);
+
   const handleDelete = async (row) => {
     if (row.payment_batch_id) {
       alert('이 기록은 일괄지급에 연결되어 있습니다. 거래 이력 탭에서 해당 지급을 삭제하세요.');
@@ -10952,7 +10977,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                 {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
               </td>
               <td className="px-4 py-2 text-right font-mono text-slate-800">
-                {l.balance_after != null ? l.balance_after.toLocaleString() : '—'}
+                {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
               </td>
               <td className="px-4 py-2 text-slate-500 text-xs">
                 {l.memo || '—'}
