@@ -11012,7 +11012,7 @@ function PurchaseAddModal({ balances, onClose, onSaved }) {
             <option value="">— 거래처 선택 —</option>
             {filtered.map(b => (
               <option key={b.manufacturer_id} value={b.manufacturer_id}>
-                {b.vendor_code ? `[${b.vendor_code}] ` : ''}{b.manufacturer_name} (잔액 {(b.balance || 0).toLocaleString()})
+                {b.manufacturer_name} (잔액 {(b.balance || 0).toLocaleString()})
               </option>
             ))}
           </select>
@@ -11665,7 +11665,7 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
                 <option value="">— 선택 —</option>
                 {vendorOptions.map(b => (
                   <option key={b.manufacturer_id} value={b.manufacturer_id}>
-                    {b.vendor_code ? `[${b.vendor_code}] ` : ''}{b.manufacturer_name} (잔액 {(b.balance || 0).toLocaleString()})
+                    {b.manufacturer_name} (잔액 {(b.balance || 0).toLocaleString()})
                   </option>
                 ))}
               </select>
