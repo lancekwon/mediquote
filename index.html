@@ -11554,11 +11554,13 @@ function ModalShell({ title, subtitle, onClose, children, wide }) {
    거래 입력 탭 — 한 줄씩 입력 → 누적 → 일괄 저장
    ============================================================ */
 const ENTRY_TYPES = [
-  { key: 'purchase', label: '매입',   needVendor: true,  cashDir: 0,  desc: '거래처 외상 잔액 증가' },
-  { key: 'payment',  label: '지급',   needVendor: true,  cashDir: -1, desc: '거래처 외상 차감 + 통장 출금' },
-  { key: 'collect',  label: '수금',   needVendor: false, cashDir: +1, desc: '통장 입금' },
-  { key: 'opex',     label: '운영비', needVendor: false, cashDir: -1, desc: '통장 출금 (세금/통신/카드 등)' },
-  { key: 'advance',  label: '선급금', needVendor: false, cashDir: -1, desc: '통장 출금 (병원 선급금 등)' },
+  { key: 'purchase', label: '매입',       needVendor: true,  cashDir: 0,  desc: '거래처 외상 잔액 증가' },
+  { key: 'payment',  label: '지급',       needVendor: true,  cashDir: -1, desc: '거래처 외상 차감 + 통장 출금' },
+  { key: 'collect',  label: '수금',       needVendor: false, cashDir: +1, desc: '통장 입금' },
+  { key: 'opex',     label: '운영비',     needVendor: false, cashDir: -1, desc: '통장 출금 (세금/통신/카드 등)' },
+  { key: 'advance',  label: '선급금',     needVendor: false, cashDir: -1, desc: '통장 출금 (병원 선급금 등)' },
+  { key: 'etc_in',   label: '기타(입금)', needVendor: false, cashDir: +1, freeForm: true, desc: '통장 입금. 거래처/내용 직접 입력' },
+  { key: 'etc_out',  label: '기타(출금)', needVendor: false, cashDir: -1, freeForm: true, desc: '통장 출금. 거래처/내용 직접 입력' },
 ];
 const ENTRY_TYPE_BY_KEY = Object.fromEntries(ENTRY_TYPES.map(t => [t.key, t]));
 
@@ -11599,6 +11601,7 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
   const [vendorId, setVendorId] = useState('');
   const [vendorSearch, setVendorSearch] = useState('');
   const [vendorOpen, setVendorOpen] = useState(false);
+  const [vendorFreeText, setVendorFreeText] = useState(''); // 기타 유형 — 거래처 직접 입력
   const vendorBoxRef = useRef(null);
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
@@ -11630,11 +11633,14 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
     if (!amt || amt <= 0) return alert('금액을 입력하세요.');
     if (needVendor && !vendorId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
     const vendor = balances.find(b => b.manufacturer_id === vendorId);
+    const vendorName = needVendor
+      ? (vendor?.manufacturer_name || '')
+      : (curType.freeForm ? vendorFreeText.trim() : '');
     setPending(p => [...p, {
       id: `${Date.now()}-${p.length}`,
       date, typeKey,
       manufacturerId: needVendor ? vendorId : null,
-      vendorName: vendor?.manufacturer_name || '',
+      vendorName,
       amount: amt, memo: memo.trim(),
     }]);
     // 금액·메모만 초기화 (날짜/유형/거래처는 유지 — 연속 입력 편의)
@@ -11720,6 +11726,10 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
                   </div>
                 )}
               </div>
+            ) : curType.freeForm ? (
+              <input type="text" value={vendorFreeText} onChange={e => setVendorFreeText(e.target.value)}
+                placeholder="거래처/상대방 직접 입력 (선택)"
+                className={`w-full ${inputCls}`} />
             ) : (
               <input type="text" value="—" disabled className={`w-full ${inputCls} bg-slate-100 text-slate-400`} />
             )}
