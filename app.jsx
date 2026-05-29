@@ -6256,165 +6256,6 @@ function KakaoMessageModal({ vendor, text, onClose }) {
   );
 }
 
-// 발주 일정 추적 뷰: 모든 활성 발주의 납품일을 기준으로 정렬/색상화
-function DeliveryScheduleView({ leads, onLeadClick }) {
-  const [pos, setPos] = React.useState([]);
-  const [contracts, setContracts] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [statusFilter, setStatusFilter] = React.useState('all'); // all/ordered/upcoming/delayed/delivered
-
-  React.useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [allPos, allContracts] = await Promise.all([
-          dbLoadPurchaseOrders(),
-          dbLoadAllContracts(),
-        ]);
-        // 활성 리비전만
-        setPos((allPos || []).filter(p => p.is_active !== false));
-        setContracts(allContracts || []);
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    })();
-  }, []);
-
-  const today = new Date(); today.setHours(0,0,0,0);
-
-  // PO를 납품일 기준 분류
-  const enriched = React.useMemo(() => {
-    return pos.map(p => {
-      const c = contracts.find(ct => ct.id === p.contract_id);
-      const lead = c ? leads.find(l => l.quote_no === c.quote_name) : null;
-      const dDate = p.delivery_date ? new Date(p.delivery_date) : null;
-      if (dDate) dDate.setHours(0,0,0,0);
-      const daysLeft = dDate ? Math.round((dDate - today) / 86400000) : null;
-      let bucket = 'unknown';
-      if (p.delivered) bucket = 'delivered';
-      else if (daysLeft != null && daysLeft < 0) bucket = 'delayed';
-      else if (daysLeft != null && daysLeft <= 7) bucket = 'upcoming';
-      else if (p.status === '발주완료' || p.ordered_at) bucket = 'ordered';
-      else bucket = 'preparing';
-      return { ...p, contract: c, lead, dDate, daysLeft, bucket };
-    });
-  }, [pos, contracts, leads]);
-
-  const filtered = React.useMemo(() => {
-    let arr = enriched;
-    if (statusFilter !== 'all') arr = arr.filter(p => p.bucket === statusFilter);
-    // 정렬: 지연 → 납기 임박 → 발주완료 → 준비중 → 납품완료
-    const order = { delayed:0, upcoming:1, ordered:2, preparing:3, delivered:4, unknown:5 };
-    return arr.sort((a, b) => {
-      const oa = order[a.bucket] ?? 9, ob = order[b.bucket] ?? 9;
-      if (oa !== ob) return oa - ob;
-      if (a.dDate && b.dDate) return a.dDate - b.dDate;
-      return 0;
-    });
-  }, [enriched, statusFilter]);
-
-  const counts = React.useMemo(() => {
-    const c = { all: enriched.length, delayed:0, upcoming:0, ordered:0, preparing:0, delivered:0 };
-    enriched.forEach(p => { c[p.bucket] = (c[p.bucket] || 0) + 1; });
-    return c;
-  }, [enriched]);
-
-  const STATUS_STYLE = {
-    delayed:    { label:'지연',     bg:'bg-red-50',     border:'border-red-300',     text:'text-red-700',     badge:'bg-red-500' },
-    upcoming:   { label:'납기 임박', bg:'bg-orange-50',  border:'border-orange-300',  text:'text-orange-700',  badge:'bg-orange-500' },
-    ordered:    { label:'발주됨',    bg:'bg-blue-50',    border:'border-blue-200',    text:'text-blue-700',    badge:'bg-blue-500' },
-    preparing:  { label:'준비중',    bg:'bg-slate-50',   border:'border-slate-200',   text:'text-slate-600',   badge:'bg-slate-400' },
-    delivered:  { label:'납품완료',  bg:'bg-emerald-50', border:'border-emerald-200', text:'text-emerald-700', badge:'bg-emerald-500' },
-    unknown:    { label:'미정',      bg:'bg-slate-50',   border:'border-slate-200',   text:'text-slate-500',   badge:'bg-slate-300' },
-  };
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3 flex-wrap">
-        <div className="font-bold text-slate-900">발주 일정</div>
-        <div className="flex items-center gap-1 ml-auto flex-wrap">
-          {[
-            { key:'all',       label:`전체 ${counts.all}` },
-            { key:'delayed',   label:`🔴 지연 ${counts.delayed||0}` },
-            { key:'upcoming',  label:`🟠 임박 ${counts.upcoming||0}` },
-            { key:'ordered',   label:`🔵 발주됨 ${counts.ordered||0}` },
-            { key:'preparing', label:`⚪ 준비중 ${counts.preparing||0}` },
-            { key:'delivered', label:`🟢 완료 ${counts.delivered||0}` },
-          ].map(b => (
-            <button key={b.key} onClick={() => setStatusFilter(b.key)}
-              className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition-colors ${statusFilter === b.key ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-              {b.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="text-center text-slate-400 py-12 text-sm">불러오는 중...</div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center text-slate-400 py-12 text-sm">표시할 발주가 없습니다.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-600">
-              <tr>
-                <th className="px-3 py-2 text-left">상태</th>
-                <th className="px-3 py-2 text-left">발주번호</th>
-                <th className="px-3 py-2 text-left">제조사</th>
-                <th className="px-3 py-2 text-left">병원</th>
-                <th className="px-3 py-2 text-left">담당</th>
-                <th className="px-3 py-2 text-right">금액</th>
-                <th className="px-3 py-2 text-center">납기일</th>
-                <th className="px-3 py-2 text-center">D-Day</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(p => {
-                const s = STATUS_STYLE[p.bucket];
-                const rev = p.revision || 0;
-                return (
-                  <tr key={p.id} className={`border-t border-slate-100 hover:bg-slate-50 ${p.bucket === 'delayed' ? 'bg-red-50/50' : ''}`}>
-                    <td className="px-3 py-2.5">
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold ${s.bg} ${s.text} border ${s.border}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${s.badge}`}/>
-                        {s.label}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-xs text-slate-700">{p.po_no}</span>
-                        {rev > 0 && <span className="text-[10px] font-bold px-1 rounded bg-amber-100 text-amber-700">R{rev}</span>}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-700">{p.manufacturer_name || '-'}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{p.hospital_name || (p.contract?.hospital_name || '-')}</td>
-                    <td className="px-3 py-2.5 text-slate-600">{p.lead?.assignee || '-'}</td>
-                    <td className="px-3 py-2.5 text-right tnum text-slate-700">{(p.total_amount || 0).toLocaleString('ko-KR')}</td>
-                    <td className="px-3 py-2.5 text-center text-slate-600">{p.delivery_date || '-'}</td>
-                    <td className="px-3 py-2.5 text-center">
-                      {p.delivered ? <span className="text-emerald-600 text-xs">완료</span> :
-                       p.daysLeft == null ? <span className="text-slate-400">-</span> :
-                       p.daysLeft < 0 ? <span className="text-red-600 font-bold text-xs">D+{Math.abs(p.daysLeft)}</span> :
-                       p.daysLeft === 0 ? <span className="text-orange-600 font-bold text-xs">D-Day</span> :
-                       <span className={`text-xs font-semibold ${p.daysLeft <= 7 ? 'text-orange-600' : 'text-slate-600'}`}>D-{p.daysLeft}</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      {p.lead && (
-                        <button onClick={() => onLeadClick && onLeadClick(p.lead)}
-                          className="text-xs text-blue-600 hover:underline">리드 →</button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // 장비 매입가 이력 모달
 function PriceHistoryModal({ equipment, onClose }) {
   const [history, setHistory] = React.useState([]);
@@ -7191,7 +7032,6 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
   const [sortDesc, setSortDesc] = React.useState(true); // true=최신순
   const [showDashboard, setShowDashboard] = React.useState(false);
   const [showCalendar, setShowCalendar] = React.useState(false);
-  const [showDelivery, setShowDelivery] = React.useState(false);
   const [showForm, setShowForm] = React.useState(false);
   const [editingLead, setEditingLead] = React.useState(null);
   const [form, setForm] = React.useState(EMPTY_LEAD);
@@ -7447,27 +7287,22 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
           {sortDesc ? '최신순' : '오래된순'}
         </button>}
         <div className="flex items-center gap-1 border border-slate-200 rounded-lg p-0.5">
-          <button onClick={() => { setShowCalendar(false); setShowDelivery(false); }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${(!showCalendar && !showDelivery) ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
+          <button onClick={() => setShowCalendar(false)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${!showCalendar ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
             리스트
           </button>
-          <button onClick={() => { setShowCalendar(true); setShowDelivery(false); }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${(showCalendar && !showDelivery) ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
+          <button onClick={() => setShowCalendar(true)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${showCalendar ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             캘린더
-          </button>
-          <button onClick={() => { setShowCalendar(false); setShowDelivery(true); }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${showDelivery ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-700'}`}>
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"/></svg>
-            발주 일정
           </button>
         </div>
         </div>
       </div>}
 
       {/* 파이프라인 진행 바 */}
-      {!showDashboard && !showCalendar && !showDelivery && filter === 'all' && leads.length > 0 && (
+      {!showDashboard && !showCalendar && filter === 'all' && leads.length > 0 && (
         <div className="bg-white border-b border-slate-100 px-6 py-2.5 flex items-center gap-1 shrink-0 flex-wrap">
           {['신규문의','견적발송','상담중','계약완료'].map((s, i) => {
             const colors = ['bg-slate-400','bg-violet-400','bg-blue-400','bg-emerald-400'];
@@ -7501,12 +7336,9 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
           {showDashboard && <LeadsDashboard leads={leads} loading={loading} />}
         </div>
         <div>
-          {showCalendar && !showDelivery && <LeadsCalendar leads={leads} onEdit={openEdit} onNewLead={openNew} onLoadQuote={onCreateQuote ? (lead, qNo) => onCreateQuote(lead, 'load', qNo) : null} />}
+          {showCalendar && <LeadsCalendar leads={leads} onEdit={openEdit} onNewLead={openNew} onLoadQuote={onCreateQuote ? (lead, qNo) => onCreateQuote(lead, 'load', qNo) : null} />}
         </div>
-        <div>
-          {showDelivery && <DeliveryScheduleView leads={leads} onLeadClick={openEdit} />}
-        </div>
-        <div style={{display: (showDashboard || showCalendar || showDelivery) ? 'none' : 'block'}}>
+        <div style={{display: (showDashboard || showCalendar) ? 'none' : 'block'}}>
           {loading ? (
             <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400 text-sm">불러오는 중...</div>
           ) : filtered.length === 0 ? (
