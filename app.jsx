@@ -5179,6 +5179,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   const [hospitalRow, setHospitalRow] = React.useState(null);
   const [kakaoModal, setKakaoModal] = React.useState(null); // { vendor, text }
   const [deliveryDate, setDeliveryDate] = React.useState('');
+  const [dirty, setDirty] = React.useState(false); // 저장 안 한 변경 여부
 
   // 거래처 후보 (장비DB + manufacturers 테이블 + manual 입력)
   const vendorOptions = React.useMemo(() => {
@@ -5276,6 +5277,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
               vendorContactPhone: vInfo?.contact_phone || '',
               ordered:    !!existingPoItem?.ordered,
               ordered_at: existingPoItem?.ordered_at || null,
+              taxInvoiced: !!existingPoItem?.tax_invoiced,
+              tax_invoiced_at: existingPoItem?.tax_invoiced_at || null,
               delivered:  !!existingPoItem?.delivered,
               delivered_at: existingPoItem?.delivered_at || null,
               memo: existingPoItem?.memo || '',
@@ -5310,7 +5313,16 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     return groups;
   }, [sortedItems]);
 
-  const setItem = (key, patch) => setPlanItems(p => p.map(it => it.key === key ? { ...it, ...patch } : it));
+  const setItem = (key, patch) => { setDirty(true); setPlanItems(p => p.map(it => it.key === key ? { ...it, ...patch } : it)); };
+
+  // 저장하지 않고 나갈 때 확인
+  const handleBack = async () => {
+    if (dirty && contract) {
+      const ok = window.confirm('저장하지 않은 변경사항이 있습니다.\n\n[확인] 저장하고 나가기\n[취소] 저장하지 않고 나가기');
+      if (ok) { await handleSave(); }
+    }
+    onBack();
+  };
 
   // 합계 (부가세 포함/별도 반영)
   const totals = React.useMemo(() => {
@@ -5363,6 +5375,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           amount: it.purchasePrice * it.quantity,
           ordered: !!it.ordered,
           ordered_at: it.ordered ? (it.ordered_at || today) : null,
+          tax_invoiced: !!it.taxInvoiced,
+          tax_invoiced_at: it.taxInvoiced ? (it.tax_invoiced_at || today) : null,
           delivered: !!it.delivered,
           delivered_at: it.delivered ? (it.delivered_at || today) : null,
           memo: it.memo || null,
@@ -5475,35 +5489,33 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           mfrId = found?.id || null;
         }
 
-        const orderedItems = items.filter(it => it.ordered);
-        const orderedAmtBase = orderedItems.reduce((s, it) => s + (Number(it.purchasePrice) || 0) * (Number(it.quantity) || 1), 0);
-        const orderedAmt = vatIncluded ? Math.round(orderedAmtBase * 1.1) : orderedAmtBase;
+        // 외상매입금 = 세금계산서(taxInvoiced) 받은 품목의 매입가 합 (A안 — 매입 확정 시점)
+        const taxItems = items.filter(it => it.taxInvoiced);
+        const taxAmtBase = taxItems.reduce((s, it) => s + (Number(it.purchasePrice) || 0) * (Number(it.quantity) || 1), 0);
+        const taxAmt = vatIncluded ? Math.round(taxAmtBase * 1.1) : taxAmtBase;
 
         if (!mfrId) {
-          if (orderedAmt > 0) {
+          if (taxAmt > 0) {
             console.warn(`외상매입 skip — 거래처 미등록: ${vendor} (PO ${po.po_no})`);
-            syncResults.skipped.push({ vendor, amount: orderedAmt });
+            syncResults.skipped.push({ vendor, amount: taxAmt });
           }
           continue;
         }
 
         try {
-          if (orderedAmt > 0) {
-            const orderedDate = orderedItems.map(i => i.ordered_at).filter(Boolean).sort().pop() || today;
-            const summary = orderedItems.slice(0, 3).map(i => `${i.itemName}${i.quantity > 1 ? `×${i.quantity}` : ''}`).join(', ')
-                          + (orderedItems.length > 3 ? ` 외 ${orderedItems.length - 3}건` : '');
-            const baseMemo = `발주 ${po.po_no || ''} (${summary})`.trim();
-            // 차액 트랜잭션 (첫 발주이면 'purchase', 변경이면 'adjustment')
+          if (taxAmt > 0) {
+            const taxDate = taxItems.map(i => i.tax_invoiced_at).filter(Boolean).sort().pop() || today;
+            const summary = taxItems.slice(0, 3).map(i => `${i.itemName}${i.quantity > 1 ? `×${i.quantity}` : ''}`).join(', ')
+                          + (taxItems.length > 3 ? ` 외 ${taxItems.length - 3}건` : '');
+            const baseMemo = `세금계산서 ${po.po_no || ''} (${summary})`.trim();
+            // 차액 트랜잭션 (첫 매입이면 'purchase', 변경이면 'adjustment')
             const result = await dbAdjustPayableForPo({
-              poId: po.id, manufacturerId: mfrId, txDate: orderedDate,
-              newAmount: orderedAmt,
+              poId: po.id, manufacturerId: mfrId, txDate: taxDate,
+              newAmount: taxAmt,
               memo: baseMemo,
             });
-            if (po.status !== '발주완료') {
-              await dbUpdatePurchaseOrder(po.id, { status: '발주완료', ordered_at: orderedDate });
-            }
             if (result === null) {
-              syncResults.unchanged.push({ vendor, amount: orderedAmt });
+              syncResults.unchanged.push({ vendor, amount: taxAmt });
             } else if (result.txType === 'purchase') {
               syncResults.firstPurchase.push({ vendor, amount: result.diff });
               console.log(`외상매입 신규: ${vendor} +${result.diff.toLocaleString()}원`);
@@ -5512,7 +5524,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
               console.log(`외상매입 조정: ${vendor} ${result.diff > 0 ? '+' : ''}${result.diff.toLocaleString()}원`);
             }
           }
-          // orderedAmt === 0인 경우: 이미 발주완료된 PO도 그대로 둠 — 취소는 별도 [발주 취소] 액션으로
+          // taxAmt === 0: 세금계산서 미수령 — 외상 미발생. 취소는 별도 [발주 취소] 액션으로
         } catch (syncErr) {
           console.error('payable sync failed for vendor', vendor, syncErr);
           syncResults.failed.push({ vendor, error: syncErr.message || String(syncErr) });
@@ -5533,6 +5545,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
       if (syncResults.failed.length > 0) {
         summaryMsg += `\n❌ 동기화 실패: ${syncResults.failed.map(r => r.vendor).join(', ')}`;
       }
+      setDirty(false);
       alert(summaryMsg);
     } catch (e) {
       console.error(e);
@@ -5808,8 +5821,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
 
   return (
     <div style={{height:'100vh',display:'flex',flexDirection:'column',overflow:'hidden',background:'#f1f5f9'}}>
-      <AppHeader title="발주 계획서" badge={lead?.quote_no || ''} onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
-        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+      <AppHeader title="발주 계획서" badge={lead?.quote_no || ''} onLogoClick={handleBack} user={user} onLogout={onLogout} nav={nav}>
+        <button onClick={handleBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           {backLabel}
         </button>
@@ -5820,10 +5833,6 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         <button onClick={handleInternalStatement} disabled={loading || !contract}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-slate-700 text-white hover:bg-slate-600 disabled:opacity-50 transition-colors">
           📋 거래명세서 (내부용)
-        </button>
-        <button onClick={handleSave} disabled={saving || loading || !contract}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors">
-          {saving ? '저장 중...' : '💾 발주 계획 저장'}
         </button>
       </AppHeader>
 
@@ -5850,19 +5859,19 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                 </div>
                 <div className="col-span-3">
                   <label className="text-xs text-slate-500 mb-1 block">납기일</label>
-                  <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
+                  <input type="date" value={deliveryDate} onChange={e => { setDeliveryDate(e.target.value); setDirty(true); }}
                     className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
                 </div>
                 <div className="col-span-4 flex items-end justify-end">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={vatIncluded} onChange={e => setVatIncluded(e.target.checked)} className="w-4 h-4 rounded"/>
+                    <input type="checkbox" checked={vatIncluded} onChange={e => { setVatIncluded(e.target.checked); setDirty(true); }} className="w-4 h-4 rounded"/>
                     <span className="font-semibold text-slate-700">부가세 포함 표시</span>
                   </label>
                 </div>
               </div>
               <div>
                 <label className="text-xs text-slate-500 mb-1 block">병원 주소 <span className="text-slate-400 font-normal">(저장 시 병원 정보에 반영됨)</span></label>
-                <input value={hospitalAddress} onChange={e => setHospitalAddress(e.target.value)}
+                <input value={hospitalAddress} onChange={e => { setHospitalAddress(e.target.value); setDirty(true); }}
                   placeholder="예: 서울특별시 강남구 테헤란로 123, 대원빌딩 5층"
                   className="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
               </div>
@@ -5943,6 +5952,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       <thead className="bg-slate-50 text-slate-600">
                         <tr>
                           <th className="px-2 py-2 text-center w-12">발주</th>
+                          <th className="px-2 py-2 text-center w-16">세금<br/>계산서</th>
                           <th className="px-2 py-2 text-center w-12">납품</th>
                           <th className="px-2 py-2 text-left">품목</th>
                           <th className="px-2 py-2 text-left">모델명</th>
@@ -5961,14 +5971,18 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                             <tr key={it.key} className={`border-t border-slate-100 ${it.delivered ? 'bg-emerald-50/30' : it.ordered ? 'bg-blue-50/30' : ''}`}>
                               <td className="px-2 py-1.5 text-center">
                                 <input type="checkbox" checked={!!it.ordered}
-                                  disabled={!!it.poItemId && !!it.ordered}
-                                  title={!!it.poItemId && !!it.ordered ? '이미 발주된 항목은 해제할 수 없습니다. 거래처 헤더의 [발주 취소]를 사용하세요.' : ''}
                                   onChange={e => setItem(it.key, { ordered: e.target.checked, ordered_at: e.target.checked ? (it.ordered_at || new Date().toISOString().split('T')[0]) : null })}
-                                  className={`w-4 h-4 rounded ${(!!it.poItemId && !!it.ordered) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}/>
+                                  className="w-4 h-4 rounded cursor-pointer"/>
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                <input type="checkbox" checked={!!it.taxInvoiced}
+                                  title="세금계산서를 받으면 체크하세요. 저장 시 외상매입금에 반영됩니다."
+                                  onChange={e => setItem(it.key, { taxInvoiced: e.target.checked, tax_invoiced_at: e.target.checked ? (it.tax_invoiced_at || new Date().toISOString().split('T')[0]) : null })}
+                                  className="w-4 h-4 rounded cursor-pointer accent-amber-500"/>
                               </td>
                               <td className="px-2 py-1.5 text-center">
                                 <input type="checkbox" checked={!!it.delivered}
-                                  onChange={e => setItem(it.key, { delivered: e.target.checked, delivered_at: e.target.checked ? (it.delivered_at || new Date().toISOString().split('T')[0]) : null, ordered: e.target.checked || it.ordered, ordered_at: it.ordered_at || (e.target.checked ? new Date().toISOString().split('T')[0] : null) })}
+                                  onChange={e => setItem(it.key, { delivered: e.target.checked, delivered_at: e.target.checked ? (it.delivered_at || new Date().toISOString().split('T')[0]) : null })}
                                   className="w-4 h-4 rounded cursor-pointer"/>
                               </td>
                               <td className="px-2 py-1.5 text-slate-700">{it.itemName}</td>
@@ -6045,6 +6059,21 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           </div>
         )}
       </div>
+
+      {/* 하단 저장 바 */}
+      {!loading && quote && (
+        <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-3 flex items-center justify-between">
+          <div className="text-sm">
+            {dirty
+              ? <span className="text-amber-600 font-medium">● 저장하지 않은 변경사항이 있습니다</span>
+              : <span className="text-slate-400">모든 변경사항이 저장되었습니다</span>}
+          </div>
+          <button onClick={handleSave} disabled={saving || !contract}
+            className="px-7 py-2.5 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50 transition-colors shadow-sm">
+            {saving ? '저장 중...' : '💾 발주 계획 저장'}
+          </button>
+        </div>
+      )}
 
       {kakaoModal && (
         <KakaoMessageModal
