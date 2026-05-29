@@ -1309,7 +1309,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onOrders, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1326,7 +1326,6 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
     { label:'견적 관리',         onClick: onLoad,     icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
     { label:'병원 관리',         onClick: onHospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: onManage,   icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
-    { label:'발주서 관리',       onClick: onOrders,   icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
     { label:'매입매출 관리',   onClick: onPayables, icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
   ];
 
@@ -1428,7 +1427,6 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     { label:'견적 관리',         onClick: nav?.list,      icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
     { label:'병원 관리',         onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
-    { label:'발주서 관리',       onClick: nav?.orders,    icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
     { label:'매입매출 관리',   onClick: nav?.payables,  icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
   ];
   return (
@@ -7612,9 +7610,9 @@ function GcalSettingsModal({ connected, onConnect, onDisconnect, onClose }) {
   );
 }
 
-function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], setLeads, leadsLoading = false, quotes = [], equipments = [], manufacturers = [], hospitals = [], setHospitals }) {
+function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], setLeads, leadsLoading = false, quotes = [], equipments = [], manufacturers = [], hospitals = [], setHospitals, initialStage = null }) {
   const loading = leadsLoading;
-  const [filter, setFilter] = React.useState('신규문의');
+  const [filter, setFilter] = React.useState(initialStage || '신규문의');
   const [sortDesc, setSortDesc] = React.useState(true); // true=최신순
   const [showDashboard, setShowDashboard] = React.useState(false);
   const [showCalendar, setShowCalendar] = React.useState(false);
@@ -12270,7 +12268,7 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [view, setView] = useState('leads'); // 'editor' | 'list' | 'manage' | 'leads' | 'po-plan'
   const [poPlanLead, setPoPlanLead] = useState(null);
-  const [poPlanReturn, setPoPlanReturn] = useState('leads'); // 발주계획서 진입 출처 ('leads' | 'orders' 등)
+  const [leadsStageFilter, setLeadsStageFilter] = useState(null); // 영업관리 진입 시 초기 단계 필터 (발주계획서 뒤로가기 → '발주진행중')
   const [listInitialTab, setListInitialTab] = useState('saved');
   const [listInitialDept, setListInitialDept] = useState(null);
   const [hospitalsInitialHospId, setHospitalsInitialHospId] = useState(null);
@@ -12499,7 +12497,7 @@ function App() {
   }
 
   const nav = {
-    leads:     () => { setListInitialTab('saved'); setListInitialDept(null); setView('leads'); },
+    leads:     () => { setListInitialTab('saved'); setListInitialDept(null); setLeadsStageFilter(null); setView('leads'); },
     editor:    () => setView('editor'),
     list:      () => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); },
     standard:  () => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); },
@@ -12508,8 +12506,7 @@ function App() {
     service:   () => { setListInitialTab('saved'); setListInitialDept(null); setView('service'); },
     manage:    () => setView('manage'),
     payables:  () => setView('payables'),
-    orders:    () => setView('orders'),
-    poPlan:    (lead, returnTo = 'leads') => { setPoPlanLead(lead); setPoPlanReturn(returnTo); setView('po-plan'); },
+    poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
   };
 
   if (view === 'payables') {
@@ -12523,26 +12520,14 @@ function App() {
     />;
   }
 
-  if (view === 'orders') {
-    return <OrdersIndexPage
-      onBack={() => setView('editor')}
-      user={user}
-      onLogout={handleLogout}
-      nav={nav}
-      leads={appLeads}
-      manufacturers={appManufacturers}
-    />;
-  }
-
   if (view === 'po-plan' && poPlanLead) {
-    const backLabel = ({ orders: '발주서 관리로', leads: '영업관리로' })[poPlanReturn] || '영업관리로';
     return <PurchaseOrderPlanPage
       lead={poPlanLead}
       equipments={customEquips}
       manufacturers={appManufacturers}
       setManufacturers={setAppManufacturers}
-      onBack={() => { setPoPlanLead(null); setView(poPlanReturn || 'leads'); }}
-      backLabel={backLabel}
+      onBack={() => { setPoPlanLead(null); setLeadsStageFilter('발주진행중'); setListInitialTab('saved'); setListInitialDept(null); setView('leads'); }}
+      backLabel={'발주진행중 목록으로'}
       onLeadUpdate={(id, fields) => setAppLeads(p => p.map(l => l.id === id ? { ...l, ...fields } : l))}
       user={user}
       onLogout={handleLogout}
@@ -12590,6 +12575,7 @@ function App() {
   if (view === 'leads') {
     return <LeadsPage
       onBack={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }}
+      initialStage={leadsStageFilter}
       user={user}
       onLogout={handleLogout}
       nav={nav}
@@ -12654,7 +12640,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onOrders={() => setView('orders')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
