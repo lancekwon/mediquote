@@ -10730,7 +10730,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           <div className="flex border-b border-slate-200">
             {[
               { k: 'entry', l: '거래 입력' },
-              { k: 'balance', l: '거래처별 잔액' },
+              { k: 'balance', l: '거래처 원장' },
               { k: 'cash', l: '통장 출납' },
               { k: 'report', l: '리포트' },
             ].map(t => (
