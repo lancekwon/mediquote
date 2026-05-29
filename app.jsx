@@ -12030,6 +12030,30 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
 
   const toggleExpand = (cid) => setExpanded(p => ({ ...p, [cid]: !p[cid] }));
 
+  // 발주서(PO) 1건 삭제 — 연결된 외상매입 트랜잭션도 함께 정리
+  const handleDeletePo = async (po, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm(`발주서 ${po.po_no}${po.revision ? `-R${po.revision}` : ''} (${po.manufacturer_name || '거래처 미지정'})를 삭제할까요?\n\n연결된 외상매입 내역도 함께 삭제됩니다. 되돌릴 수 없습니다.`)) return;
+    try {
+      await dbDeletePurchaseOrder(po.id);
+      reload();
+    } catch (err) {
+      alert('삭제 실패: ' + (err.message || err));
+    }
+  };
+
+  // 병원의 발주 전체 삭제
+  const handleDeleteGroup = async (g, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm(`[${g.hospital}]의 발주 ${g.total}건을 모두 삭제할까요?\n\n연결된 외상매입 내역도 함께 삭제됩니다. 되돌릴 수 없습니다.`)) return;
+    try {
+      for (const po of g.list) await dbDeletePurchaseOrder(po.id);
+      reload();
+    } catch (err) {
+      alert('삭제 실패: ' + (err.message || err));
+    }
+  };
+
   const statusBadge = (status) => {
     const map = { '준비중': 'bg-slate-100 text-slate-500', '발주완료': 'bg-blue-100 text-blue-700', '납품완료': 'bg-emerald-100 text-emerald-700', '취소': 'bg-rose-100 text-rose-600' };
     return <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[status] || 'bg-slate-100 text-slate-500'}`}>{status || '—'}</span>;
@@ -12137,7 +12161,10 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
                                 <td className="px-4 py-2 text-right font-mono text-amber-700">{purchase.toLocaleString()}</td>
                                 <td className="px-4 py-2 text-right font-mono text-emerald-700">{sale ? sale.toLocaleString() : '—'}</td>
                                 <td className={`px-4 py-2 text-right font-mono ${m < 0 ? 'text-red-600' : 'text-blue-700'}`}>{sale ? m.toLocaleString() : '—'}</td>
-                                <td className="px-4 py-2 text-center"><span className="text-xs text-blue-500">편집 →</span></td>
+                                <td className="px-4 py-2 text-center whitespace-nowrap">
+                                  <span className="text-xs text-blue-500">편집</span>
+                                  <button onClick={(e) => handleDeletePo(po, e)} className="ml-2 text-xs text-red-400 hover:text-red-600">삭제</button>
+                                </td>
                               </tr>
                             );
                           })}
@@ -12150,7 +12177,8 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
                           </tr>
                         </tbody>
                       </table>
-                      <div className="px-4 py-2 text-right">
+                      <div className="px-4 py-2 flex items-center justify-between">
+                        <button onClick={(e) => handleDeleteGroup(g, e)} className="text-xs text-red-500 hover:text-red-700">🗑 이 병원 발주 전체 삭제</button>
                         <button onClick={() => goToPlan(g.contract)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">이 병원 발주계획서 열기 →</button>
                       </div>
                     </div>
