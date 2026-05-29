@@ -10513,7 +10513,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
    PAYABLES (외상매입금 관리) PAGE
    ============================================================ */
 function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
-  const [tab, setTab] = useState('balance'); // balance | history | cash
+  const [tab, setTab] = useState('entry'); // entry | balance | history | cash | report
   const [balances, setBalances] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [cashLogs, setCashLogs] = useState([]);
@@ -10655,10 +10655,10 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="flex border-b border-slate-200">
             {[
-              { k: 'balance', l: '거래처별 잔액' },
               { k: 'entry', l: '거래 입력' },
-              { k: 'history', l: '거래 이력' },
-              { k: 'cash', l: '통장잔액 로그' },
+              { k: 'balance', l: '거래처별 잔액' },
+              { k: 'history', l: '외상 거래원장' },
+              { k: 'cash', l: '통장 출납' },
               { k: 'report', l: '리포트' },
             ].map(t => (
               <button key={t.k} onClick={() => setTab(t.k)}
@@ -10666,25 +10666,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                 {t.l}
               </button>
             ))}
-            <div className="ml-auto flex items-center gap-2 px-4">
-              {tab === 'balance' && (
-                <>
-                  <button onClick={() => setPurchaseModal(true)}
-                    className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors">
-                    + 발주(매입) 추가
-                  </button>
-                  <button onClick={() => setPaymentModal(true)}
-                    className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
-                    + 일괄 입금
-                  </button>
-                </>
-              )}
-              {tab === 'cash' && (
-                <button onClick={() => setCashAddOpen(true)}
-                  className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors">
-                  + 입출금 기록
-                </button>
-              )}
+            <div className="ml-auto flex items-center px-4 text-xs text-slate-400">
+              모든 입력은 「거래 입력」 탭에서
             </div>
           </div>
 
@@ -10865,6 +10848,9 @@ function PayableHistoryTable({ transactions, balances, onReload, showToast }) {
 
   return (
     <div>
+      <div className="px-4 py-2 bg-amber-50/60 border-b border-amber-100 text-xs text-amber-800">
+        거래처별 <strong>외상매입금</strong> 증감 원장 (매입·지급·조정·취소·이월). 실제 통장 입출금은 「통장 출납」 탭에서 확인하세요.
+      </div>
       <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50">
         <select value={filterMfr} onChange={e => setFilterMfr(e.target.value)}
           className="bg-white border border-slate-200 rounded px-2 py-1.5 text-sm">
@@ -10945,7 +10931,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
 
   const handleDelete = async (row) => {
     if (row.payment_batch_id) {
-      alert('이 기록은 일괄지급에 연결되어 있습니다. 거래 이력 탭에서 해당 지급을 삭제하세요.');
+      alert('이 기록은 일괄지급에 연결되어 있습니다. 외상 거래원장 탭에서 해당 지급을 삭제하세요.');
       return;
     }
     if (!confirm('이 통장 기록을 삭제하시겠습니까?')) return;
@@ -10958,7 +10944,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
     }
   };
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="px-4 py-2 bg-emerald-50/60 border-b border-emerald-100 text-xs text-emerald-800">
+        회사 <strong>통장 현금 흐름</strong> (지급·수금·운영비·기타 입출금 전체). 거래처 외상 잔액은 「외상 거래원장」 탭에서 확인하세요.
+      </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
           <tr>
@@ -10993,6 +10983,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
