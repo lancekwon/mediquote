@@ -5363,6 +5363,39 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     setPlanItems(p => p.filter(it => it.key !== key));
   };
 
+  // 견적에서 다시 불러오기 — 견적 품목 기준으로 재구성 (발주/세금계산서/납품/매입가는 모델명 매칭 보존)
+  const reloadFromQuote = () => {
+    if (!window.confirm('견적 품목으로 다시 불러옵니다.\n\n· 발주에 직접 추가했던 품목은 사라지고 견적 기준으로 교체됩니다.\n· 모델명이 같은 품목의 발주/세금계산서/납품 체크와 매입가는 유지됩니다.\n\n계속할까요?')) return;
+    const sourceCategories = (contract?.categories && contract.categories.length > 0) ? contract.categories : (quote?.categories || []);
+    const newItems = [];
+    sourceCategories.forEach(cat => {
+      (cat.items || []).filter(i => !i.excluded).forEach(item => {
+        const model = item.models?.find(m => m.id === item.selectedModelId) || item.models?.[0];
+        const eq = equipments.find(e => e.model.id === model?.id || (e.model.name === model?.name && e.model.manufacturer === model?.manufacturer));
+        const manufacturer = model?.manufacturer || eq?.model.manufacturer || '';
+        const vendor = eq?.vendor || manufacturer || '';
+        const vInfo = manufacturers.find(m => m.name === vendor);
+        const prev = planItems.find(p => p.modelName === model?.name); // 기존 상태 보존용
+        newItems.push({
+          key: `q-${cat.id}-${item.id}`,
+          poItemId: prev?.poItemId || null,
+          catName: cat.name, itemName: item.name, modelName: model?.name || '', modelId: model?.id || '',
+          equipmentId: eq?.id || null, manufacturer, vendor,
+          quantity: item.quantity || 1,
+          salePrice: model?.price || 0,
+          purchasePrice: prev?.purchasePrice ?? Number(eq?.purchasePrice) ?? 0,
+          vendorContactName: vInfo?.contact_name || '', vendorContactPhone: vInfo?.contact_phone || '',
+          ordered: prev?.ordered || false, ordered_at: prev?.ordered_at || null,
+          taxInvoiced: prev?.taxInvoiced || false, tax_invoiced_at: prev?.tax_invoiced_at || null,
+          delivered: prev?.delivered || false, delivered_at: prev?.delivered_at || null,
+          memo: prev?.memo || '', note: '',
+        });
+      });
+    });
+    setPlanItems(newItems);
+    setDirty(true);
+  };
+
   // 저장하지 않고 나갈 때 확인
   const handleBack = async () => {
     if (dirty && contract) {
@@ -5463,32 +5496,14 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             status: '준비중',
           }, poItems);
         } else {
-          // 단가가 다르면 새 리비전, 같으면 부속 정보(연락처/금액) update
-          const prevItems = existingPo.purchase_order_items || [];
-          const priceChanged = items.some(it => {
-            const prev = prevItems.find(pi => pi.model_name === it.modelName);
-            return !prev || Number(prev.unit_price) !== Number(it.purchasePrice);
+          // 발주 독립 모델 — 자동 리비전 없이 같은 PO에 갱신
+          // (품목 추가/삭제/단가변경이 일상 편집이므로 PO 번호를 유지하고 내용만 갱신)
+          await dbUpdatePurchaseOrder(existingPo.id, {
+            total_amount: totalAmount, sale_amount: saleAmount,
+            vendor_name: vendor, manufacturer_id: mfr?.id || existingPo.manufacturer_id || null,
           });
-          if (priceChanged) {
-            await dbSavePurchaseOrderRevision(existingPo.id, {
-              contract_id: contract.id,
-              manufacturer_id: mfr?.id || null,
-              manufacturer_name: vendor, vendor_name: vendor,
-              hospital_name: contract.hospital_name,
-              delivery_date: existingPo.delivery_date,
-              total_amount: totalAmount, sale_amount: saleAmount,
-              status: existingPo.status || '준비중',
-              ordered_at: existingPo.ordered_at,
-            }, poItems, '발주 계획서 단가 수정');
-          } else {
-            await dbUpdatePurchaseOrder(existingPo.id, {
-              total_amount: totalAmount, sale_amount: saleAmount,
-              vendor_name: vendor,
-            });
-            // items도 갱신 (ordered/delivered 체크 변경사항 반영) — 단가 미변경 분기에서도 필요
-            await sb.from('purchase_order_items').delete().eq('po_id', existingPo.id);
-            await sb.from('purchase_order_items').insert(poItems.map(i => ({ ...i, po_id: existingPo.id })));
-          }
+          await sb.from('purchase_order_items').delete().eq('po_id', existingPo.id);
+          await sb.from('purchase_order_items').insert(poItems.map(i => ({ ...i, po_id: existingPo.id })));
         }
 
         // 장비 매입가 자동 갱신 + 이력
@@ -5874,6 +5889,10 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         <button onClick={handleBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
           {backLabel}
+        </button>
+        <button onClick={reloadFromQuote} disabled={loading || !quote}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors">
+          🔄 견적에서 다시 불러오기
         </button>
         <button onClick={handleHospitalStatement} disabled={loading || !contract}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
