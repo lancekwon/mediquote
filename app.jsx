@@ -5205,6 +5205,32 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         ]);
         setQuote(q);
         let c = contractRow;
+        // 리비전으로 견적번호가 바뀌어(R3→R4) 정확 일치 계약을 못 찾는 경우:
+        // R번호를 뗀 기준 견적번호로 기존 계약을 찾아 재사용 (빈 계약 중복 생성 방지)
+        if (!c && q && lead.quote_no) {
+          const base = lead.quote_no.replace(/-R\d+$/i, '');
+          if (base && base !== lead.quote_no) {
+            try {
+              const { data: cands } = await sb.from('contracts')
+                .select('id,quote_name,created_at')
+                .like('quote_name', base + '%')
+                .order('created_at', { ascending: false });
+              // 같은 기준 견적의 계약만 (base 또는 base-R숫자 형태)
+              const same = (cands || []).filter(x => {
+                const suffix = (x.quote_name || '').slice(base.length);
+                return suffix === '' || /^-R\d+$/i.test(suffix);
+              });
+              if (same.length) {
+                // 발주(PO)가 붙어있는 계약을 우선 선택, 없으면 가장 최근
+                const ids = same.map(x => x.id);
+                const { data: poRows } = await sb.from('purchase_orders').select('contract_id').in('contract_id', ids);
+                const poSet = new Set((poRows || []).map(p => p.contract_id));
+                const chosen = same.find(x => poSet.has(x.id)) || same[0];
+                if (chosen) c = await dbLoadContractWithCategories({ id: chosen.id });
+              }
+            } catch (revErr) { console.warn('기준 견적번호 계약 탐색 실패:', revErr); }
+          }
+        }
         if (!c && q) {
           // 계약 자동 생성
           let hospitalId = null;
