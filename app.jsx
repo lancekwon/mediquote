@@ -10667,6 +10667,13 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     return arr;
   }, [filtered, sortKey, sortDir]);
 
+  // 거래처별 가장 최근 거래 (요약 내용 표시용) — transactions는 tx_date desc 정렬
+  const lastTxByMfr = useMemo(() => {
+    const m = new Map();
+    transactions.forEach(t => { if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, t); });
+    return m;
+  }, [transactions]);
+
   const totals = useMemo(() => {
     const totalBal = balances.reduce((s, b) => s + (b.balance || 0), 0);
     const totalPurchase = balances.reduce((s, b) => s + (b.total_purchase || 0), 0);
@@ -10772,14 +10779,17 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                         <div className="text-[10px] text-slate-400 font-normal normal-case mt-0.5">{today} 기준</div>
                       </th>
                       <th onClick={() => toggleSort('lastTx')}
-                          className={`px-4 py-2.5 text-center w-32 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'lastTx' ? 'text-blue-600' : ''}`}>
+                          className={`px-4 py-2.5 text-center w-28 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'lastTx' ? 'text-blue-600' : ''}`}>
                         최근 거래 <span className="ml-1">{sortIcon('lastTx')}</span>
                       </th>
+                      <th className="px-4 py-2.5 text-left">최근 거래 내용</th>
                       <th className="px-4 py-2.5 text-center w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sorted.map(b => (
+                    {sorted.map(b => {
+                      const lt = lastTxByMfr.get(b.manufacturer_id);
+                      return (
                       <tr key={b.manufacturer_id} className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer"
                           onClick={() => setHistoryModal({ manufacturerId: b.manufacturer_id, name: b.manufacturer_name, vendorCode: b.vendor_code })}>
                         <td className="px-4 py-2.5 text-slate-800 font-medium">{b.manufacturer_name}</td>
@@ -10787,13 +10797,22 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                           {(b.balance || 0).toLocaleString()}
                         </td>
                         <td className="px-4 py-2.5 text-center text-xs text-slate-500">{b.last_tx_date || '—'}</td>
+                        <td className="px-4 py-2.5 text-xs text-slate-600">
+                          {lt ? (
+                            <span className="flex items-center gap-1.5">
+                              <TypeBadge type={lt.tx_type} />
+                              <span className="truncate max-w-[260px]" title={lt.memo || ''}>{lt.memo || '—'}</span>
+                            </span>
+                          ) : <span className="text-slate-300">—</span>}
+                        </td>
                         <td className="px-4 py-2.5 text-center">
                           <span className="text-xs text-blue-500">상세 →</span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {sorted.length === 0 && (
-                      <tr><td colSpan={4} className="py-12 text-center text-slate-400 text-sm">표시할 거래처가 없습니다</td></tr>
+                      <tr><td colSpan={5} className="py-12 text-center text-slate-400 text-sm">표시할 거래처가 없습니다</td></tr>
                     )}
                   </tbody>
                   {sorted.length > 0 && (
@@ -10801,7 +10820,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                       <tr>
                         <td className="px-4 py-3">합 계</td>
                         <td className="px-4 py-3 text-right">{filtered.reduce((s, b) => s + (b.balance || 0), 0).toLocaleString()}</td>
-                        <td colSpan={2}></td>
+                        <td colSpan={3}></td>
                       </tr>
                     </tfoot>
                   )}
