@@ -637,9 +637,22 @@ async function dbLoadPurchaseOrderHistory(poId) {
 }
 
 /* ---------- Contracts DB (all) ---------- */
+// 목록 로드: categories JSON 컬럼 제외 (Egress 절감 — 15행 730KB → 3KB)
+// categories가 필요한 발주계획서/병원 관리 등에서는 dbLoadContractWithCategories 단건 호출 사용
+const CONTRACT_META_COLUMNS = 'id,hospital_id,hospital_name,quote_name,contract_date,delivery_target_date,amount,status,list_fixed,statement_issued,statement_issued_at,invoice_issued,invoice_issued_at,invoice_amount,collected,collected_at,collected_amount,all_paid,margin,created_at';
 async function dbLoadAllContracts() {
-  const { data, error } = await sb.from('contracts').select('*').order('created_at', { ascending: false });
+  const { data, error } = await sb.from('contracts').select(CONTRACT_META_COLUMNS).order('created_at', { ascending: false });
   if (error) { console.error('dbLoadAllContracts:', error); return []; }
+  return data;
+}
+// categories 포함 단건 조회 (id 또는 quote_name)
+async function dbLoadContractWithCategories({ id = null, quoteName = null } = {}) {
+  let q = sb.from('contracts').select('*');
+  if (id) q = q.eq('id', id);
+  else if (quoteName) q = q.eq('quote_name', quoteName);
+  else return null;
+  const { data, error } = await q.maybeSingle();
+  if (error) { console.error('dbLoadContractWithCategories:', error); return null; }
   return data;
 }
 
@@ -5208,13 +5221,13 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
       if (!lead?.quote_no) { setLoading(false); return; }
       setLoading(true);
       try {
-        const [q, allContracts, allPos] = await Promise.all([
+        // categories가 필요한 발주계획서 — quote, contract(단건+categories), 그 contract에 묶인 PO만 로드
+        const [q, contractRow] = await Promise.all([
           dbLoadQuoteByNo(lead.quote_no),
-          dbLoadAllContracts(),
-          dbLoadPurchaseOrders(),
+          dbLoadContractWithCategories({ quoteName: lead.quote_no }),
         ]);
         setQuote(q);
-        let c = allContracts.find(ct => ct.quote_name === lead.quote_no);
+        let c = contractRow;
         if (!c && q) {
           // 계약 자동 생성
           let hospitalId = null;
@@ -5231,10 +5244,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             categories: (q.categories || []).map(cat => ({ ...cat, items: (cat.items || []).filter(item => !item.excluded) })).filter(cat => (cat.items || []).length > 0),
             delivery_target_date: lead.delivered_at || null,
           });
-          const refreshed = await dbLoadAllContracts();
-          c = refreshed.find(ct => ct.id === newContractId);
+          c = await dbLoadContractWithCategories({ id: newContractId });
         }
         setContract(c);
+        // 이 계약에 묶인 PO만 로드 (전체 PO 풀로드 회피)
+        const allPos = c ? await dbLoadPurchaseOrders(c.id) : [];
         setDeliveryDate(c?.delivery_target_date || lead.delivered_at || '');
         const cPos = c ? allPos.filter(p => p.contract_id === c.id && p.is_active !== false) : [];
         setPos(cPos);
@@ -10606,6 +10620,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           <div className="flex border-b border-slate-200">
             {[
               { k: 'balance', l: '거래처별 잔액' },
+              { k: 'entry', l: '거래 입력' },
               { k: 'history', l: '거래 이력' },
               { k: 'cash', l: '통장잔액 로그' },
             ].map(t => (
@@ -10707,6 +10722,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                 </table>
               </div>
             </div>
+          ) : tab === 'entry' ? (
+            <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} onReload={reload} showToast={showToast} />
           ) : tab === 'history' ? (
             <PayableHistoryTable transactions={transactions} balances={balances} onReload={reload} showToast={showToast} />
           ) : (
@@ -11412,6 +11429,234 @@ function ModalShell({ title, subtitle, onClose, children, wide }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
         </div>
         <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   거래 입력 탭 — 한 줄씩 입력 → 누적 → 일괄 저장
+   ============================================================ */
+const ENTRY_TYPES = [
+  { key: 'purchase', label: '매입',   needVendor: true,  cashDir: 0,  desc: '거래처 외상 잔액 증가' },
+  { key: 'payment',  label: '지급',   needVendor: true,  cashDir: -1, desc: '거래처 외상 차감 + 통장 출금' },
+  { key: 'collect',  label: '수금',   needVendor: false, cashDir: +1, desc: '통장 입금' },
+  { key: 'opex',     label: '운영비', needVendor: false, cashDir: -1, desc: '통장 출금 (세금/통신/카드 등)' },
+  { key: 'advance',  label: '선급금', needVendor: false, cashDir: -1, desc: '통장 출금 (병원 선급금 등)' },
+];
+const ENTRY_TYPE_BY_KEY = Object.fromEntries(ENTRY_TYPES.map(t => [t.key, t]));
+
+// 거래 1건을 유형에 따라 DB에 반영
+async function dbSaveManualEntry(e) {
+  // e = { date, typeKey, manufacturerId, vendorName, amount, memo }
+  const t = ENTRY_TYPE_BY_KEY[e.typeKey];
+  if (!t) throw new Error('알 수 없는 유형: ' + e.typeKey);
+  const amount = e.amount;
+  if (t.key === 'purchase') {
+    await dbInsertPayableTransaction({
+      manufacturer_id: e.manufacturerId, tx_date: e.date, tx_type: 'purchase',
+      amount, memo: e.memo || null,
+    });
+  } else if (t.key === 'payment') {
+    await dbInsertPayableTransaction({
+      manufacturer_id: e.manufacturerId, tx_date: e.date, tx_type: 'payment',
+      amount, memo: e.memo || null,
+    });
+    await dbInsertCashBalance({
+      log_date: e.date, delta: -amount,
+      memo: `[지급] ${e.vendorName || ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+    });
+  } else {
+    // collect(+) / opex(-) / advance(-)
+    const delta = t.cashDir * amount;
+    await dbInsertCashBalance({
+      log_date: e.date, delta,
+      memo: `[${t.label}]${e.vendorName ? ' ' + e.vendorName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+    });
+  }
+}
+
+function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+  const [typeKey, setTypeKey] = useState('payment');
+  const [vendorId, setVendorId] = useState('');
+  const [vendorSearch, setVendorSearch] = useState('');
+  const [amount, setAmount] = useState('');
+  const [memo, setMemo] = useState('');
+  const [pending, setPending] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  const curType = ENTRY_TYPE_BY_KEY[typeKey];
+  const needVendor = curType.needVendor;
+
+  const vendorOptions = useMemo(() => {
+    const q = vendorSearch.trim().toLowerCase();
+    const arr = [...balances].sort((a, b) => (a.manufacturer_name || '').localeCompare(b.manufacturer_name || ''));
+    if (!q) return arr;
+    return arr.filter(b => (b.manufacturer_name || '').toLowerCase().includes(q) || (b.vendor_code || '').toLowerCase().includes(q));
+  }, [balances, vendorSearch]);
+
+  const parseAmt = (v) => Number((v || '').toString().replace(/[,\s]/g, '')) || 0;
+
+  const addRow = () => {
+    const amt = parseAmt(amount);
+    if (!amt || amt <= 0) return alert('금액을 입력하세요.');
+    if (needVendor && !vendorId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
+    const vendor = balances.find(b => b.manufacturer_id === vendorId);
+    setPending(p => [...p, {
+      id: `${Date.now()}-${p.length}`,
+      date, typeKey,
+      manufacturerId: needVendor ? vendorId : null,
+      vendorName: vendor?.manufacturer_name || '',
+      amount: amt, memo: memo.trim(),
+    }]);
+    // 금액·메모만 초기화 (날짜/유형/거래처는 유지 — 연속 입력 편의)
+    setAmount(''); setMemo('');
+  };
+
+  const removeRow = (id) => setPending(p => p.filter(r => r.id !== id));
+
+  const saveAll = async () => {
+    if (pending.length === 0) return;
+    if (!confirm(`${pending.length}건을 저장합니다. 진행할까요?`)) return;
+    setSaving(true);
+    try {
+      for (const e of pending) {
+        await dbSaveManualEntry(e);
+      }
+      const cnt = pending.length;
+      setPending([]);
+      onReload();
+      showToast(`${cnt}건 저장 완료`);
+    } catch (err) {
+      console.error(err);
+      showToast('저장 실패: ' + (err.message || err), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const totals = useMemo(() => {
+    let inAmt = 0, outAmt = 0, purchaseAmt = 0;
+    pending.forEach(e => {
+      const t = ENTRY_TYPE_BY_KEY[e.typeKey];
+      if (t.key === 'purchase') purchaseAmt += e.amount;
+      else if (t.cashDir > 0) inAmt += e.amount;
+      else if (t.cashDir < 0) outAmt += e.amount;
+    });
+    return { inAmt, outAmt, purchaseAmt };
+  }, [pending]);
+
+  const inputCls = "bg-white border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400";
+
+  return (
+    <div className="p-4">
+      {/* 입력 폼 */}
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+        <div className="grid grid-cols-12 gap-2 items-end">
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">날짜</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={`w-full ${inputCls}`} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">유형</label>
+            <select value={typeKey} onChange={e => { setTypeKey(e.target.value); }} className={`w-full ${inputCls}`}>
+              {ENTRY_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="col-span-3">
+            <label className="text-xs text-slate-500 mb-1 block">
+              거래처 {needVendor ? <span className="text-red-400">*</span> : <span className="text-slate-300">(불필요)</span>}
+            </label>
+            {needVendor ? (
+              <select value={vendorId} onChange={e => setVendorId(e.target.value)} className={`w-full ${inputCls}`}>
+                <option value="">— 선택 —</option>
+                {vendorOptions.map(b => (
+                  <option key={b.manufacturer_id} value={b.manufacturer_id}>
+                    {b.vendor_code ? `[${b.vendor_code}] ` : ''}{b.manufacturer_name} (잔액 {(b.balance || 0).toLocaleString()})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input type="text" value="—" disabled className={`w-full ${inputCls} bg-slate-100 text-slate-400`} />
+            )}
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">금액 (원)</label>
+            <input type="text" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0"
+              onKeyDown={e => { if (e.key === 'Enter') addRow(); }}
+              className={`w-full ${inputCls} font-mono text-right`} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs text-slate-500 mb-1 block">메모</label>
+            <input type="text" value={memo} onChange={e => setMemo(e.target.value)} placeholder="(선택)"
+              onKeyDown={e => { if (e.key === 'Enter') addRow(); }}
+              className={`w-full ${inputCls}`} />
+          </div>
+          <div className="col-span-1">
+            <button onClick={addRow} className="w-full px-2 py-2 text-sm bg-slate-800 hover:bg-slate-700 text-white rounded">추가</button>
+          </div>
+        </div>
+        <div className="text-xs text-slate-400 mt-2">{curType.label} — {curType.desc}. 거래처 검색은 아래 드롭다운에서, 금액/메모 입력 후 Enter로 빠르게 추가됩니다.</div>
+        {needVendor && (
+          <input type="text" value={vendorSearch} onChange={e => setVendorSearch(e.target.value)} placeholder="거래처 검색 (드롭다운 필터)"
+            className={`mt-2 w-64 ${inputCls}`} />
+        )}
+      </div>
+
+      {/* 누적 목록 */}
+      <div className="border border-slate-200 rounded-lg overflow-hidden">
+        <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
+          <span>입력 대기 {pending.length}건</span>
+          {pending.length > 0 && (
+            <span className="ml-auto flex gap-4">
+              {totals.purchaseAmt > 0 && <span>매입 +{totals.purchaseAmt.toLocaleString()}</span>}
+              {totals.inAmt > 0 && <span className="text-emerald-600">입금 +{totals.inAmt.toLocaleString()}</span>}
+              {totals.outAmt > 0 && <span className="text-red-600">출금 -{totals.outAmt.toLocaleString()}</span>}
+            </span>
+          )}
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+              <th className="px-3 py-2 text-left w-28">날짜</th>
+              <th className="px-3 py-2 text-left w-20">유형</th>
+              <th className="px-3 py-2 text-left">거래처</th>
+              <th className="px-3 py-2 text-right w-32">금액</th>
+              <th className="px-3 py-2 text-left">메모</th>
+              <th className="px-3 py-2 text-center w-16"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {pending.map(r => (
+              <tr key={r.id} className="border-t border-slate-100">
+                <td className="px-3 py-2 text-xs text-slate-600">{r.date}</td>
+                <td className="px-3 py-2"><TypeBadge type={r.typeKey === 'purchase' ? 'purchase' : (r.typeKey === 'payment' ? 'payment' : 'adjustment')} /> <span className="text-xs text-slate-500">{ENTRY_TYPE_BY_KEY[r.typeKey].label}</span></td>
+                <td className="px-3 py-2 text-slate-800">{r.vendorName || '—'}</td>
+                <td className="px-3 py-2 text-right font-mono text-slate-700">{r.amount.toLocaleString()}</td>
+                <td className="px-3 py-2 text-slate-500 text-xs">{r.memo || '—'}</td>
+                <td className="px-3 py-2 text-center">
+                  <button onClick={() => removeRow(r.id)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                </td>
+              </tr>
+            ))}
+            {pending.length === 0 && (
+              <tr><td colSpan={6} className="py-10 text-center text-slate-400 text-sm">위에서 거래를 입력하고 [추가] 하세요. 모은 뒤 한 번에 저장합니다.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 저장 */}
+      <div className="flex items-center justify-end gap-2 mt-4">
+        {pending.length > 0 && (
+          <button onClick={() => setPending([])} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">전체 비우기</button>
+        )}
+        <button onClick={saveAll} disabled={saving || pending.length === 0}
+          className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-40">
+          {saving ? '저장 중...' : `${pending.length}건 일괄 저장`}
+        </button>
       </div>
     </div>
   );
