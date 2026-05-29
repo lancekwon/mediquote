@@ -54,6 +54,31 @@ const SUPABASE_URL = 'https://nbgubiywavozgigiwkpr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/* ---------- 한글 초성 검색 유틸 ---------- */
+const HANGUL_CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+function getChosung(str) {
+  let out = '';
+  for (const ch of (str || '')) {
+    const code = ch.charCodeAt(0) - 0xAC00;
+    if (code >= 0 && code <= 11171) out += HANGUL_CHO[Math.floor(code / 588)];
+    else out += ch;
+  }
+  return out;
+}
+// 검색어가 한글 자음(초성)만으로 구성됐는지
+function isChosungQuery(q) {
+  return /^[ㄱ-ㅎ]+$/.test(q || '');
+}
+// 거래처명 매칭: 부분 문자열 OR (검색어가 자음이면) 초성 매칭
+function vendorMatch(name, query) {
+  const q = (query || '').trim();
+  if (!q) return true;
+  const n = (name || '');
+  if (n.toLowerCase().includes(q.toLowerCase())) return true;
+  if (isChosungQuery(q)) return getChosung(n).includes(q);
+  return false;
+}
+
 /* ---------- Equipment DB ---------- */
 // 목록 로드: image_data 제외 (Egress 절감)
 const EQUIP_COLUMNS = 'id,cat_id,cat_name,category,item_name,model_name,model_id,manufacturer,vendor,price,model_notes,alt_text,alt_models,homepage,purchase_price,contact_name,contact_phone,image_url,description,specs,origin,cert,as_period,warranty,memo,created_at';
@@ -10547,7 +10572,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     return balances.filter(b => {
       if (hideZero && (!b.balance || b.balance <= 0)) return false;
       if (!q) return true;
-      return (b.manufacturer_name || '').toLowerCase().includes(q) ||
+      return vendorMatch(b.manufacturer_name, q) ||
              (b.vendor_code || '').toLowerCase().includes(q);
     });
   }, [balances, search, hideZero]);
@@ -10974,7 +10999,7 @@ function PurchaseAddModal({ balances, onClose, onSaved }) {
     const q = vendorSearch.trim().toLowerCase();
     if (!q) return balances;
     return balances.filter(b =>
-      (b.manufacturer_name || '').toLowerCase().includes(q) ||
+      vendorMatch(b.manufacturer_name, q) ||
       (b.vendor_code || '').toLowerCase().includes(q));
   }, [balances, vendorSearch]);
 
@@ -11062,7 +11087,7 @@ function PaymentBatchModal({ balances, cashCurrent, poByMfr = {}, onClose, onSav
     return balances.filter(b => {
       if (hideZero && (!b.balance || b.balance <= 0)) return false;
       if (!q) return true;
-      return (b.manufacturer_name || '').toLowerCase().includes(q) ||
+      return vendorMatch(b.manufacturer_name, q) ||
              (b.vendor_code || '').toLowerCase().includes(q);
     });
   }, [balances, vendorSearch, hideZero]);
@@ -11585,7 +11610,7 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
     const q = vendorSearch.trim().toLowerCase();
     const arr = [...balances].sort((a, b) => (a.manufacturer_name || '').localeCompare(b.manufacturer_name || ''));
     if (!q) return arr;
-    return arr.filter(b => (b.manufacturer_name || '').toLowerCase().includes(q) || (b.vendor_code || '').toLowerCase().includes(q));
+    return arr.filter(b => vendorMatch(b.manufacturer_name, q) || (b.vendor_code || '').toLowerCase().includes(q));
   }, [balances, vendorSearch]);
 
   const parseAmt = (v) => Number((v || '').toString().replace(/[,\s]/g, '')) || 0;
