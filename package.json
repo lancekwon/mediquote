@@ -1,0 +1,14 @@
+{
+  "name": "mediquote",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DWmedi 의료장비 견적/매입매출 관리 시스템",
+  "scripts": {
+    "build": "esbuild app.jsx --outfile=app.js --loader:.jsx=jsx --minify --legal-comments=none",
+    "dev": "esbuild app.jsx --outfile=app.js --loader:.jsx=jsx --watch",
+    "serve": "node serve.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

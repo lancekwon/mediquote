@@ -1,7 +1,9 @@
 {
   "version": 2,
+  "buildCommand": "",
+  "outputDirectory": ".",
   "rewrites": [
     { "source": "/hospital", "destination": "/hospital.html" },
-    { "source": "/((?!dw-logo\\.png|hospital\\.html).*)", "destination": "/index.html" }
+    { "source": "/((?!dw-logo\\.png|hospital\\.html|app\\.js).*)", "destination": "/index.html" }
   ]
 }
