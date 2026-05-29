@@ -5241,49 +5241,80 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           if (hRow) { setHospitalRow(hRow); setHospitalAddress(hRow.address || ''); }
         }
 
-        // 발주계획 source: contract.categories (스냅샷) 우선 — quote는 영업 영역
-        // contract.categories가 없으면 quote.categories fallback
-        const sourceCategories = (c?.categories && c.categories.length > 0) ? c.categories : (q?.categories || []);
+        // ── 발주 독립 모델 ──
+        // 이미 저장된 발주 품목(PO items)이 있으면 그게 SoT (발주 진행 중 추가/취소 반영분 보존)
+        // PO items가 없으면(=첫 발주) 견적/계약 품목으로 초기화
+        const hasPoItems = cPos.some(p => (p.purchase_order_items || []).length > 0);
         const items = [];
-        sourceCategories.forEach(cat => {
-          (cat.items || []).filter(i => !i.excluded).forEach(item => {
-            const model = item.models?.find(m => m.id === item.selectedModelId) || item.models?.[0];
-            const eq = equipments.find(e =>
-              e.model.id === model?.id || (e.model.name === model?.name && e.model.manufacturer === model?.manufacturer)
-            );
-            const manufacturer = model?.manufacturer || eq?.model.manufacturer || '';
-            const vendor = eq?.vendor || manufacturer || '';
-            // 활성 PO에 같은 모델이 있는지 (저장된 매입가 + 상태 우선)
-            const existingPoItem = cPos.flatMap(p => p.purchase_order_items || []).find(pi => pi.model_name === model?.name);
-            const purchasePrice = existingPoItem?.unit_price ?? eq?.purchasePrice ?? 0;
-            // 거래처 정보 (manufacturers 테이블에서 = 거래처 관리)
-            const vInfo = manufacturers.find(m => m.name === vendor);
-            items.push({
-              key: `item-${cat.id}-${item.id}`,
-              poItemId: existingPoItem?.id || null,
-              catName: cat.name,
-              itemName: item.name,
-              modelName: model?.name || '',
-              modelId: model?.id || '',
-              equipmentId: eq?.id || null,
-              manufacturer,
-              vendor,
-              quantity: item.quantity || 1,
-              salePrice: model?.price || 0,             // 매출가 (견적가)
-              purchasePrice: Number(purchasePrice) || 0, // 매입가 (편집 가능)
-              vendorContactName:  vInfo?.contact_name  || '',
-              vendorContactPhone: vInfo?.contact_phone || '',
-              ordered:    !!existingPoItem?.ordered,
-              ordered_at: existingPoItem?.ordered_at || null,
-              taxInvoiced: !!existingPoItem?.tax_invoiced,
-              tax_invoiced_at: existingPoItem?.tax_invoiced_at || null,
-              delivered:  !!existingPoItem?.delivered,
-              delivered_at: existingPoItem?.delivered_at || null,
-              memo: existingPoItem?.memo || '',
-              note: '',
+
+        if (hasPoItems) {
+          // 발주가 주인 — 저장된 PO 품목 그대로 로드
+          cPos.forEach(po => {
+            (po.purchase_order_items || []).forEach(pi => {
+              const eq = equipments.find(e =>
+                (e.model.name === pi.model_name && (!pi.manufacturer || e.model.manufacturer === pi.manufacturer)));
+              const vInfo = manufacturers.find(m => m.name === po.manufacturer_name);
+              items.push({
+                key: `po-${pi.id}`,
+                poItemId: pi.id,
+                catName: eq?.catName || '',
+                itemName: pi.item_name || '',
+                modelName: pi.model_name || '',
+                modelId: eq?.model.id || '',
+                equipmentId: eq?.id || null,
+                manufacturer: pi.manufacturer || '',
+                vendor: po.manufacturer_name || '',
+                quantity: pi.quantity || 1,
+                salePrice: (pi.sale_price != null && pi.sale_price > 0) ? pi.sale_price : (eq?.model.price || 0),
+                purchasePrice: Number(pi.unit_price) || 0,
+                vendorContactName:  vInfo?.contact_name  || '',
+                vendorContactPhone: vInfo?.contact_phone || '',
+                ordered:    !!pi.ordered,
+                ordered_at: pi.ordered_at || null,
+                taxInvoiced: !!pi.tax_invoiced,
+                tax_invoiced_at: pi.tax_invoiced_at || null,
+                delivered:  !!pi.delivered,
+                delivered_at: pi.delivered_at || null,
+                memo: pi.memo || '',
+                note: '',
+              });
             });
           });
-        });
+        } else {
+          // 첫 발주 — 견적/계약 품목으로 초기화
+          const sourceCategories = (c?.categories && c.categories.length > 0) ? c.categories : (q?.categories || []);
+          sourceCategories.forEach(cat => {
+            (cat.items || []).filter(i => !i.excluded).forEach(item => {
+              const model = item.models?.find(m => m.id === item.selectedModelId) || item.models?.[0];
+              const eq = equipments.find(e =>
+                e.model.id === model?.id || (e.model.name === model?.name && e.model.manufacturer === model?.manufacturer)
+              );
+              const manufacturer = model?.manufacturer || eq?.model.manufacturer || '';
+              const vendor = eq?.vendor || manufacturer || '';
+              const vInfo = manufacturers.find(m => m.name === vendor);
+              items.push({
+                key: `item-${cat.id}-${item.id}`,
+                poItemId: null,
+                catName: cat.name,
+                itemName: item.name,
+                modelName: model?.name || '',
+                modelId: model?.id || '',
+                equipmentId: eq?.id || null,
+                manufacturer,
+                vendor,
+                quantity: item.quantity || 1,
+                salePrice: model?.price || 0,
+                purchasePrice: Number(eq?.purchasePrice) || 0,
+                vendorContactName:  vInfo?.contact_name  || '',
+                vendorContactPhone: vInfo?.contact_phone || '',
+                ordered: false, ordered_at: null,
+                taxInvoiced: false, tax_invoiced_at: null,
+                delivered: false, delivered_at: null,
+                memo: '', note: '',
+              });
+            });
+          });
+        }
         setPlanItems(items);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
@@ -5312,6 +5343,25 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   }, [sortedItems]);
 
   const setItem = (key, patch) => { setDirty(true); setPlanItems(p => p.map(it => it.key === key ? { ...it, ...patch } : it)); };
+
+  // 발주 독립 — 품목 추가/삭제 (추가주문/취소)
+  const addPlanItem = (vendor) => {
+    setDirty(true);
+    setPlanItems(p => [...p, {
+      key: `new-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      poItemId: null, catName: '', itemName: '', modelName: '', modelId: '',
+      equipmentId: null, manufacturer: '', vendor: (vendor && vendor !== '(미지정)') ? vendor : '',
+      quantity: 1, salePrice: 0, purchasePrice: 0,
+      vendorContactName: '', vendorContactPhone: '',
+      ordered: false, ordered_at: null, taxInvoiced: false, tax_invoiced_at: null,
+      delivered: false, delivered_at: null, memo: '', note: '',
+    }]);
+  };
+  const removePlanItem = (key) => {
+    if (!window.confirm('이 품목을 발주에서 제거할까요? (저장 시 반영)')) return;
+    setDirty(true);
+    setPlanItems(p => p.filter(it => it.key !== key));
+  };
 
   // 저장하지 않고 나갈 때 확인
   const handleBack = async () => {
@@ -5371,6 +5421,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           manufacturer: it.manufacturer || vendor,
           quantity: it.quantity, unit_price: it.purchasePrice,
           amount: it.purchasePrice * it.quantity,
+          sale_price: Number(it.salePrice) || 0,
           ordered: !!it.ordered,
           ordered_at: it.ordered ? (it.ordered_at || today) : null,
           tax_invoiced: !!it.taxInvoiced,
@@ -5961,6 +6012,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           <th className="px-2 py-2 text-right w-28">매입가</th>
                           <th className="px-2 py-2 text-left w-24">담당자</th>
                           <th className="px-2 py-2 text-left w-28">연락처</th>
+                          <th className="px-2 py-2 text-center w-10"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -5983,8 +6035,14 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                   onChange={e => setItem(it.key, { delivered: e.target.checked, delivered_at: e.target.checked ? (it.delivered_at || new Date().toISOString().split('T')[0]) : null })}
                                   className="w-4 h-4 rounded cursor-pointer"/>
                               </td>
-                              <td className="px-2 py-1.5 text-slate-700">{it.itemName}</td>
-                              <td className="px-2 py-1.5 text-slate-700 font-medium">{it.modelName}</td>
+                              <td className="px-2 py-1">
+                                <input value={it.itemName} onChange={e => setItem(it.key, { itemName: e.target.value })}
+                                  placeholder="품목명" className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
+                              </td>
+                              <td className="px-2 py-1">
+                                <input value={it.modelName} onChange={e => setItem(it.key, { modelName: e.target.value })}
+                                  placeholder="모델명" className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs font-medium"/>
+                              </td>
                               <td className="px-2 py-1">
                                 {it.manufacturer ? (
                                   <input value={it.manufacturer} onChange={e => setItem(it.key, { manufacturer: e.target.value })}
@@ -6041,15 +6099,31 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                 <input value={it.vendorContactPhone} onChange={e => setItem(it.key, { vendorContactPhone: e.target.value })}
                                   placeholder="010-..." className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
                               </td>
+                              <td className="px-2 py-1 text-center">
+                                <button onClick={() => removePlanItem(it.key)} title="이 품목 제거"
+                                  className="text-slate-300 hover:text-red-500 text-sm leading-none">✕</button>
+                              </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
+                    <div className="px-3 py-2 border-t border-slate-100">
+                      <button onClick={() => addPlanItem(vendor)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ 이 거래처에 품목 추가</button>
+                    </div>
                   </div>
                 </div>
               );
             })}
+
+            {/* 새 거래처(빈 발주) 추가 */}
+            {!loading && quote && (
+              <button onClick={() => addPlanItem('')}
+                className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-sm text-slate-500 hover:border-blue-300 hover:text-blue-600 transition-colors">
+                + 품목 추가 (거래처는 행에서 선택)
+              </button>
+            )}
 
             {sortedItems.length === 0 && (
               <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">발주할 품목이 없습니다.</div>
