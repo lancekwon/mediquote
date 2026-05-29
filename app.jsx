@@ -10895,9 +10895,6 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   };
   return (
     <div>
-      <div className="px-4 py-2 bg-emerald-50/60 border-b border-emerald-100 text-xs text-emerald-800">
-        회사 <strong>통장 현금 흐름</strong> (지급·수금·운영비·기타 입출금 전체). 거래처 외상 잔액은 「외상 거래원장」 탭에서 확인하세요.
-      </div>
       <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
