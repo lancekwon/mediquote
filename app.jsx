@@ -11959,11 +11959,23 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
     return m;
   }, [contracts]);
 
+  // 견적번호 매칭 — 정확 매칭 + 리비전 접미사(-R3 등) 무시한 기본번호 매칭
+  // (견적 리비전 시 리드의 quote_no는 최신으로 갱신되지만 계약의 quote_name은 옛 번호에 머무를 수 있음)
+  const baseQuote = (qn) => (qn || '').replace(/-R\d+$/, '');
   const leadByQuoteNo = useMemo(() => {
     const m = new Map();
     leads.forEach(l => { if (l.quote_no) m.set(l.quote_no, l); });
     return m;
   }, [leads]);
+  const leadByBase = useMemo(() => {
+    const m = new Map();
+    leads.forEach(l => { if (l.quote_no) m.set(baseQuote(l.quote_no), l); });
+    return m;
+  }, [leads]);
+  const findLead = useCallback((quoteName) => {
+    if (!quoteName) return null;
+    return leadByQuoteNo.get(quoteName) || leadByBase.get(baseQuote(quoteName)) || null;
+  }, [leadByQuoteNo, leadByBase]);
 
   // 병원(계약)별 그룹 — 발주는 병원 단위로 한 번에 납품
   const groups = useMemo(() => {
@@ -11976,8 +11988,12 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
     const arr = [];
     byC.forEach((list, cid) => {
       const contract = contractById.get(cid);
-      const hospital = contract?.hospital_name || list.find(p => p.hospital_name)?.hospital_name || '(병원 미지정)';
-      const openDate = contract?.delivery_target_date || list.find(p => p.delivery_date)?.delivery_date || null;
+      // 병원명/원장명은 계약에 비어있을 수 있어 리드(영업)에서 보강
+      const lead = contract ? findLead(contract.quote_name) : null;
+      const hospital = contract?.hospital_name || lead?.hospital_name || list.find(p => p.hospital_name)?.hospital_name || '(병원 미지정)';
+      const doctor = lead?.contact_name || '';
+      const dept = lead?.dept || '';
+      const openDate = contract?.delivery_target_date || lead?.opening_date || list.find(p => p.delivery_date)?.delivery_date || null;
       const totalPurchase = list.reduce((s, p) => s + (p.total_amount || 0), 0);
       const totalSale = list.reduce((s, p) => s + (p.sale_amount || 0), 0);
       const orderedCount = list.filter(p => p.status === '발주완료' || p.status === '납품완료').length;
@@ -11985,14 +12001,14 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
       // 거래처 PO를 거래처명 순으로
       const sortedList = [...list].sort((a, b) => (a.manufacturer_name || '').localeCompare(b.manufacturer_name || ''));
       arr.push({
-        cid, contract, hospital, openDate, list: sortedList,
+        cid, contract, hospital, doctor, dept, openDate, list: sortedList,
         totalPurchase, totalSale, margin: totalSale - totalPurchase,
         orderedCount, total: list.length, latest,
       });
     });
     arr.sort((a, b) => b.latest.localeCompare(a.latest)); // 최근 입력 순
     return arr;
-  }, [pos, contractById]);
+  }, [pos, contractById, findLead]);
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -12000,6 +12016,7 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
     if (q) {
       g = g.filter(x =>
         (x.hospital || '').toLowerCase().includes(q) ||
+        (x.doctor || '').toLowerCase().includes(q) ||
         x.list.some(p => (p.manufacturer_name || '').toLowerCase().includes(q)));
     }
     if (onlyIncomplete) g = g.filter(x => x.orderedCount < x.total);
@@ -12023,7 +12040,7 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
 
   const goToPlan = (contract) => {
     if (!contract) { alert('연결된 계약 정보가 없어 발주계획서로 이동할 수 없습니다.'); return; }
-    const lead = leadByQuoteNo.get(contract.quote_name);
+    const lead = findLead(contract.quote_name);
     if (!lead) { alert(`견적 "${contract.quote_name}"의 영업 정보를 찾을 수 없습니다.\n영업 관리에서 해당 리드가 존재하는지 확인해주세요.`); return; }
     if (nav?.poPlan) nav.poPlan(lead, 'orders');
   };
@@ -12115,9 +12132,10 @@ function OrdersIndexPage({ onBack, user, onLogout, nav, leads = [], manufacturer
                   <div className="flex items-center gap-3 px-5 py-3.5 cursor-pointer hover:bg-slate-50" onClick={() => toggleExpand(g.cid)}>
                     <svg className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-900">📍 {g.hospital}</span>
-                        {g.openDate && <span className="text-xs text-slate-500">오픈 {g.openDate}</span>}
+                        {g.doctor && <span className="text-xs text-slate-600">{g.doctor} 원장{g.dept ? ` · ${g.dept}` : ''}</span>}
+                        {g.openDate && <span className="text-xs text-slate-500">· 오픈 {g.openDate}</span>}
                         {dd && <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${dd.c}`}>{dd.t}</span>}
                       </div>
                     </div>
