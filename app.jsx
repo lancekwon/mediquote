@@ -6057,18 +6057,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                 </datalist>
                               </td>
                               <td className="px-2 py-1">
-                                {it.vendor ? (
-                                  <input value={it.vendor} onChange={e => setItem(it.key, { vendor: e.target.value })}
-                                    list={`vendor-list-${it.key}`}
-                                    className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
-                                ) : (
-                                  <input list={`vendor-list-${it.key}`} placeholder="선택/입력" value={it.vendor}
-                                    onChange={e => setItem(it.key, { vendor: e.target.value })}
-                                    className="w-full px-1.5 py-1 border border-amber-300 rounded text-xs bg-amber-50"/>
-                                )}
-                                <datalist id={`vendor-list-${it.key}`}>
-                                  {vendorOptions.map(v => <option key={v} value={v}/>)}
-                                </datalist>
+                                <select value={it.vendor || ''} onChange={e => setItem(it.key, { vendor: e.target.value })}
+                                  className={`w-full px-1 py-1 border rounded text-xs ${it.vendor ? 'border-slate-200' : 'border-amber-300 bg-amber-50'}`}>
+                                  <option value="">선택</option>
+                                  {it.vendor && !vendorOptions.includes(it.vendor) && <option value={it.vendor}>{it.vendor}</option>}
+                                  {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
+                                </select>
                               </td>
                               <td className="px-2 py-1">
                                 <input type="number" min="1" value={it.quantity}
