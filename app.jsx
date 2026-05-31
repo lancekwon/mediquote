@@ -9959,7 +9959,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       const [b, t, c, p, ab, at, hosp, ctr] = await Promise.all([
         dbLoadPayableBalances(),
         dbLoadPayableTransactions(),
-        dbLoadCashBalanceLog({ limit: 200 }),
+        dbLoadCashBalanceLog({ limit: 1000 }),
         dbLoadActivePoTransactions(),
         dbLoadReceivableBalances(),
         dbLoadReceivableTransactions(),
@@ -10280,9 +10280,13 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   };
   return (
     <div>
-      <div className="overflow-x-auto">
+      <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
+        <span>전체 {logs.length}건</span>
+        <span className="ml-auto">최신순 정렬</span>
+      </div>
+      <div className="overflow-auto" style={{maxHeight:'calc(100vh - 280px)'}}>
       <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+        <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
           <tr>
             <th className="px-4 py-2.5 text-left w-28">날짜</th>
             <th className="px-4 py-2.5 text-right w-32">증감</th>
