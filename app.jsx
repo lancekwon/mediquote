@@ -10862,7 +10862,7 @@ function HospitalLedgerModal({ hospitalId, hospitalName, contracts = [], onClose
     } catch (e) { alert('삭제 실패: ' + (e.message || e)); }
   };
 
-  const arLabel = (t) => ({ collect:'수금', adjustment:'조정', cancel:'취소' }[t] || t);
+  const arLabel = (t) => ({ collect:'병원매출', adjustment:'조정', cancel:'취소' }[t] || t);
   const arColor = (t) => ({
     collect:'bg-emerald-100 text-emerald-700',
     adjustment:'bg-amber-100 text-amber-700',
@@ -11006,7 +11006,7 @@ function ReceivableBalanceTab({ arBalances = [], arTransactions = [], contracts 
     return m;
   }, [arTransactions]);
 
-  const arLabel = (t) => ({ collect:'수금', adjustment:'조정', cancel:'취소' }[t] || t);
+  const arLabel = (t) => ({ collect:'병원매출', adjustment:'조정', cancel:'취소' }[t] || t);
   const arColor = (t) => ({
     collect:'bg-emerald-100 text-emerald-700',
     adjustment:'bg-amber-100 text-amber-700',
@@ -11200,7 +11200,8 @@ function ModalShell({ title, subtitle, onClose, children, wide }) {
 const ENTRY_TYPES = [
   { key: 'purchase', label: '매입',       needVendor: true,  cashDir: 0,  desc: '거래처 외상 잔액 증가' },
   { key: 'payment',  label: '지급',       needVendor: true,  cashDir: -1, desc: '거래처 외상 차감 + 통장 출금' },
-  { key: 'collect',  label: '수금',       needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 매출 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
+  { key: 'collect',  label: '병원매출',   needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
+  { key: 'platform', label: '플랫폼매출', needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼/수수료/광고 등 비-병원 매출 입금. 출처는 직접 입력' },
   { key: 'opex',     label: '운영비',     needVendor: false, cashDir: -1, desc: '통장 출금 (세금/통신/카드 등)' },
   { key: 'advance',  label: '선급금',     needVendor: false, cashDir: -1, desc: '통장 출금 (병원 선급금 등)' },
   { key: 'etc_in',   label: '기타(입금)', needVendor: false, cashDir: +1, freeForm: true, desc: '통장 입금. 거래처/내용 직접 입력' },
@@ -11232,7 +11233,7 @@ async function dbSaveManualEntry(e) {
     // 병원 매출 수금 — 통장 입금 + receivable_transactions('collect') 동시 기록
     const cashId = await dbInsertCashBalance({
       log_date: e.date, delta: amount,
-      memo: `[수금]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+      memo: `[${t.label}]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
     });
     await dbInsertReceivableTransaction({
       hospital_id: e.hospitalId,
