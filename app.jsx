@@ -10250,7 +10250,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
 }
 
 function CashBalanceTable({ logs, onReload, showToast }) {
-  // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋)
+  const [search, setSearch] = useState('');
+  // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋) — 전체 logs 기준
   const runningById = useMemo(() => {
     const asc = [...logs].sort((a, b) =>
       (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
@@ -10263,6 +10264,13 @@ function CashBalanceTable({ logs, onReload, showToast }) {
     });
     return map;
   }, [logs]);
+
+  // 메모 검색 (잔액은 전체 누적 기준으로 유지, 표시만 필터)
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return logs;
+    return logs.filter(l => (l.memo || '').toLowerCase().includes(q));
+  }, [logs, search]);
 
   const handleDelete = async (row) => {
     if (row.payment_batch_id) {
@@ -10280,8 +10288,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   };
   return (
     <div>
-      <div className="flex items-center px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
-        <span>전체 {logs.length}건</span>
+      <div className="flex items-center gap-3 px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="메모 검색 (예: 운영비, 거래처명, 임대 등)"
+          className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-blue-400" />
+        <span>{search ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}</span>
         <span className="ml-auto">최신순 정렬</span>
       </div>
       <div className="overflow-auto" style={{maxHeight:'calc(100vh - 280px)'}}>
@@ -10296,7 +10307,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
           </tr>
         </thead>
         <tbody>
-          {logs.map(l => (
+          {filtered.map(l => (
             <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
               <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
               <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -10314,8 +10325,8 @@ function CashBalanceTable({ logs, onReload, showToast }) {
               </td>
             </tr>
           ))}
-          {logs.length === 0 && (
-            <tr><td colSpan={5} className="py-12 text-center text-slate-400 text-sm">통장 기록이 없습니다</td></tr>
+          {filtered.length === 0 && (
+            <tr><td colSpan={5} className="py-12 text-center text-slate-400 text-sm">{search ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
           )}
         </tbody>
       </table>
@@ -11206,11 +11217,7 @@ const ENTRY_TYPES = [
   { key: 'payment',  label: '거래처 송금',       needVendor: true,  cashDir: -1, desc: '거래처에 외상 갚기 — 외상 차감 + 통장 출금' },
   { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
   { key: 'platform', label: '수수료·광고 입금',  needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼·소개·판매 수수료 등 비-병원 매출 입금. 출처는 직접 입력' },
-  { key: 'tax',      label: '세금',              needVendor: false, cashDir: -1, freeForm: true, desc: '부가세·지방세·4대보험 등 세금/공과금 출금' },
-  { key: 'rent',     label: '임대료',            needVendor: false, cashDir: -1, freeForm: true, desc: '사무실·창고 임대료' },
-  { key: 'salary',   label: '인건비',            needVendor: false, cashDir: -1, freeForm: true, desc: '급여·상여·수당 등 인건비 출금' },
-  { key: 'ad',       label: '광고비',            needVendor: false, cashDir: -1, freeForm: true, desc: '광고·마케팅 비용 출금' },
-  { key: 'opex',     label: '운영비 (기타)',     needVendor: false, cashDir: -1, freeForm: true, desc: '통신·카드·공과금 등 기타 운영 지출' },
+  { key: 'opex',     label: '운영비 (임대료·인건비·광고비·세금)', shortLabel: '운영비', needVendor: false, cashDir: -1, freeForm: true, desc: '임대료·인건비·광고비·세금·통신·카드·공과금 등 모든 운영 지출' },
   { key: 'advance',  label: '선지급',            needVendor: false, cashDir: -1, freeForm: true, desc: '미리 보내는 돈 (예치/보증금 등)' },
   { key: 'etc_in',   label: '잡수입',            needVendor: false, cashDir: +1, freeForm: true, desc: '환불·세금환급·기타 비분류 입금' },
   { key: 'etc_out',  label: '잡지출',            needVendor: false, cashDir: -1, freeForm: true, desc: '기타 비분류 출금' },
@@ -11239,9 +11246,10 @@ async function dbSaveManualEntry(e) {
     });
   } else if (t.key === 'collect' && e.hospitalId) {
     // 병원 매출 수금 — 통장 입금 + receivable_transactions('collect') 동시 기록
+    const tag = t.shortLabel || t.label;
     const cashId = await dbInsertCashBalance({
       log_date: e.date, delta: amount,
-      memo: `[${t.label}]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+      memo: `[${tag}]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
     });
     await dbInsertReceivableTransaction({
       hospital_id: e.hospitalId,
@@ -11251,11 +11259,12 @@ async function dbSaveManualEntry(e) {
       cash_log_id: cashId,
     });
   } else {
-    // collect(잡수입) / opex(-) / advance(-) / etc_in(+) / etc_out(-) — 통장만
+    // collect(잡수입) / opex / advance / etc_in / etc_out / platform / payment(vendor없을때) — 통장만
+    const tag = t.shortLabel || t.label;
     const delta = t.cashDir * amount;
     await dbInsertCashBalance({
       log_date: e.date, delta,
-      memo: `[${t.label}]${e.vendorName ? ' ' + e.vendorName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+      memo: `[${tag}]${e.vendorName ? ' ' + e.vendorName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
     });
   }
 }
@@ -11477,7 +11486,12 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
           </div>
           <div className="col-span-2">
             <label className="text-xs text-slate-500 mb-1 block">금액 (원)</label>
-            <input type="text" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0"
+            <input type="text" value={amount}
+              onChange={e => {
+                const digits = (e.target.value || '').replace(/[^\d]/g, '');
+                setAmount(digits ? Number(digits).toLocaleString('ko-KR') : '');
+              }}
+              placeholder="0"
               onKeyDown={e => { if (e.key === 'Enter') addRow(); }}
               className={`w-full ${inputCls} font-mono text-right`} />
           </div>
@@ -11589,6 +11603,29 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
              totalReceivable, totalInvoice, totalCollected, arCollectInRange, netPosition };
   }, [fTx, fCash, balances, arBalances, arTransactions, from, to]);
 
+  // 유형별 요약 (cash 메모 prefix 파싱 → 12유형 분류)
+  const byType = useMemo(() => {
+    const TAGS = {
+      '거래처 송금': 'payment',
+      '병원 입금': 'collect',
+      '수수료·광고 입금': 'platform',
+      '운영비': 'opex', '세금': 'opex', '임대료': 'opex', '인건비': 'opex', '광고비': 'opex',
+      '선지급': 'advance',
+      '잡수입': 'etc_in',
+      '잡지출': 'etc_out',
+    };
+    const sum = {};
+    fCash.forEach(c => {
+      const m = (c.memo || '').match(/^\[([^\]]+)\]/);
+      const tag = m ? (TAGS[m[1].trim()] || 'misc') : 'misc';
+      if (!sum[tag]) sum[tag] = { in: 0, out: 0, count: 0 };
+      if (c.delta > 0) sum[tag].in += c.delta;
+      else sum[tag].out += -c.delta;
+      sum[tag].count++;
+    });
+    return sum;
+  }, [fCash]);
+
   // 월별 매입/지급
   const monthly = useMemo(() => {
     const m = {};
@@ -11637,6 +11674,60 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
         <Card label="통장 입금" value={summary.cashIn} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
         <Card label="통장 출금" value={summary.cashOut} color="bg-rose-50 border-rose-200 text-rose-800" />
         <Card label="현재 총 외상잔액 (줄 돈)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
+      </div>
+
+      {/* 유형별 요약 (기간 기준) */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700">유형별 요약 (기간 기준 통장 흐름)</div>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+              <th className="px-4 py-2 text-left">유형</th>
+              <th className="px-4 py-2 text-right w-20">건수</th>
+              <th className="px-4 py-2 text-right w-36">입금 (+)</th>
+              <th className="px-4 py-2 text-right w-36">출금 (−)</th>
+              <th className="px-4 py-2 text-right w-36">순 증감</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { key:'collect',  label:'병원 입금',           color:'text-emerald-700' },
+              { key:'platform', label:'수수료·광고 입금',    color:'text-teal-700' },
+              { key:'etc_in',   label:'잡수입',              color:'text-emerald-600' },
+              { key:'payment',  label:'거래처 송금',         color:'text-blue-700' },
+              { key:'opex',     label:'운영비 (임대·인건·광고·세금)', color:'text-amber-700' },
+              { key:'advance',  label:'선지급',              color:'text-violet-700' },
+              { key:'etc_out',  label:'잡지출',              color:'text-rose-600' },
+              { key:'misc',     label:'기타 (기초잔액 등)',   color:'text-slate-500' },
+            ].map(row => {
+              const s = byType[row.key];
+              if (!s || s.count === 0) return null;
+              const net = s.in - s.out;
+              return (
+                <tr key={row.key} className="border-t border-slate-100">
+                  <td className={`px-4 py-2 font-medium ${row.color}`}>{row.label}</td>
+                  <td className="px-4 py-2 text-right text-xs text-slate-500">{s.count}</td>
+                  <td className="px-4 py-2 text-right font-mono text-emerald-600">{s.in ? '+'+s.in.toLocaleString() : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-4 py-2 text-right font-mono text-red-600">{s.out ? '−'+s.out.toLocaleString() : <span className="text-slate-300">—</span>}</td>
+                  <td className={`px-4 py-2 text-right font-mono font-semibold ${net>=0?'text-emerald-700':'text-red-700'}`}>
+                    {net>0?'+':net<0?'−':''}{Math.abs(net).toLocaleString()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot className="bg-slate-50 font-semibold">
+            <tr>
+              <td className="px-4 py-2.5">합계</td>
+              <td className="px-4 py-2.5 text-right text-xs text-slate-500">{Object.values(byType).reduce((s,v)=>s+v.count,0)}</td>
+              <td className="px-4 py-2.5 text-right font-mono text-emerald-700">+{summary.cashIn.toLocaleString()}</td>
+              <td className="px-4 py-2.5 text-right font-mono text-red-700">−{summary.cashOut.toLocaleString()}</td>
+              <td className={`px-4 py-2.5 text-right font-mono ${summary.cashIn-summary.cashOut>=0?'text-emerald-700':'text-red-700'}`}>
+                {summary.cashIn-summary.cashOut>=0?'+':'−'}{Math.abs(summary.cashIn-summary.cashOut).toLocaleString()}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
 
       {/* 매출·수금 요약 (AR) */}
