@@ -10862,7 +10862,7 @@ function HospitalLedgerModal({ hospitalId, hospitalName, contracts = [], onClose
     } catch (e) { alert('삭제 실패: ' + (e.message || e)); }
   };
 
-  const arLabel = (t) => ({ collect:'병원매출', adjustment:'조정', cancel:'취소' }[t] || t);
+  const arLabel = (t) => ({ collect:'병원 입금', adjustment:'조정', cancel:'취소' }[t] || t);
   const arColor = (t) => ({
     collect:'bg-emerald-100 text-emerald-700',
     adjustment:'bg-amber-100 text-amber-700',
@@ -11006,7 +11006,7 @@ function ReceivableBalanceTab({ arBalances = [], arTransactions = [], contracts 
     return m;
   }, [arTransactions]);
 
-  const arLabel = (t) => ({ collect:'병원매출', adjustment:'조정', cancel:'취소' }[t] || t);
+  const arLabel = (t) => ({ collect:'병원 입금', adjustment:'조정', cancel:'취소' }[t] || t);
   const arColor = (t) => ({
     collect:'bg-emerald-100 text-emerald-700',
     adjustment:'bg-amber-100 text-amber-700',
@@ -11198,14 +11198,18 @@ function ModalShell({ title, subtitle, onClose, children, wide }) {
    거래 입력 탭 — 한 줄씩 입력 → 누적 → 일괄 저장
    ============================================================ */
 const ENTRY_TYPES = [
-  { key: 'purchase', label: '매입',       needVendor: true,  cashDir: 0,  desc: '거래처 외상 잔액 증가' },
-  { key: 'payment',  label: '지급',       needVendor: true,  cashDir: -1, desc: '거래처 외상 차감 + 통장 출금' },
-  { key: 'collect',  label: '병원매출',   needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
-  { key: 'platform', label: '플랫폼매출', needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼/수수료/광고 등 비-병원 매출 입금. 출처는 직접 입력' },
-  { key: 'opex',     label: '운영비',     needVendor: false, cashDir: -1, desc: '통장 출금 (세금/통신/카드 등)' },
-  { key: 'advance',  label: '선급금',     needVendor: false, cashDir: -1, desc: '통장 출금 (병원 선급금 등)' },
-  { key: 'etc_in',   label: '기타(입금)', needVendor: false, cashDir: +1, freeForm: true, desc: '통장 입금. 거래처/내용 직접 입력' },
-  { key: 'etc_out',  label: '기타(출금)', needVendor: false, cashDir: -1, freeForm: true, desc: '통장 출금. 거래처/내용 직접 입력' },
+  { key: 'purchase', label: '매입 (외상 등록)',  needVendor: true,  cashDir: 0,  desc: '거래처에서 매입 — 외상 잔액 증가, 통장 무관' },
+  { key: 'payment',  label: '거래처 송금',       needVendor: true,  cashDir: -1, desc: '거래처에 외상 갚기 — 외상 차감 + 통장 출금' },
+  { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
+  { key: 'platform', label: '수수료·광고 입금',  needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼·소개·판매 수수료 등 비-병원 매출 입금. 출처는 직접 입력' },
+  { key: 'tax',      label: '세금',              needVendor: false, cashDir: -1, freeForm: true, desc: '부가세·지방세·4대보험 등 세금/공과금 출금' },
+  { key: 'rent',     label: '임대료',            needVendor: false, cashDir: -1, freeForm: true, desc: '사무실·창고 임대료' },
+  { key: 'salary',   label: '인건비',            needVendor: false, cashDir: -1, freeForm: true, desc: '급여·상여·수당 등 인건비 출금' },
+  { key: 'ad',       label: '광고비',            needVendor: false, cashDir: -1, freeForm: true, desc: '광고·마케팅 비용 출금' },
+  { key: 'opex',     label: '운영비 (기타)',     needVendor: false, cashDir: -1, freeForm: true, desc: '통신·카드·공과금 등 기타 운영 지출' },
+  { key: 'advance',  label: '선지급',            needVendor: false, cashDir: -1, freeForm: true, desc: '미리 보내는 돈 (예치/보증금 등)' },
+  { key: 'etc_in',   label: '잡수입',            needVendor: false, cashDir: +1, freeForm: true, desc: '환불·세금환급·기타 비분류 입금' },
+  { key: 'etc_out',  label: '잡지출',            needVendor: false, cashDir: -1, freeForm: true, desc: '기타 비분류 출금' },
 ];
 const ENTRY_TYPE_BY_KEY = Object.fromEntries(ENTRY_TYPES.map(t => [t.key, t]));
 
@@ -11385,7 +11389,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
           <div className="col-span-2">
             <label className="text-xs text-slate-500 mb-1 block">유형</label>
             <select value={typeKey} onChange={e => { setTypeKey(e.target.value); }} className={`w-full ${inputCls}`}>
-              {ENTRY_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+              {ENTRY_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}{t.cashDir > 0 ? ' (+)' : t.cashDir < 0 ? ' (−)' : ''}</option>)}
             </select>
           </div>
           <div className="col-span-3">
