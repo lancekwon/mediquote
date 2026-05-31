@@ -10249,8 +10249,29 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   );
 }
 
+// 통장 메모 prefix → 유형 배지 스타일
+const CASH_TAG_STYLE = {
+  '병원 입금':       { bg:'bg-emerald-100', text:'text-emerald-700' },
+  '수수료·광고 입금': { bg:'bg-teal-100',   text:'text-teal-700' },
+  '잡수입':          { bg:'bg-lime-100',    text:'text-lime-700' },
+  '거래처 송금':     { bg:'bg-blue-100',    text:'text-blue-700' },
+  '운영비':          { bg:'bg-amber-100',   text:'text-amber-700' },
+  '세금':            { bg:'bg-amber-100',   text:'text-amber-700' },
+  '임대료':          { bg:'bg-amber-100',   text:'text-amber-700' },
+  '인건비':          { bg:'bg-amber-100',   text:'text-amber-700' },
+  '광고비':          { bg:'bg-amber-100',   text:'text-amber-700' },
+  '선지급':          { bg:'bg-violet-100',  text:'text-violet-700' },
+  '잡지출':          { bg:'bg-rose-100',    text:'text-rose-700' },
+};
+const parseCashTag = (memo) => {
+  const m = (memo || '').match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (!m) return { tag: null, body: memo || '' };
+  return { tag: m[1].trim(), body: m[2].trim().replace(/^—\s*/, '') };
+};
+
 function CashBalanceTable({ logs, onReload, showToast }) {
   const [search, setSearch] = useState('');
+  const [tagFilter, setTagFilter] = useState('all'); // all | tag명
   // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋) — 전체 logs 기준
   const runningById = useMemo(() => {
     const asc = [...logs].sort((a, b) =>
@@ -10265,12 +10286,25 @@ function CashBalanceTable({ logs, onReload, showToast }) {
     return map;
   }, [logs]);
 
-  // 메모 검색 (잔액은 전체 누적 기준으로 유지, 표시만 필터)
+  // 사용 가능한 유형 목록 (실제 데이터에 있는 것만)
+  const availableTags = useMemo(() => {
+    const set = new Set();
+    logs.forEach(l => { const { tag } = parseCashTag(l.memo); if (tag) set.add(tag); });
+    return Array.from(set).sort();
+  }, [logs]);
+
+  // 메모 검색 + 유형 필터 (잔액은 전체 누적 기준으로 유지, 표시만 필터)
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return logs;
-    return logs.filter(l => (l.memo || '').toLowerCase().includes(q));
-  }, [logs, search]);
+    return logs.filter(l => {
+      if (q && !(l.memo || '').toLowerCase().includes(q)) return false;
+      if (tagFilter !== 'all') {
+        const { tag } = parseCashTag(l.memo);
+        if (tag !== tagFilter) return false;
+      }
+      return true;
+    });
+  }, [logs, search, tagFilter]);
 
   const handleDelete = async (row) => {
     if (row.payment_batch_id) {
@@ -10288,11 +10322,16 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   };
   return (
     <div>
-      <div className="flex items-center gap-3 px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
+      <div className="flex items-center gap-3 px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 flex-wrap">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="메모 검색 (예: 운영비, 거래처명, 임대 등)"
           className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-blue-400" />
-        <span>{search ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}</span>
+        <select value={tagFilter} onChange={e => setTagFilter(e.target.value)}
+          className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-blue-400">
+          <option value="all">유형 전체</option>
+          {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <span>{(search || tagFilter !== 'all') ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}</span>
         <span className="ml-auto">최신순 정렬</span>
       </div>
       <div className="overflow-auto" style={{maxHeight:'calc(100vh - 280px)'}}>
@@ -10300,33 +10339,43 @@ function CashBalanceTable({ logs, onReload, showToast }) {
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
           <tr>
             <th className="px-4 py-2.5 text-left w-28">날짜</th>
+            <th className="px-4 py-2.5 text-left w-32">유형</th>
             <th className="px-4 py-2.5 text-right w-32">증감</th>
             <th className="px-4 py-2.5 text-right w-32">잔액</th>
-            <th className="px-4 py-2.5 text-left">메모</th>
+            <th className="px-4 py-2.5 text-left">내용</th>
             <th className="px-4 py-2.5 text-center w-16"></th>
           </tr>
         </thead>
         <tbody>
-          {filtered.map(l => (
-            <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
-              <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
-              <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
-              </td>
-              <td className="px-4 py-2 text-right font-mono text-slate-800">
-                {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
-              </td>
-              <td className="px-4 py-2 text-slate-500 text-xs">
-                {l.memo || '—'}
-                {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
-              </td>
-              <td className="px-4 py-2 text-center">
-                <button onClick={() => handleDelete(l)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
-              </td>
-            </tr>
-          ))}
+          {filtered.map(l => {
+            const { tag, body } = parseCashTag(l.memo);
+            const style = tag ? (CASH_TAG_STYLE[tag] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
+            return (
+              <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
+                <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
+                <td className="px-4 py-2">
+                  {tag ? (
+                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
+                  ) : <span className="text-[11px] text-slate-300">—</span>}
+                </td>
+                <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                  {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
+                </td>
+                <td className="px-4 py-2 text-right font-mono text-slate-800">
+                  {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
+                </td>
+                <td className="px-4 py-2 text-slate-600 text-xs">
+                  {body || '—'}
+                  {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
+                </td>
+                <td className="px-4 py-2 text-center">
+                  <button onClick={() => handleDelete(l)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                </td>
+              </tr>
+            );
+          })}
           {filtered.length === 0 && (
-            <tr><td colSpan={5} className="py-12 text-center text-slate-400 text-sm">{search ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+            <tr><td colSpan={6} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
           )}
         </tbody>
       </table>
