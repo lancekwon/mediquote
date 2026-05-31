@@ -710,6 +710,34 @@ async function dbDeleteCashBalance(id) {
   if (error) throw error;
 }
 
+/* ---------- Receivables (매출/수금 AR) ---------- */
+async function dbLoadReceivableBalances() {
+  // v_receivable_balance: hospital_id, hospital_name, total_invoice, contract_count,
+  //   total_collected, total_adjustment, total_cancel, balance, last_tx_date
+  const { data, error } = await sb.from('v_receivable_balance').select('*').order('balance', { ascending: false });
+  if (error) { console.error('dbLoadReceivableBalances:', error); return []; }
+  return data || [];
+}
+async function dbLoadReceivableTransactions({ hospitalId = null, contractId = null, dateFrom = null, dateTo = null } = {}) {
+  let q = sb.from('receivable_transactions').select('*').order('tx_date', { ascending: false }).order('created_at', { ascending: false });
+  if (hospitalId) q = q.eq('hospital_id', hospitalId);
+  if (contractId) q = q.eq('contract_id', contractId);
+  if (dateFrom) q = q.gte('tx_date', dateFrom);
+  if (dateTo) q = q.lte('tx_date', dateTo);
+  const { data, error } = await q;
+  if (error) { console.error('dbLoadReceivableTransactions:', error); return []; }
+  return data || [];
+}
+async function dbInsertReceivableTransaction(row) {
+  const { data, error } = await sb.from('receivable_transactions').insert(row).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbDeleteReceivableTransaction(id) {
+  const { error } = await sb.from('receivable_transactions').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // 발주 ↔ 외상매입 자동 연동 (차액 누적 방식 — audit trail 보존)
 // 현재 PO에 대한 매입 누적 합계를 newAmount로 맞추기 위한 차액 트랜잭션을 추가한다.
 // 첫 매입이면 'purchase', 그 이후 변경은 'adjustment'로 기록.
@@ -9904,6 +9932,10 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [balances, setBalances] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [cashLogs, setCashLogs] = useState([]);
+  const [arBalances, setArBalances] = useState([]);       // 병원별 매출/수금/미수금
+  const [arTransactions, setArTransactions] = useState([]); // receivable_transactions
+  const [hospitals, setHospitals] = useState([]);
+  const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [hideZero, setHideZero] = useState(true);
@@ -9924,16 +9956,24 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [b, t, c, p] = await Promise.all([
+      const [b, t, c, p, ab, at, hosp, ctr] = await Promise.all([
         dbLoadPayableBalances(),
         dbLoadPayableTransactions(),
         dbLoadCashBalanceLog({ limit: 200 }),
         dbLoadActivePoTransactions(),
+        dbLoadReceivableBalances(),
+        dbLoadReceivableTransactions(),
+        dbLoadHospitals(),
+        dbLoadAllContracts(),
       ]);
       setBalances(b);
       setTransactions(t);
       setCashLogs(c);
       setPoTxs(p);
+      setArBalances(ab);
+      setArTransactions(at);
+      setHospitals(hosp);
+      setContracts(ctr);
     } catch (e) {
       console.error(e);
       showToast('데이터 로드 실패: ' + (e.message || e), 'error');
@@ -10051,6 +10091,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             {[
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
+              { k: 'ar_balance', l: '병원 원장' },
               { k: 'cash', l: '통장 출납' },
               { k: 'report', l: '리포트' },
             ].map(t => (
@@ -10148,9 +10189,11 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               </div>
             </div>
           ) : tab === 'entry' ? (
-            <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} onReload={reload} showToast={showToast} />
+            <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} onReload={reload} showToast={showToast} />
+          ) : tab === 'ar_balance' ? (
+            <ReceivableBalanceTab arBalances={arBalances} arTransactions={arTransactions} contracts={contracts} onReload={reload} showToast={showToast} />
           ) : tab === 'report' ? (
-            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} />
+            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} />
           )}
@@ -10772,6 +10815,302 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
   );
 }
 
+/* ========== 병원 원장 (AR) — 매출/수금/미수금 ========== */
+function HospitalLedgerModal({ hospitalId, hospitalName, contracts = [], onClose, onChanged, showToast }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await dbLoadReceivableTransactions({ hospitalId });
+      setRows(data);
+    } finally { setLoading(false); }
+  }, [hospitalId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const hospContracts = useMemo(() =>
+    contracts.filter(c => c.hospital_id === hospitalId && (c.status == null || c.status !== '취소')),
+    [contracts, hospitalId]);
+  const contractMap = useMemo(() => {
+    const m = new Map();
+    hospContracts.forEach(c => m.set(c.id, c));
+    return m;
+  }, [hospContracts]);
+
+  const summary = useMemo(() => {
+    const totalInvoice = hospContracts.reduce((s, c) => s + (c.amount || 0), 0);
+    let totalCollect = 0, totalAdjust = 0, totalCancel = 0;
+    rows.forEach(r => {
+      if (r.tx_type === 'collect') totalCollect += r.amount;
+      else if (r.tx_type === 'adjustment') totalAdjust += r.amount;
+      else if (r.tx_type === 'cancel') totalCancel += r.amount;
+    });
+    const balance = totalInvoice + totalAdjust - totalCollect - totalCancel;
+    return { totalInvoice, totalCollect, totalAdjust, totalCancel, balance };
+  }, [rows, hospContracts]);
+
+  const handleDelete = async (tx) => {
+    if (!confirm(`이 거래를 삭제하시겠습니까?\n${tx.tx_date} / ${tx.amount.toLocaleString()}원`)) return;
+    try {
+      await dbDeleteReceivableTransaction(tx.id);
+      if (tx.cash_log_id) { try { await dbDeleteCashBalance(tx.cash_log_id); } catch(_){} }
+      showToast && showToast('거래 삭제됨');
+      load();
+      onChanged && onChanged();
+    } catch (e) { alert('삭제 실패: ' + (e.message || e)); }
+  };
+
+  const arLabel = (t) => ({ collect:'수금', adjustment:'조정', cancel:'취소' }[t] || t);
+  const arColor = (t) => ({
+    collect:'bg-emerald-100 text-emerald-700',
+    adjustment:'bg-amber-100 text-amber-700',
+    cancel:'bg-rose-100 text-rose-700',
+  }[t] || 'bg-slate-100 text-slate-600');
+
+  return (
+    <ModalShell title={`병원 원장 — ${hospitalName}`} subtitle={`계약 ${hospContracts.length}건`} onClose={onClose} wide>
+      <div className="grid grid-cols-4 gap-3 mb-3">
+        <div className="bg-blue-50 border border-blue-200 rounded p-3">
+          <div className="text-[10px] text-blue-700 mb-0.5">총 청구 (계약합계)</div>
+          <div className="text-base font-bold font-mono text-blue-800">{summary.totalInvoice.toLocaleString()}</div>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded p-3">
+          <div className="text-[10px] text-emerald-700 mb-0.5">총 수금</div>
+          <div className="text-base font-bold font-mono text-emerald-800">{summary.totalCollect.toLocaleString()}</div>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded p-3">
+          <div className="text-[10px] text-amber-700 mb-0.5">조정 − 취소</div>
+          <div className="text-base font-bold font-mono text-amber-800">{(summary.totalAdjust - summary.totalCancel).toLocaleString()}</div>
+        </div>
+        <div className={`border rounded p-3 ${summary.balance > 0 ? 'bg-rose-50 border-rose-200' : 'bg-slate-100 border-slate-300'}`}>
+          <div className={`text-[10px] mb-0.5 ${summary.balance > 0 ? 'text-rose-700' : 'text-slate-500'}`}>현재 미수금</div>
+          <div className={`text-base font-bold font-mono ${summary.balance > 0 ? 'text-rose-800' : 'text-slate-900'}`}>{summary.balance.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {hospContracts.length > 0 && (
+        <div className="mb-3 border border-slate-200 rounded overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 text-xs font-semibold text-slate-600 border-b border-slate-100">청구 계약 ({hospContracts.length}건)</div>
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-3 py-1.5 text-left w-32">계약일</th>
+                <th className="px-3 py-1.5 text-left">견적번호</th>
+                <th className="px-3 py-1.5 text-right w-32">청구액</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hospContracts.map(c => (
+                <tr key={c.id} className="border-t border-slate-100">
+                  <td className="px-3 py-1.5 text-slate-600">{c.contract_date || '—'}</td>
+                  <td className="px-3 py-1.5 text-slate-700">{c.quote_name || '—'}</td>
+                  <td className="px-3 py-1.5 text-right font-mono">{(c.amount || 0).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="border border-slate-200 rounded overflow-hidden">
+        <div className="px-3 py-2 bg-slate-50 text-xs font-semibold text-slate-600 border-b border-slate-100">거래 내역 ({rows.length}건)</div>
+        <div className="overflow-auto" style={{maxHeight:'320px'}}>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs sticky top-0">
+              <tr>
+                <th className="px-3 py-2 text-left w-28">날짜</th>
+                <th className="px-3 py-2 text-left w-20">유형</th>
+                <th className="px-3 py-2 text-left">계약</th>
+                <th className="px-3 py-2 text-right w-32">금액</th>
+                <th className="px-3 py-2 text-left">메모</th>
+                <th className="px-3 py-2 w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-xs">불러오는 중...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-xs">거래 내역 없음 — 거래 입력 탭에서 '수금'으로 추가하세요</td></tr>
+              ) : rows.map(r => {
+                const ctr = r.contract_id ? contractMap.get(r.contract_id) : null;
+                return (
+                  <tr key={r.id} className="border-t border-slate-100">
+                    <td className="px-3 py-1.5 text-xs text-slate-600">{r.tx_date}</td>
+                    <td className="px-3 py-1.5">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${arColor(r.tx_type)}`}>{arLabel(r.tx_type)}</span>
+                    </td>
+                    <td className="px-3 py-1.5 text-xs text-slate-500">{ctr ? (ctr.quote_name || ctr.contract_date) : <span className="text-slate-300">전체</span>}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-sm">{r.amount.toLocaleString()}</td>
+                    <td className="px-3 py-1.5 text-xs text-slate-600">{r.memo || '—'}</td>
+                    <td className="px-3 py-1.5 text-center">
+                      <button onClick={() => handleDelete(r)} className="text-xs text-rose-400 hover:text-rose-600" title="삭제">✕</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ReceivableBalanceTab({ arBalances = [], arTransactions = [], contracts = [], onReload, showToast }) {
+  const [search, setSearch] = useState('');
+  const [hideZero, setHideZero] = useState(true);
+  const [historyModal, setHistoryModal] = useState(null);
+  const [sortKey, setSortKey] = useState('balance');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+  const sortIcon = (key) => sortKey === key ? (sortDir === 'desc' ? '▼' : '▲') : '↕';
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return arBalances.filter(b => {
+      // 활성 데이터만 (계약 또는 수금 거래가 있는 병원)
+      const hasActivity = (b.contract_count || 0) > 0 || (b.total_collected || 0) > 0;
+      if (!hasActivity) return false;
+      if (hideZero && (!b.balance || b.balance <= 0)) return false;
+      if (!q) return true;
+      return vendorMatch(b.hospital_name, q);
+    });
+  }, [arBalances, search, hideZero]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let va, vb;
+      if (sortKey === 'balance') { va = a.balance || 0; vb = b.balance || 0; }
+      else if (sortKey === 'invoice') { va = a.total_invoice || 0; vb = b.total_invoice || 0; }
+      else if (sortKey === 'collect') { va = a.total_collected || 0; vb = b.total_collected || 0; }
+      else { va = a.last_tx_date || ''; vb = b.last_tx_date || ''; }
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 병원별 가장 최근 거래
+  const lastTxByHosp = useMemo(() => {
+    const m = new Map();
+    arTransactions.forEach(t => { if (!m.has(t.hospital_id)) m.set(t.hospital_id, t); });
+    return m;
+  }, [arTransactions]);
+
+  const arLabel = (t) => ({ collect:'수금', adjustment:'조정', cancel:'취소' }[t] || t);
+  const arColor = (t) => ({
+    collect:'bg-emerald-100 text-emerald-700',
+    adjustment:'bg-amber-100 text-amber-700',
+    cancel:'bg-rose-100 text-rose-700',
+  }[t] || 'bg-slate-100 text-slate-600');
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50">
+        <input type="text" placeholder="병원명 검색" value={search} onChange={e => setSearch(e.target.value)}
+          className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+        <button type="button" onClick={() => setHideZero(p => !p)}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border transition-colors ${hideZero ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+          <span className="text-sm leading-none">{hideZero ? '☑' : '☐'}</span>
+          미수금 0원 제외
+        </button>
+        <div className="ml-auto text-xs text-slate-500">
+          {filtered.length}개 표시 / 활성 {arBalances.filter(b => (b.contract_count||0)>0 || (b.total_collected||0)>0).length}
+        </div>
+      </div>
+      <div className="overflow-auto" style={{maxHeight:'calc(100vh - 360px)'}}>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
+            <tr>
+              <th className="px-4 py-2.5 text-left">병원명</th>
+              <th onClick={() => toggleSort('invoice')} className={`px-4 py-2.5 text-right w-36 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'invoice' ? 'text-blue-600' : ''}`}>
+                총 청구 <span className="ml-1">{sortIcon('invoice')}</span>
+              </th>
+              <th onClick={() => toggleSort('collect')} className={`px-4 py-2.5 text-right w-36 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'collect' ? 'text-blue-600' : ''}`}>
+                누적 수금 <span className="ml-1">{sortIcon('collect')}</span>
+              </th>
+              <th onClick={() => toggleSort('balance')} className={`px-4 py-2.5 text-right w-40 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'balance' ? 'text-blue-600' : ''}`}>
+                <div>미수금 <span className="ml-1">{sortIcon('balance')}</span></div>
+                <div className="text-[10px] text-slate-400 font-normal normal-case mt-0.5">{today} 기준</div>
+              </th>
+              <th onClick={() => toggleSort('lastTx')} className={`px-4 py-2.5 text-center w-28 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'lastTx' ? 'text-blue-600' : ''}`}>
+                최근 수금 <span className="ml-1">{sortIcon('lastTx')}</span>
+              </th>
+              <th className="px-4 py-2.5 text-left">최근 거래 내용</th>
+              <th className="px-4 py-2.5 text-center w-20"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(b => {
+              const lt = lastTxByHosp.get(b.hospital_id);
+              return (
+                <tr key={b.hospital_id} className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer"
+                  onClick={() => setHistoryModal({ hospitalId: b.hospital_id, name: b.hospital_name })}>
+                  <td className="px-4 py-2.5 text-slate-800 font-medium">
+                    {b.hospital_name}
+                    {(b.contract_count || 0) > 0 && <span className="ml-1.5 text-[10px] text-slate-400">({b.contract_count}건)</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-slate-700">{(b.total_invoice || 0).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-emerald-700">{(b.total_collected || 0).toLocaleString()}</td>
+                  <td className={`px-4 py-2.5 text-right font-semibold font-mono ${(b.balance || 0) > 0 ? 'text-rose-700' : 'text-slate-400'}`}>
+                    {(b.balance || 0).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2.5 text-center text-xs text-slate-500">{b.last_tx_date || '—'}</td>
+                  <td className="px-4 py-2.5 text-xs text-slate-600">
+                    {lt ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${arColor(lt.tx_type)}`}>{arLabel(lt.tx_type)}</span>
+                        <span className="truncate max-w-[240px]" title={lt.memo || ''}>{lt.memo || '—'}</span>
+                      </span>
+                    ) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-center">
+                    <span className="text-xs text-blue-500">상세 →</span>
+                  </td>
+                </tr>
+              );
+            })}
+            {sorted.length === 0 && (
+              <tr><td colSpan={7} className="py-12 text-center text-slate-400 text-sm">표시할 병원이 없습니다 (계약 또는 수금 데이터 없음)</td></tr>
+            )}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot className="bg-slate-100 font-semibold">
+              <tr>
+                <td className="px-4 py-3">합 계</td>
+                <td className="px-4 py-3 text-right font-mono">{filtered.reduce((s, b) => s + (b.total_invoice || 0), 0).toLocaleString()}</td>
+                <td className="px-4 py-3 text-right font-mono text-emerald-700">{filtered.reduce((s, b) => s + (b.total_collected || 0), 0).toLocaleString()}</td>
+                <td className="px-4 py-3 text-right font-mono text-rose-700">{filtered.reduce((s, b) => s + (b.balance || 0), 0).toLocaleString()}</td>
+                <td colSpan={3}></td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {historyModal && (
+        <HospitalLedgerModal
+          hospitalId={historyModal.hospitalId}
+          hospitalName={historyModal.name}
+          contracts={contracts}
+          onClose={() => setHistoryModal(null)}
+          onChanged={onReload}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
 function CashAddModal({ currentBalance, onClose, onSaved }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [delta, setDelta] = useState('');
@@ -10861,7 +11200,7 @@ function ModalShell({ title, subtitle, onClose, children, wide }) {
 const ENTRY_TYPES = [
   { key: 'purchase', label: '매입',       needVendor: true,  cashDir: 0,  desc: '거래처 외상 잔액 증가' },
   { key: 'payment',  label: '지급',       needVendor: true,  cashDir: -1, desc: '거래처 외상 차감 + 통장 출금' },
-  { key: 'collect',  label: '수금',       needVendor: false, cashDir: +1, desc: '통장 입금' },
+  { key: 'collect',  label: '수금',       needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 매출 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
   { key: 'opex',     label: '운영비',     needVendor: false, cashDir: -1, desc: '통장 출금 (세금/통신/카드 등)' },
   { key: 'advance',  label: '선급금',     needVendor: false, cashDir: -1, desc: '통장 출금 (병원 선급금 등)' },
   { key: 'etc_in',   label: '기타(입금)', needVendor: false, cashDir: +1, freeForm: true, desc: '통장 입금. 거래처/내용 직접 입력' },
@@ -10889,8 +11228,21 @@ async function dbSaveManualEntry(e) {
       log_date: e.date, delta: -amount,
       memo: `[지급] ${e.vendorName || ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
     });
+  } else if (t.key === 'collect' && e.hospitalId) {
+    // 병원 매출 수금 — 통장 입금 + receivable_transactions('collect') 동시 기록
+    const cashId = await dbInsertCashBalance({
+      log_date: e.date, delta: amount,
+      memo: `[수금]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+    });
+    await dbInsertReceivableTransaction({
+      hospital_id: e.hospitalId,
+      contract_id: e.contractId || null,
+      tx_date: e.date, tx_type: 'collect',
+      amount, memo: e.memo || null,
+      cash_log_id: cashId,
+    });
   } else {
-    // collect(+) / opex(-) / advance(-)
+    // collect(잡수입) / opex(-) / advance(-) / etc_in(+) / etc_out(-) — 통장만
     const delta = t.cashDir * amount;
     await dbInsertCashBalance({
       log_date: e.date, delta,
@@ -10899,7 +11251,7 @@ async function dbSaveManualEntry(e) {
   }
 }
 
-function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
+function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts = [], onReload, showToast }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [typeKey, setTypeKey] = useState('payment');
@@ -10908,12 +11260,21 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
   const [vendorOpen, setVendorOpen] = useState(false);
   const [vendorFreeText, setVendorFreeText] = useState(''); // 기타 유형 — 거래처 직접 입력
   const vendorBoxRef = useRef(null);
+  // 수금 — 병원/계약 (optional)
+  const [hospitalId, setHospitalId] = useState('');
+  const [hospitalSearch, setHospitalSearch] = useState('');
+  const [hospitalOpen, setHospitalOpen] = useState(false);
+  const hospitalBoxRef = useRef(null);
+  const [contractId, setContractId] = useState('');
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
 
-  // 콤보박스 외부 클릭 시 닫기
+  // 콤보박스 외부 클릭 시 닫기 (거래처/병원 둘 다)
   useEffect(() => {
-    const h = (e) => { if (vendorBoxRef.current && !vendorBoxRef.current.contains(e.target)) setVendorOpen(false); };
+    const h = (e) => {
+      if (vendorBoxRef.current && !vendorBoxRef.current.contains(e.target)) setVendorOpen(false);
+      if (hospitalBoxRef.current && !hospitalBoxRef.current.contains(e.target)) setHospitalOpen(false);
+    };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
@@ -10922,6 +11283,7 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
 
   const curType = ENTRY_TYPE_BY_KEY[typeKey];
   const needVendor = curType.needVendor;
+  const needHospital = curType.needHospital === 'optional'; // 'collect' 유형만 true
 
   const vendorOptions = useMemo(() => {
     const q = vendorSearch.trim().toLowerCase();
@@ -10931,6 +11293,20 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
   }, [balances, vendorSearch]);
 
   const selectedVendor = balances.find(b => b.manufacturer_id === vendorId);
+
+  // 병원 검색/옵션 (수금 유형)
+  const hospitalOptions = useMemo(() => {
+    const q = hospitalSearch.trim().toLowerCase();
+    const arr = [...hospitals].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    if (!q) return arr;
+    return arr.filter(h => vendorMatch(h.name, q));
+  }, [hospitals, hospitalSearch]);
+  const selectedHospital = hospitals.find(h => h.id === hospitalId);
+  // 선택된 병원에 묶인 계약(취소 제외)
+  const hospitalContracts = useMemo(() => {
+    if (!hospitalId) return [];
+    return contracts.filter(c => c.hospital_id === hospitalId && (c.status == null || c.status !== '취소'));
+  }, [contracts, hospitalId]);
   const parseAmt = (v) => Number((v || '').toString().replace(/[,\s]/g, '')) || 0;
 
   const addRow = () => {
@@ -10941,14 +11317,23 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
     const vendorName = needVendor
       ? (vendor?.manufacturer_name || '')
       : (curType.freeForm ? vendorFreeText.trim() : '');
-    setPending(p => [...p, {
-      id: `${Date.now()}-${p.length}`,
-      date, typeKey,
-      manufacturerId: needVendor ? vendorId : null,
-      vendorName,
-      amount: amt, memo: memo.trim(),
-    }]);
-    // 금액·메모만 초기화 (날짜/유형/거래처는 유지 — 연속 입력 편의)
+    setPending(p => {
+      const row = {
+        id: `${Date.now()}-${p.length}`,
+        date, typeKey,
+        manufacturerId: needVendor ? vendorId : null,
+        vendorName,
+        amount: amt, memo: memo.trim(),
+      };
+      // 수금 + 병원 선택 시 매출 차감 정보 부착
+      if (needHospital && hospitalId) {
+        row.hospitalId = hospitalId;
+        row.hospitalName = selectedHospital?.name || '';
+        row.contractId = contractId || null;
+      }
+      return [...p, row];
+    });
+    // 금액·메모만 초기화 (날짜/유형/거래처/병원은 유지 — 연속 입력 편의)
     setAmount(''); setMemo('');
   };
 
@@ -11004,7 +11389,9 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
           </div>
           <div className="col-span-3">
             <label className="text-xs text-slate-500 mb-1 block">
-              거래처 {needVendor ? <span className="text-red-400">*</span> : <span className="text-slate-300">(불필요)</span>}
+              {needVendor ? <>거래처 <span className="text-red-400">*</span></>
+                : needHospital ? <>병원 <span className="text-slate-300">(선택)</span></>
+                : <>거래처 <span className="text-slate-300">(불필요)</span></>}
             </label>
             {needVendor ? (
               <div className="relative" ref={vendorBoxRef}>
@@ -11029,6 +11416,46 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
                       <div className="px-3 py-1.5 text-[11px] text-slate-400 border-t border-slate-100">상위 50개만 표시 — 더 입력해 좁히세요</div>
                     )}
                   </div>
+                )}
+              </div>
+            ) : needHospital ? (
+              <div className="space-y-1">
+                <div className="relative" ref={hospitalBoxRef}>
+                  <input type="text"
+                    value={hospitalOpen ? hospitalSearch : (selectedHospital ? selectedHospital.name : '')}
+                    onChange={e => { setHospitalSearch(e.target.value); setHospitalOpen(true); }}
+                    onFocus={() => { setHospitalOpen(true); setHospitalSearch(''); }}
+                    placeholder="병원 선택 (미선택: 잡수입으로 통장만 기록)"
+                    className={`w-full ${inputCls}`} />
+                  {hospitalOpen && (
+                    <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl">
+                      <div onClick={() => { setHospitalId(''); setContractId(''); setHospitalOpen(false); setHospitalSearch(''); }}
+                        className="px-3 py-1.5 text-sm cursor-pointer hover:bg-slate-100 text-slate-400 border-b border-slate-100">— 미선택 (잡수입) —</div>
+                      {hospitalOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-slate-400">검색 결과 없음</div>
+                      ) : hospitalOptions.slice(0, 50).map(h => (
+                        <div key={h.id}
+                          onClick={() => { setHospitalId(h.id); setContractId(''); setHospitalOpen(false); setHospitalSearch(''); }}
+                          className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 ${h.id === hospitalId ? 'bg-blue-50 font-medium' : ''}`}>
+                          {h.name}
+                        </div>
+                      ))}
+                      {hospitalOptions.length > 50 && (
+                        <div className="px-3 py-1.5 text-[11px] text-slate-400 border-t border-slate-100">상위 50개만 표시 — 더 입력해 좁히세요</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {hospitalId && hospitalContracts.length > 0 && (
+                  <select value={contractId} onChange={e => setContractId(e.target.value)}
+                    className={`w-full ${inputCls} text-xs`}>
+                    <option value="">계약 선택 (생략 시 병원 전체에서 차감)</option>
+                    {hospitalContracts.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {(c.quote_name || c.contract_date || '계약')} — {(c.amount || 0).toLocaleString()}원
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
             ) : curType.freeForm ? (
@@ -11118,7 +11545,7 @@ function TransactionEntryTab({ balances, cashCurrent, onReload, showToast }) {
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
-function PayableReportTab({ transactions = [], balances = [], cashLogs = [] }) {
+function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [] }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -11141,8 +11568,17 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [] }) {
     const cashIn = fCash.filter(c => c.delta > 0).reduce((s, c) => s + c.delta, 0);
     const cashOut = fCash.filter(c => c.delta < 0).reduce((s, c) => s + (-c.delta), 0);
     const totalBalance = balances.reduce((s, b) => s + (b.balance || 0), 0);
-    return { purchase, payment, cashIn, cashOut, totalBalance };
-  }, [fTx, fCash, balances]);
+    // AR (병원 매출/수금)
+    const totalReceivable = arBalances.reduce((s, b) => s + Math.max(0, b.balance || 0), 0);
+    const totalInvoice    = arBalances.reduce((s, b) => s + (b.total_invoice || 0), 0);
+    const totalCollected  = arBalances.reduce((s, b) => s + (b.total_collected || 0), 0);
+    const arCollectInRange = arTransactions
+      .filter(t => t.tx_type === 'collect' && ((!from && !to) ? true : inRange(t.tx_date)))
+      .reduce((s, t) => s + (t.amount || 0), 0);
+    const netPosition = totalReceivable - totalBalance; // 받을 - 줄
+    return { purchase, payment, cashIn, cashOut, totalBalance,
+             totalReceivable, totalInvoice, totalCollected, arCollectInRange, netPosition };
+  }, [fTx, fCash, balances, arBalances, arTransactions, from, to]);
 
   // 월별 매입/지급
   const monthly = useMemo(() => {
@@ -11185,13 +11621,41 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [] }) {
         <span className="ml-auto text-xs text-slate-400">{(from || to) ? '선택 기간' : '전체 기간'} 기준</span>
       </div>
 
-      {/* 요약 카드 */}
+      {/* 매입·통장 요약 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card label="매입 (기간)" value={summary.purchase} color="bg-amber-50 border-amber-200 text-amber-800" />
         <Card label="지급 (기간)" value={summary.payment} color="bg-blue-50 border-blue-200 text-blue-800" />
         <Card label="통장 입금" value={summary.cashIn} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
         <Card label="통장 출금" value={summary.cashOut} color="bg-rose-50 border-rose-200 text-rose-800" />
-        <Card label="현재 총 외상잔액" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
+        <Card label="현재 총 외상잔액 (줄 돈)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
+      </div>
+
+      {/* 매출·수금 요약 (AR) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card label="총 청구 (전체 계약)" value={summary.totalInvoice}   color="bg-indigo-50 border-indigo-200 text-indigo-800" />
+        <Card label="누적 수금 (전체)"    value={summary.totalCollected} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
+        <Card label="수금 (기간)"          value={summary.arCollectInRange} color="bg-teal-50 border-teal-200 text-teal-800" />
+        <Card label="현재 총 미수금 (받을 돈)" value={summary.totalReceivable} color="bg-rose-50 border-rose-200 text-rose-800" />
+      </div>
+
+      {/* 순 자금 포지션 — 받을 돈 − 줄 돈 */}
+      <div className={`rounded-xl border p-5 ${summary.netPosition >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-xs text-slate-500 mb-1">순 자금 포지션 (받을 − 줄)</div>
+            <div className={`text-2xl font-bold font-mono ${summary.netPosition >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {summary.netPosition >= 0 ? '+' : ''}{summary.netPosition.toLocaleString()}원
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">
+              미수금 {summary.totalReceivable.toLocaleString()} − 외상매입 {summary.totalBalance.toLocaleString()}
+            </div>
+          </div>
+          <div className="text-right text-xs text-slate-500 max-w-xs">
+            {summary.netPosition >= 0
+              ? '받을 돈이 줄 돈보다 큼 — 자금 흐름 여유'
+              : '줄 돈이 받을 돈보다 큼 — 자금 부족 가능, 수금 독려 권장'}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
