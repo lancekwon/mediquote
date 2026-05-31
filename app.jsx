@@ -10272,6 +10272,8 @@ const parseCashTag = (memo) => {
 function CashBalanceTable({ logs, onReload, showToast }) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('all'); // all | tag명
+  const [viewMode, setViewMode] = useState('time'); // time | group
+  const [collapsed, setCollapsed] = useState({}); // 그룹별 접힘 상태
   // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋) — 전체 logs 기준
   const runningById = useMemo(() => {
     const asc = [...logs].sort((a, b) =>
@@ -10306,6 +10308,27 @@ function CashBalanceTable({ logs, onReload, showToast }) {
     });
   }, [logs, search, tagFilter]);
 
+  // 유형별 그룹화 (group mode 용)
+  const grouped = useMemo(() => {
+    const g = new Map();
+    filtered.forEach(l => {
+      const { tag } = parseCashTag(l.memo);
+      const key = tag || '(미분류)';
+      if (!g.has(key)) g.set(key, { tag: key, rows: [], inSum: 0, outSum: 0 });
+      const grp = g.get(key);
+      grp.rows.push(l);
+      if (l.delta > 0) grp.inSum += l.delta;
+      else grp.outSum += -l.delta;
+    });
+    // 정렬: 입금성(+) 먼저 → 출금성(−), 그 안에서 합계 큰 순
+    const ORDER = ['병원 입금','수수료·광고 입금','잡수입','거래처 송금','운영비','세금','임대료','인건비','광고비','선지급','잡지출','(미분류)'];
+    return Array.from(g.values()).sort((a,b) => {
+      const oa = ORDER.indexOf(a.tag); const ob = ORDER.indexOf(b.tag);
+      if (oa !== ob) return (oa === -1 ? 99 : oa) - (ob === -1 ? 99 : ob);
+      return (b.inSum + b.outSum) - (a.inSum + a.outSum);
+    });
+  }, [filtered]);
+
   const handleDelete = async (row) => {
     if (row.payment_batch_id) {
       alert('이 기록은 일괄지급에 연결되어 있습니다. 외상 거래원장 탭에서 해당 지급을 삭제하세요.');
@@ -10331,8 +10354,15 @@ function CashBalanceTable({ logs, onReload, showToast }) {
           <option value="all">유형 전체</option>
           {availableTags.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
+        <div className="flex items-center gap-0.5 border border-slate-200 rounded p-0.5 bg-white">
+          <button onClick={() => setViewMode('time')}
+            className={`px-2.5 py-1 text-xs rounded transition-colors ${viewMode === 'time' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
+            title="시간순">📋 시간순</button>
+          <button onClick={() => setViewMode('group')}
+            className={`px-2.5 py-1 text-xs rounded transition-colors ${viewMode === 'group' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
+            title="유형별 그룹">🗂 유형별</button>
+        </div>
         <span>{(search || tagFilter !== 'all') ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}</span>
-        <span className="ml-auto">최신순 정렬</span>
       </div>
       <div className="overflow-auto" style={{maxHeight:'calc(100vh - 280px)'}}>
       <table className="w-full text-sm">
@@ -10347,35 +10377,93 @@ function CashBalanceTable({ logs, onReload, showToast }) {
           </tr>
         </thead>
         <tbody>
-          {filtered.map(l => {
-            const { tag, body } = parseCashTag(l.memo);
-            const style = tag ? (CASH_TAG_STYLE[tag] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
-            return (
-              <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
-                <td className="px-4 py-2">
-                  {tag ? (
-                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
-                  ) : <span className="text-[11px] text-slate-300">—</span>}
-                </td>
-                <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                  {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-slate-800">
-                  {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
-                </td>
-                <td className="px-4 py-2 text-slate-600 text-xs">
-                  {body || '—'}
-                  {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
-                </td>
-                <td className="px-4 py-2 text-center">
-                  <button onClick={() => handleDelete(l)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
-                </td>
-              </tr>
-            );
-          })}
-          {filtered.length === 0 && (
-            <tr><td colSpan={6} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+          {viewMode === 'time' ? (
+            <>
+              {filtered.map(l => {
+                const { tag, body } = parseCashTag(l.memo);
+                const style = tag ? (CASH_TAG_STYLE[tag] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
+                return (
+                  <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
+                    <td className="px-4 py-2">
+                      {tag ? (
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
+                      ) : <span className="text-[11px] text-slate-300">—</span>}
+                    </td>
+                    <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-slate-800">
+                      {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-slate-600 text-xs">
+                      {body || '—'}
+                      {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <button onClick={() => handleDelete(l)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr><td colSpan={6} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+              )}
+            </>
+          ) : (
+            <>
+              {grouped.map(g => {
+                const style = CASH_TAG_STYLE[g.tag] || { bg:'bg-slate-100', text:'text-slate-600' };
+                const isCollapsed = !!collapsed[g.tag];
+                const net = g.inSum - g.outSum;
+                return (
+                  <React.Fragment key={g.tag}>
+                    <tr className="bg-slate-50 border-t-2 border-slate-300 cursor-pointer hover:bg-slate-100"
+                      onClick={() => setCollapsed(p => ({...p, [g.tag]: !p[g.tag]}))}>
+                      <td colSpan={6} className="px-4 py-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-500 text-xs w-3 select-none">{isCollapsed ? '▶' : '▼'}</span>
+                          <span className={`inline-block px-2.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}`}>{g.tag}</span>
+                          <span className="text-xs text-slate-500">{g.rows.length}건</span>
+                          <span className="ml-auto font-mono text-sm flex items-center gap-3">
+                            {g.inSum > 0 && <span className="text-emerald-700">+{g.inSum.toLocaleString()}</span>}
+                            {g.outSum > 0 && <span className="text-red-700">−{g.outSum.toLocaleString()}</span>}
+                            <span className={`font-semibold ${net>=0?'text-emerald-700':'text-red-700'}`}>
+                              {net>=0?'순 +':'순 −'}{Math.abs(net).toLocaleString()}
+                            </span>
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {!isCollapsed && g.rows.map(l => {
+                      const { body } = parseCashTag(l.memo);
+                      return (
+                        <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
+                          <td className="px-4 py-2"><span className="text-[10px] text-slate-300">└</span></td>
+                          <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2 text-right font-mono text-slate-400 text-xs">
+                            {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-2 text-slate-600 text-xs">
+                            {body || '—'}
+                            {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button onClick={() => handleDelete(l)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+              {grouped.length === 0 && (
+                <tr><td colSpan={6} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+              )}
+            </>
           )}
         </tbody>
       </table>
