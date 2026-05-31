@@ -11639,7 +11639,9 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
     });
     const cashIn = fCash.filter(c => c.delta > 0).reduce((s, c) => s + c.delta, 0);
     const cashOut = fCash.filter(c => c.delta < 0).reduce((s, c) => s + (-c.delta), 0);
-    const totalBalance = balances.reduce((s, b) => s + (b.balance || 0), 0);
+    // 줄 돈(양수만) + 과지급(음수만 절댓값) 분리 — 거래처 원장과 일치
+    const totalBalance     = balances.reduce((s, b) => s + Math.max(0,  (b.balance || 0)), 0);
+    const totalOverpaidAp  = balances.reduce((s, b) => s + Math.max(0, -(b.balance || 0)), 0);
     // AR (병원 매출/수금)
     const totalReceivable = arBalances.reduce((s, b) => s + Math.max(0, b.balance || 0), 0);
     const totalInvoice    = arBalances.reduce((s, b) => s + (b.total_invoice || 0), 0);
@@ -11648,7 +11650,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       .filter(t => t.tx_type === 'collect' && ((!from && !to) ? true : inRange(t.tx_date)))
       .reduce((s, t) => s + (t.amount || 0), 0);
     const netPosition = totalReceivable - totalBalance; // 받을 - 줄
-    return { purchase, payment, cashIn, cashOut, totalBalance,
+    return { purchase, payment, cashIn, cashOut, totalBalance, totalOverpaidAp,
              totalReceivable, totalInvoice, totalCollected, arCollectInRange, netPosition };
   }, [fTx, fCash, balances, arBalances, arTransactions, from, to]);
 
@@ -11722,8 +11724,14 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
         <Card label="지급 (기간)" value={summary.payment} color="bg-blue-50 border-blue-200 text-blue-800" />
         <Card label="통장 입금" value={summary.cashIn} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
         <Card label="통장 출금" value={summary.cashOut} color="bg-rose-50 border-rose-200 text-rose-800" />
-        <Card label="현재 총 외상잔액 (줄 돈)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
+        <Card label="줄 돈 (거래처 외상잔액 +)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
       </div>
+      {summary.totalOverpaidAp > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-xs text-amber-800 flex items-center gap-2">
+          <span>⚠️</span>
+          <span><b>거래처 과지급/이월잔액 누락 {summary.totalOverpaidAp.toLocaleString()}원</b> — 매입 기록 없이 송금만 된 거래처 합. 4월 이전 외상이 있던 거래처라면 이월잔액(opening) 등록이 필요합니다.</span>
+        </div>
+      )}
 
       {/* 유형별 요약 (기간 기준) */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
