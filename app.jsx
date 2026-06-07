@@ -11657,8 +11657,9 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
             </span>
           )}
         </div>
+        <div className="overflow-auto" style={{minHeight: '220px', maxHeight: '380px'}}>
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
             <tr>
               <th className="px-3 py-2 text-left w-28">날짜</th>
               <th className="px-3 py-2 text-left w-20">유형</th>
@@ -11686,6 +11687,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* 저장 */}
