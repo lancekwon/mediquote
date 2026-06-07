@@ -738,6 +738,39 @@ async function dbDeleteReceivableTransaction(id) {
   if (error) throw error;
 }
 
+/* ---------- Expected Revenue (예상 매출) ---------- */
+async function dbLoadExpectedRevenue() {
+  const { data, error } = await sb.from('expected_revenue').select('*')
+    .order('due_date', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: false });
+  if (error) { console.error('dbLoadExpectedRevenue:', error); return []; }
+  return data || [];
+}
+async function dbLoadExpectedRevenueSummary() {
+  const { data, error } = await sb.from('v_expected_revenue_summary').select('*');
+  if (error) { console.error('dbLoadExpectedRevenueSummary:', error); return []; }
+  return data || [];
+}
+async function dbInsertExpectedRevenue(row) {
+  const { data, error } = await sb.from('expected_revenue').insert(row).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbInsertExpectedRevenueBatch(rows) {
+  if (!rows || rows.length === 0) return [];
+  const { data, error } = await sb.from('expected_revenue').insert(rows).select('id');
+  if (error) throw error;
+  return (data || []).map(r => r.id);
+}
+async function dbUpdateExpectedRevenue(id, patch) {
+  const { error } = await sb.from('expected_revenue').update(patch).eq('id', id);
+  if (error) throw error;
+}
+async function dbDeleteExpectedRevenue(id) {
+  const { error } = await sb.from('expected_revenue').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // 발주 ↔ 외상매입 자동 연동 (차액 누적 방식 — audit trail 보존)
 // 현재 PO에 대한 매입 누적 합계를 newAmount로 맞추기 위한 차액 트랜잭션을 추가한다.
 // 첫 매입이면 'purchase', 그 이후 변경은 'adjustment'로 기록.
@@ -9912,8 +9945,9 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [balances, setBalances] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [cashLogs, setCashLogs] = useState([]);
-  const [arBalances, setArBalances] = useState([]);       // 병원별 매출/수금/미수금
-  const [arTransactions, setArTransactions] = useState([]); // receivable_transactions
+  const [arBalances, setArBalances] = useState([]);       // 병원별 매출/수금/미수금 (legacy)
+  const [arTransactions, setArTransactions] = useState([]); // receivable_transactions (legacy)
+  const [expectedRev, setExpectedRev] = useState([]);     // 예상 매출 (신규 모듈)
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9936,7 +9970,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [b, t, c, p, ab, at, hosp, ctr] = await Promise.all([
+      const [b, t, c, p, ab, at, hosp, ctr, er] = await Promise.all([
         dbLoadPayableBalances(),
         dbLoadPayableTransactions(),
         dbLoadCashBalanceLog({ limit: 1000 }),
@@ -9945,6 +9979,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
         dbLoadReceivableTransactions(),
         dbLoadHospitals(),
         dbLoadAllContracts(),
+        dbLoadExpectedRevenue(),
       ]);
       setBalances(b);
       setTransactions(t);
@@ -9954,6 +9989,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       setArTransactions(at);
       setHospitals(hosp);
       setContracts(ctr);
+      setExpectedRev(er);
     } catch (e) {
       console.error(e);
       showToast('데이터 로드 실패: ' + (e.message || e), 'error');
@@ -10071,7 +10107,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             {[
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
-              { k: 'ar_balance', l: '병원 원장' },
+              { k: 'expected', l: '예상 매출' },
               { k: 'cash', l: '통장 출납' },
               { k: 'report', l: '리포트' },
             ].map(t => (
@@ -10169,9 +10205,9 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               </div>
             </div>
           ) : tab === 'entry' ? (
-            <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} onReload={reload} showToast={showToast} />
-          ) : tab === 'ar_balance' ? (
-            <ReceivableBalanceTab arBalances={arBalances} arTransactions={arTransactions} contracts={contracts} onReload={reload} showToast={showToast} />
+            <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} expectedRev={expectedRev} onReload={reload} showToast={showToast} />
+          ) : tab === 'expected' ? (
+            <ExpectedRevenueTab rows={expectedRev} hospitals={hospitals} cashLogs={cashLogs} onReload={reload} showToast={showToast} />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} />
           ) : (
@@ -11239,6 +11275,432 @@ function ReceivableBalanceTab({ arBalances = [], arTransactions = [], contracts 
   );
 }
 
+/* ========== 예상 매출 (Expected Revenue) ========== */
+const REVENUE_KIND_META = {
+  hospital: { label:'병원 매출',   color:'bg-emerald-100 text-emerald-700', dot:'bg-emerald-500' },
+  platform: { label:'플랫폼 매출', color:'bg-teal-100 text-teal-700',       dot:'bg-teal-500' },
+  referral: { label:'소개 수수료', color:'bg-amber-100 text-amber-700',     dot:'bg-amber-500' },
+};
+
+function ExpectedRevenueModal({ hospitals = [], editingRow = null, onClose, onSaved }) {
+  const isEdit = !!editingRow;
+  const [kind, setKind] = useState(editingRow?.kind || 'hospital');
+  const [targetName, setTargetName] = useState(editingRow?.target_name || '');
+  const [targetHospitalId, setTargetHospitalId] = useState(editingRow?.target_hospital_id || '');
+  const [title, setTitle] = useState(editingRow?.title || '');
+  const [memo, setMemo] = useState(editingRow?.memo || '');
+  const [mode, setMode] = useState(editingRow?.group_id ? 'split' : 'single');
+  // 일시불
+  const [single, setSingle] = useState({
+    amount: editingRow ? Number(editingRow.amount || 0).toLocaleString('ko-KR') : '',
+    due_date: editingRow?.due_date || '',
+    installment_label: editingRow?.installment_label || '일시불',
+    invoice_issued: !!editingRow?.invoice_issued,
+  });
+  // 분할 — 신규 등록 시만 (편집은 한 행만)
+  const [splits, setSplits] = useState([
+    { label:'계약금', amount:'', due_date:'', invoice_issued: false },
+    { label:'중도금', amount:'', due_date:'', invoice_issued: false },
+    { label:'잔금',   amount:'', due_date:'', invoice_issued: false },
+  ]);
+
+  const hospOpts = useMemo(() => [...hospitals].sort((a,b)=>(a.name||'').localeCompare(b.name||'')), [hospitals]);
+  const [hospSearch, setHospSearch] = useState('');
+  const [hospOpen, setHospOpen] = useState(false);
+  const hospRef = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (hospRef.current && !hospRef.current.contains(e.target)) setHospOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+  const filteredHosp = useMemo(() => {
+    const q = hospSearch.trim().toLowerCase();
+    if (!q) return hospOpts;
+    return hospOpts.filter(h => vendorMatch(h.name, q));
+  }, [hospOpts, hospSearch]);
+  const selectedHosp = hospitals.find(h => h.id === targetHospitalId);
+  // 병원 선택 시 targetName 자동 채움
+  useEffect(() => {
+    if (kind === 'hospital' && selectedHosp && !targetName) setTargetName(selectedHosp.name);
+  }, [selectedHosp, kind]);
+
+  const parseAmt = v => Number((v||'').toString().replace(/[,\s]/g,'')) || 0;
+  const fmtInput = v => { const d = (v||'').toString().replace(/[^\d]/g,''); return d ? Number(d).toLocaleString('ko-KR') : ''; };
+
+  const totalSplit = splits.reduce((s,r) => s + parseAmt(r.amount), 0);
+
+  const handleSave = async () => {
+    if (!targetName.trim()) return alert('대상명을 입력하세요.');
+    if (mode === 'single' && parseAmt(single.amount) <= 0) return alert('금액을 입력하세요.');
+    if (mode === 'split' && totalSplit <= 0) return alert('분할 금액을 1개 이상 입력하세요.');
+
+    try {
+      if (isEdit) {
+        // 편집 — 한 행만 (group_id 그대로 유지)
+        await dbUpdateExpectedRevenue(editingRow.id, {
+          kind, target_name: targetName.trim(),
+          target_hospital_id: kind==='hospital' ? (targetHospitalId || null) : null,
+          title: title.trim() || null,
+          installment_label: single.installment_label || null,
+          amount: parseAmt(single.amount),
+          due_date: single.due_date || null,
+          invoice_issued: !!single.invoice_issued,
+          memo: memo.trim() || null,
+        });
+      } else if (mode === 'single') {
+        await dbInsertExpectedRevenue({
+          kind, target_name: targetName.trim(),
+          target_hospital_id: kind==='hospital' ? (targetHospitalId || null) : null,
+          title: title.trim() || null,
+          installment_label: single.installment_label || '일시불',
+          amount: parseAmt(single.amount),
+          due_date: single.due_date || null,
+          invoice_issued: !!single.invoice_issued,
+          memo: memo.trim() || null,
+        });
+      } else {
+        // 분할 — group_id 공유, 빈 행은 제외
+        const gid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const rows = splits
+          .filter(s => parseAmt(s.amount) > 0)
+          .map(s => ({
+            kind, target_name: targetName.trim(),
+            target_hospital_id: kind==='hospital' ? (targetHospitalId || null) : null,
+            title: title.trim() || null,
+            installment_label: s.label || null,
+            group_id: gid,
+            amount: parseAmt(s.amount),
+            due_date: s.due_date || null,
+            invoice_issued: !!s.invoice_issued,
+            memo: memo.trim() || null,
+          }));
+        await dbInsertExpectedRevenueBatch(rows);
+      }
+      onSaved && onSaved();
+      onClose();
+    } catch (e) { alert('저장 실패: ' + (e.message || e)); }
+  };
+
+  const inputCls = "bg-white border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400";
+
+  return (
+    <ModalShell title={isEdit ? '예상 매출 수정' : '예상 매출 등록'} onClose={onClose} wide>
+      {/* 종류 */}
+      {!isEdit && (
+        <div className="mb-3">
+          <label className="text-xs text-slate-500 mb-1 block">유형</label>
+          <div className="flex gap-2">
+            {Object.entries(REVENUE_KIND_META).map(([k, m]) => (
+              <button key={k} onClick={() => setKind(k)}
+                className={`flex-1 px-3 py-2 text-sm rounded border-2 transition-colors ${kind===k ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-slate-200 hover:border-slate-300'}`}>
+                <span className={`inline-block w-2 h-2 rounded-full ${m.dot} mr-1.5`}></span>
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 대상 */}
+      <div className="mb-3">
+        <label className="text-xs text-slate-500 mb-1 block">대상명 <span className="text-red-400">*</span></label>
+        {kind === 'hospital' ? (
+          <div className="relative" ref={hospRef}>
+            <input type="text"
+              value={hospOpen ? hospSearch : (selectedHosp ? selectedHosp.name : targetName)}
+              onChange={e => { if (hospOpen) setHospSearch(e.target.value); else { setTargetName(e.target.value); setTargetHospitalId(''); } }}
+              onFocus={() => { setHospOpen(true); setHospSearch(''); }}
+              placeholder="병원 선택 또는 자유 입력 (초성 ㅇㄹ 가능)"
+              className={`w-full ${inputCls}`} />
+            {hospOpen && (
+              <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl">
+                {filteredHosp.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-slate-400">검색 결과 없음 — 위 칸에 직접 입력</div>
+                ) : filteredHosp.slice(0,50).map(h => (
+                  <div key={h.id}
+                    onClick={() => { setTargetHospitalId(h.id); setTargetName(h.name); setHospOpen(false); setHospSearch(''); }}
+                    className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 ${h.id===targetHospitalId ? 'bg-blue-50 font-medium' : ''}`}>
+                    {h.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <input type="text" value={targetName} onChange={e => setTargetName(e.target.value)}
+            placeholder={kind==='platform' ? '예: 네이버 파트너스 / 카카오 비즈 / 메디게이트' : '예: 도렉스 (소개자명 또는 회사명)'}
+            className={`w-full ${inputCls}`} />
+        )}
+      </div>
+
+      {/* 제목 */}
+      <div className="mb-3">
+        <label className="text-xs text-slate-500 mb-1 block">제목 (선택)</label>
+        <input type="text" value={title} onChange={e => setTitle(e.target.value)}
+          placeholder={kind==='hospital' ? '예: 당산리더스 6월 계약' : kind==='platform' ? '예: 5월 파트너스 정산' : '예: ○○병원 소개 수수료'}
+          className={`w-full ${inputCls}`} />
+      </div>
+
+      {/* 일시불 / 분할 */}
+      {!isEdit && (
+        <div className="mb-3">
+          <label className="text-xs text-slate-500 mb-1 block">구분</label>
+          <div className="flex gap-2">
+            <button onClick={() => setMode('single')}
+              className={`flex-1 px-3 py-2 text-sm rounded border-2 ${mode==='single' ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-slate-200'}`}>일시불</button>
+            <button onClick={() => setMode('split')}
+              className={`flex-1 px-3 py-2 text-sm rounded border-2 ${mode==='split' ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-slate-200'}`}>분할 청구</button>
+          </div>
+        </div>
+      )}
+
+      {/* 금액 입력 */}
+      {(mode === 'single' || isEdit) ? (
+        <div className="grid grid-cols-12 gap-2 mb-3 items-end">
+          <div className="col-span-3">
+            <label className="text-xs text-slate-500 mb-1 block">회차/구분</label>
+            <input type="text" value={single.installment_label} onChange={e => setSingle(s => ({...s, installment_label: e.target.value}))}
+              placeholder="일시불" className={`w-full ${inputCls}`} />
+          </div>
+          <div className="col-span-4">
+            <label className="text-xs text-slate-500 mb-1 block">금액 (원) <span className="text-red-400">*</span></label>
+            <input type="text" value={single.amount}
+              onChange={e => setSingle(s => ({...s, amount: fmtInput(e.target.value)}))}
+              placeholder="0" className={`w-full ${inputCls} font-mono text-right`} />
+          </div>
+          <div className="col-span-3">
+            <label className="text-xs text-slate-500 mb-1 block">예정일</label>
+            <input type="date" value={single.due_date} onChange={e => setSingle(s => ({...s, due_date: e.target.value}))} className={`w-full ${inputCls}`} />
+          </div>
+          <div className="col-span-2 flex items-center gap-1.5 pb-2">
+            <input type="checkbox" id="single-tax" checked={single.invoice_issued} onChange={e => setSingle(s => ({...s, invoice_issued: e.target.checked}))} />
+            <label htmlFor="single-tax" className="text-xs text-slate-600 select-none">세금계산서</label>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-3 border border-slate-200 rounded p-3 bg-slate-50">
+          <div className="text-xs text-slate-500 mb-2">분할 청구 — 빈 줄은 저장 시 제외</div>
+          {splits.map((s, i) => (
+            <div key={i} className="grid grid-cols-12 gap-2 mb-2 items-center">
+              <div className="col-span-2 text-xs text-slate-500 text-center">{i+1}차</div>
+              <input type="text" value={s.label}
+                onChange={e => setSplits(arr => arr.map((x,j) => j===i ? {...x, label:e.target.value} : x))}
+                className={`col-span-2 ${inputCls}`} placeholder="라벨" />
+              <input type="text" value={s.amount}
+                onChange={e => setSplits(arr => arr.map((x,j) => j===i ? {...x, amount: fmtInput(e.target.value)} : x))}
+                placeholder="금액" className={`col-span-3 ${inputCls} font-mono text-right`} />
+              <input type="date" value={s.due_date}
+                onChange={e => setSplits(arr => arr.map((x,j) => j===i ? {...x, due_date: e.target.value} : x))}
+                className={`col-span-3 ${inputCls}`} />
+              <label className="col-span-2 flex items-center gap-1 text-xs cursor-pointer">
+                <input type="checkbox" checked={s.invoice_issued}
+                  onChange={e => setSplits(arr => arr.map((x,j) => j===i ? {...x, invoice_issued: e.target.checked} : x))} />
+                세금
+              </label>
+            </div>
+          ))}
+          <div className="flex items-center justify-between mt-2">
+            <button onClick={() => setSplits(arr => [...arr, {label:`${arr.length+1}차`, amount:'', due_date:'', invoice_issued:false}])}
+              className="text-xs text-blue-600 hover:underline">+ 회차 추가</button>
+            <div className="text-xs text-slate-600">합계 <span className="font-mono font-semibold">{totalSplit.toLocaleString()}</span>원</div>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-4">
+        <label className="text-xs text-slate-500 mb-1 block">메모 (선택)</label>
+        <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={2}
+          className={`w-full ${inputCls}`} />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">취소</button>
+        <button onClick={handleSave} className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold">
+          {isEdit ? '수정 저장' : (mode==='split' ? `${splits.filter(s=>parseAmt(s.amount)>0).length}건 일괄 저장` : '저장')}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ExpectedRevenueTab({ rows = [], hospitals = [], cashLogs = [], onReload, showToast }) {
+  const [kindFilter, setKindFilter] = useState('all');
+  const [showOutstandingOnly, setShowOutstandingOnly] = useState(false);
+  const [showPendingInvoiceOnly, setShowPendingInvoiceOnly] = useState(false);
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState(null);  // row | null
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
+      if (showOutstandingOnly && r.collected) return false;
+      if (showPendingInvoiceOnly && r.invoice_issued) return false;
+      if (q && !`${r.target_name||''} ${r.title||''} ${r.memo||''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [rows, kindFilter, showOutstandingOnly, showPendingInvoiceOnly, search]);
+
+  // 정렬: 종류 → group_id → due_date asc → 회차 순
+  const sorted = useMemo(() => {
+    const KIND_ORDER = { hospital:0, platform:1, referral:2 };
+    return [...filtered].sort((a,b) => {
+      if (a.kind !== b.kind) return (KIND_ORDER[a.kind]||9) - (KIND_ORDER[b.kind]||9);
+      if (a.target_name !== b.target_name) return (a.target_name||'').localeCompare(b.target_name||'');
+      if ((a.group_id||'') !== (b.group_id||'')) return (a.group_id||'').localeCompare(b.group_id||'');
+      return (a.due_date||'9999').localeCompare(b.due_date||'9999');
+    });
+  }, [filtered]);
+
+  // 종류별 요약 (전체 rows 기준)
+  const summary = useMemo(() => {
+    const s = { hospital:{inv:0,col:0,out:0,cnt:0}, platform:{inv:0,col:0,out:0,cnt:0}, referral:{inv:0,col:0,out:0,cnt:0} };
+    rows.forEach(r => {
+      const g = s[r.kind] || (s[r.kind] = {inv:0,col:0,out:0,cnt:0});
+      g.inv += r.amount || 0;
+      if (r.collected) g.col += r.amount || 0;
+      else g.out += r.amount || 0;
+      g.cnt++;
+    });
+    return s;
+  }, [rows]);
+
+  const toggleField = async (row, field) => {
+    const today = new Date().toISOString().slice(0,10);
+    const patch = { [field]: !row[field] };
+    if (field === 'invoice_issued') patch.invoice_issued_date = !row[field] ? today : null;
+    if (field === 'collected') { patch.collected_date = !row[field] ? today : null; if (row[field]) patch.collected_cash_log_id = null; }
+    try { await dbUpdateExpectedRevenue(row.id, patch); onReload(); }
+    catch (e) { alert('업데이트 실패: ' + (e.message || e)); }
+  };
+
+  const handleDelete = async (row) => {
+    if (!confirm(`이 행을 삭제하시겠습니까?\n${row.target_name} / ${(row.amount||0).toLocaleString()}원`)) return;
+    try { await dbDeleteExpectedRevenue(row.id); onReload(); showToast && showToast('삭제됨'); }
+    catch (e) { alert('삭제 실패: ' + (e.message || e)); }
+  };
+
+  return (
+    <div>
+      {/* 종류별 요약 카드 */}
+      <div className="grid grid-cols-3 gap-3 p-4 pb-2">
+        {(['hospital','platform','referral']).map(k => {
+          const m = REVENUE_KIND_META[k];
+          const g = summary[k] || {inv:0,col:0,out:0,cnt:0};
+          return (
+            <div key={k} className={`rounded-lg border p-3 ${m.color.replace('text-','border-').split(' ')[0]}/40 ${m.color.split(' ')[0]}/30`}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-block w-2 h-2 rounded-full ${m.dot}`}></span>
+                  <span className="text-xs font-semibold text-slate-700">{m.label}</span>
+                </div>
+                <span className="text-[10px] text-slate-400">{g.cnt}건</span>
+              </div>
+              <div className="text-xs text-slate-500">청구 <span className="font-mono text-slate-800">{g.inv.toLocaleString()}</span></div>
+              <div className="text-xs text-slate-500">수금 <span className="font-mono text-emerald-700">{g.col.toLocaleString()}</span></div>
+              <div className="text-xs text-slate-500">미수 <span className="font-mono text-rose-700 font-semibold">{g.out.toLocaleString()}</span></div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 컨트롤 바 */}
+      <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border-y border-slate-100 text-xs text-slate-500 flex-wrap">
+        <select value={kindFilter} onChange={e => setKindFilter(e.target.value)}
+          className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs">
+          <option value="all">전체 유형</option>
+          <option value="hospital">병원 매출</option>
+          <option value="platform">플랫폼 매출</option>
+          <option value="referral">소개 수수료</option>
+        </select>
+        <input type="text" placeholder="대상·제목·메모 검색" value={search} onChange={e => setSearch(e.target.value)}
+          className="flex-1 max-w-xs bg-white border border-slate-200 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-blue-400" />
+        <button onClick={() => setShowOutstandingOnly(v => !v)}
+          className={`px-2.5 py-1.5 rounded border text-xs ${showOutstandingOnly ? 'bg-rose-100 text-rose-700 border-rose-300' : 'bg-white border-slate-200'}`}>
+          {showOutstandingOnly ? '☑' : '☐'} 미수금만
+        </button>
+        <button onClick={() => setShowPendingInvoiceOnly(v => !v)}
+          className={`px-2.5 py-1.5 rounded border text-xs ${showPendingInvoiceOnly ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-white border-slate-200'}`}>
+          {showPendingInvoiceOnly ? '☑' : '☐'} 세금계산서 미발행만
+        </button>
+        <span className="ml-auto">{filtered.length}건 / 전체 {rows.length}</span>
+        <button onClick={() => { setEditing(null); setModalOpen(true); }}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold">+ 매출 등록</button>
+      </div>
+
+      {/* 표 */}
+      <div className="overflow-auto" style={{maxHeight:'calc(100vh - 460px)'}}>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
+            <tr>
+              <th className="px-3 py-2 text-left w-24">유형</th>
+              <th className="px-3 py-2 text-left">대상 / 제목</th>
+              <th className="px-3 py-2 text-left w-24">회차</th>
+              <th className="px-3 py-2 text-right w-32">금액</th>
+              <th className="px-3 py-2 text-center w-28">예정일</th>
+              <th className="px-3 py-2 text-center w-24">세금계산서</th>
+              <th className="px-3 py-2 text-center w-24">수금</th>
+              <th className="px-3 py-2 text-center w-20"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r, idx) => {
+              const m = REVENUE_KIND_META[r.kind] || { label:r.kind, color:'bg-slate-100 text-slate-600' };
+              const prev = idx > 0 ? sorted[idx-1] : null;
+              const isFirstOfGroup = !prev || prev.group_id !== r.group_id || !r.group_id;
+              return (
+                <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${r.group_id && !isFirstOfGroup ? 'bg-slate-50/30' : ''}`}>
+                  <td className="px-3 py-2">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${m.color}`}>{m.label}</span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-800">
+                    {r.group_id && !isFirstOfGroup && <span className="text-slate-300 mr-1">└</span>}
+                    <div className="font-medium">{r.target_name}</div>
+                    {r.title && <div className="text-[11px] text-slate-400">{r.title}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-600">{r.installment_label || '—'}</td>
+                  <td className="px-3 py-2 text-right font-mono">{(r.amount||0).toLocaleString()}</td>
+                  <td className="px-3 py-2 text-center text-xs text-slate-500">{r.due_date || '—'}</td>
+                  <td className="px-3 py-2 text-center">
+                    <button onClick={() => toggleField(r, 'invoice_issued')}
+                      className={`text-sm ${r.invoice_issued ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
+                      title={r.invoice_issued ? `발행: ${r.invoice_issued_date || ''}` : '발행으로 표시'}>
+                      {r.invoice_issued ? '✅' : '⬜'}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button onClick={() => toggleField(r, 'collected')}
+                      className={`text-sm ${r.collected ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
+                      title={r.collected ? `수금: ${r.collected_date || ''}` : '수금 완료로 표시'}>
+                      {r.collected ? '✅' : '⬜'}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-center text-xs">
+                    <button onClick={() => { setEditing(r); setModalOpen(true); }} className="text-blue-500 hover:text-blue-700 mr-1.5">수정</button>
+                    <button onClick={() => handleDelete(r)} className="text-rose-400 hover:text-rose-600">삭제</button>
+                  </td>
+                </tr>
+              );
+            })}
+            {sorted.length === 0 && (
+              <tr><td colSpan={8} className="py-12 text-center text-slate-400 text-sm">
+                예상 매출이 없습니다. 우측 상단 <b>[+ 매출 등록]</b> 으로 추가하세요.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {modalOpen && (
+        <ExpectedRevenueModal hospitals={hospitals} editingRow={editing}
+          onClose={() => { setModalOpen(false); setEditing(null); }}
+          onSaved={() => { onReload(); showToast && showToast(editing ? '수정됨' : '등록됨'); }} />
+      )}
+    </div>
+  );
+}
+
 function CashAddModal({ currentBalance, onClose, onSaved }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [delta, setDelta] = useState('');
@@ -11357,20 +11819,32 @@ async function dbSaveManualEntry(e) {
       log_date: e.date, delta: -amount,
       memo: `[지급] ${e.vendorName || ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
     });
-  } else if (t.key === 'collect' && e.hospitalId) {
-    // 병원 매출 수금 — 통장 입금 + receivable_transactions('collect') 동시 기록
+  } else if (t.key === 'collect' && (e.expectedId || e.hospitalId)) {
+    // 병원 매출 수금 — 통장 입금 + (예상매출 수금완료 또는 legacy receivable)
     const tag = t.shortLabel || t.label;
     const cashId = await dbInsertCashBalance({
       log_date: e.date, delta: amount,
       memo: `[${tag}]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
     });
-    await dbInsertReceivableTransaction({
-      hospital_id: e.hospitalId,
-      contract_id: e.contractId || null,
-      tx_date: e.date, tx_type: 'collect',
-      amount, memo: e.memo || null,
-      cash_log_id: cashId,
-    });
+    if (e.expectedId) {
+      // 신규: 예상매출 행 수금완료 처리
+      await dbUpdateExpectedRevenue(e.expectedId, {
+        collected: true,
+        collected_date: e.date,
+        collected_cash_log_id: cashId,
+      });
+    } else if (e.hospitalId) {
+      // legacy: receivable_transactions 기록 (마이그레이션 전 호환)
+      try {
+        await dbInsertReceivableTransaction({
+          hospital_id: e.hospitalId,
+          contract_id: e.contractId || null,
+          tx_date: e.date, tx_type: 'collect',
+          amount, memo: e.memo || null,
+          cash_log_id: cashId,
+        });
+      } catch (_) { /* receivable_transactions 미존재 시 무시 */ }
+    }
   } else {
     // collect(잡수입) / opex / advance / etc_in / etc_out / platform / payment(vendor없을때) — 통장만
     const tag = t.shortLabel || t.label;
@@ -11382,7 +11856,7 @@ async function dbSaveManualEntry(e) {
   }
 }
 
-function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts = [], onReload, showToast }) {
+function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts = [], expectedRev = [], onReload, showToast }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [typeKey, setTypeKey] = useState('payment');
@@ -11397,6 +11871,8 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
   const [hospitalOpen, setHospitalOpen] = useState(false);
   const hospitalBoxRef = useRef(null);
   const [contractId, setContractId] = useState('');
+  // 수금 — 예상매출 행 연결 (우선)
+  const [expectedId, setExpectedId] = useState('');
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
 
@@ -11438,6 +11914,14 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
     if (!hospitalId) return [];
     return contracts.filter(c => c.hospital_id === hospitalId && (c.status == null || c.status !== '취소'));
   }, [contracts, hospitalId]);
+
+  // 미수 상태 예상매출 (collect 유형에서 선택 가능)
+  const outstandingExpected = useMemo(() => {
+    return (expectedRev || [])
+      .filter(r => !r.collected)
+      .sort((a,b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
+  }, [expectedRev]);
+  const selectedExpected = expectedRev.find(r => r.id === expectedId);
   const parseAmt = (v) => Number((v || '').toString().replace(/[,\s]/g, '')) || 0;
 
   const addRow = () => {
@@ -11456,8 +11940,12 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
         vendorName,
         amount: amt, memo: memo.trim(),
       };
-      // 수금 + 병원 선택 시 매출 차감 정보 부착
-      if (needHospital && hospitalId) {
+      // 수금 + 예상매출 선택 시 우선 사용 (자동으로 hospitalId/병원명 동기화됨)
+      if (needHospital && expectedId) {
+        row.expectedId = expectedId;
+        row.hospitalName = selectedExpected?.target_name || '';
+        row.hospitalId = selectedExpected?.target_hospital_id || hospitalId || null;
+      } else if (needHospital && hospitalId) {
         row.hospitalId = hospitalId;
         row.hospitalName = selectedHospital?.name || '';
         row.contractId = contractId || null;
@@ -11551,6 +12039,25 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
               </div>
             ) : needHospital ? (
               <div className="space-y-1">
+                {/* 예상매출 행 선택 (우선) — 선택 시 자동으로 병원/금액 연동 */}
+                <select value={expectedId}
+                  onChange={e => {
+                    setExpectedId(e.target.value);
+                    const r = expectedRev.find(x => x.id === e.target.value);
+                    if (r) {
+                      if (r.target_hospital_id) setHospitalId(r.target_hospital_id);
+                      if (r.amount && !amount) setAmount(Number(r.amount).toLocaleString('ko-KR'));
+                    }
+                  }}
+                  className={`w-full ${inputCls} text-xs`}>
+                  <option value="">— 받을 돈 선택 (또는 아래에서 병원만 선택) —</option>
+                  {outstandingExpected.map(r => {
+                    const m = REVENUE_KIND_META[r.kind] || {label:r.kind};
+                    return <option key={r.id} value={r.id}>
+                      [{m.label}] {r.target_name}{r.installment_label ? ' · '+r.installment_label : ''} · {(r.amount||0).toLocaleString()}원{r.due_date ? ' · '+r.due_date : ''}
+                    </option>;
+                  })}
+                </select>
                 <div className="relative" ref={hospitalBoxRef}>
                   <input type="text"
                     value={hospitalOpen ? hospitalSearch : (selectedHospital ? selectedHospital.name : '')}
