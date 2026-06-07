@@ -10078,29 +10078,6 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       <AppHeader title="매입매출 관리" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
 
       <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%'}}>
-        {/* 요약 카드 */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">총 외상매입금</div>
-            <div className="text-2xl font-bold text-slate-900">{totals.totalBal.toLocaleString()}<span className="text-sm font-normal text-slate-500 ml-1">원</span></div>
-            <div className="text-xs text-slate-400 mt-1">활성 거래처 {totals.activeCount}개</div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">누적 매입</div>
-            <div className="text-xl font-semibold text-slate-700">{totals.totalPurchase.toLocaleString()}<span className="text-sm font-normal text-slate-500 ml-1">원</span></div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">누적 입금</div>
-            <div className="text-xl font-semibold text-emerald-700">{totals.totalPayment.toLocaleString()}<span className="text-sm font-normal text-slate-500 ml-1">원</span></div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">통장잔액 <span className="text-[10px] text-slate-400">(최근 기록)</span></div>
-            <div className={`text-xl font-semibold ${cashCurrent != null && cashCurrent < 0 ? 'text-red-600' : 'text-slate-700'}`}>
-              {cashCurrent != null ? cashCurrent.toLocaleString() + '원' : '—'}
-            </div>
-            {cashLogs[0] && <div className="text-xs text-slate-400 mt-1">{cashLogs[0].log_date}</div>}
-          </div>
-        </div>
 
         {/* 탭 */}
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -10210,7 +10187,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'expected' ? (
             <ExpectedRevenueTab rows={expectedRev} hospitals={hospitals} cashLogs={cashLogs} onReload={reload} showToast={showToast} />
           ) : tab === 'report' ? (
-            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} />
+            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} cashCurrent={cashCurrent} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} />
           )}
@@ -12191,7 +12168,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
-function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [] }) {
+function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], cashCurrent = null }) {
   // 기본: 오늘부터 최근 한 달
   const defaultRange = useMemo(() => {
     const today = new Date();
@@ -12293,6 +12270,17 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
 
   return (
     <div className="p-4 space-y-5 overflow-auto" style={{maxHeight: 'calc(100vh - 260px)'}}>
+      {/* 통장잔액 (현재 시점) */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
+        <div>
+          <div className="text-xs text-slate-500 mb-1">통장잔액 <span className="text-[10px] text-slate-400">(최근 기록)</span></div>
+          <div className={`text-2xl font-bold ${cashCurrent != null && cashCurrent < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+            {cashCurrent != null ? cashCurrent.toLocaleString() + '원' : '—'}
+          </div>
+        </div>
+        {cashLogs[0] && <div className="text-xs text-slate-400">{cashLogs[0].log_date}</div>}
+      </div>
+
       {/* 기간 */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500">기간</span>
