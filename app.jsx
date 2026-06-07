@@ -5266,7 +5266,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           if (hospitalName) {
             const { data: existingHosp } = await sb.from('hospitals').select('id').eq('name', hospitalName).maybeSingle();
             if (existingHosp) hospitalId = existingHosp.id;
-            else hospitalId = await dbSaveHospital({ name: hospitalName, contact_name: q.doctor || '', contact_phone: lead.contact_phone || '' });
+            // 자동 등록 제거 — 병원 마스터는 '영업관리 → 납품완료 → 관리등록' 또는 '병원 관리' 메뉴에서만 등록
+            // 마스터에 없으면 hospital_id=null로 계약 생성, 추후 관리등록 시 contract.hospital_id 자동 연결
           }
           const newContractId = await dbSaveContract({
             hospital_id: hospitalId, hospital_name: hospitalName || null,
@@ -7168,25 +7169,13 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
         }
       }
 
-      // 병원명 입력 + hospital_id 미연결 → 기존 이름 검색 or 새 병원 생성
+      // 병원명 입력 + hospital_id 미연결 → 기존 마스터에서만 매칭 (자동 등록 안 함)
+      // 마스터 등록은 '영업관리 → 납품완료 → 관리등록' 또는 '병원 관리' 메뉴에서만 수행
       const hospName = (payload.hospital_name || '').trim();
       if (hospName && !payload.hospital_id) {
-        try {
-          const existing = hospitals.find(h => (h.name || '').trim() === hospName);
-          if (existing) {
-            payload.hospital_id = existing.id;
-          } else {
-            // 새 병원 등록
-            const newId = await dbSaveHospital({ name: hospName, contact_name: payload.contact_name || '', contact_phone: payload.contact_phone || '' });
-            payload.hospital_id = newId;
-            // hospitals 캐시 갱신
-            if (setHospitals) {
-              const fresh = await dbLoadHospitals();
-              setHospitals(fresh);
-            }
-            window.toast && window.toast.info(`새 병원 "${hospName}" 이(가) 등록되었습니다`);
-          }
-        } catch(err) { console.warn('병원 자동 등록 실패:', err); }
+        const existing = hospitals.find(h => (h.name || '').trim() === hospName);
+        if (existing) payload.hospital_id = existing.id;
+        // 없으면 hospital_id=null 유지 — hospital_name 텍스트만 lead에 보존
       }
       if (!hospName) payload.hospital_id = null;
 
@@ -7878,10 +7867,10 @@ function ContractFormModal({ quote, onClose, onSaved }) {
     try {
       let hospitalId = null;
       if (hospitalName.trim()) {
-        let hosp = hospitals.find(h => h.name === hospitalName.trim());
+        const hosp = hospitals.find(h => h.name === hospitalName.trim());
         if (hosp) {
           hospitalId = hosp.id;
-          // 리드 연락처 정보로 병원 업데이트 (완료 시)
+          // 리드 연락처 정보로 병원 업데이트 (완료 시) — 기존 마스터에 연락처 없으면 보강
           if (status === '완료' && linkedLead) {
             await dbUpdateHospital(hosp.id, {
               contact_name: hosp.contact_name || linkedLead.contact_name || '',
@@ -7889,18 +7878,9 @@ function ContractFormModal({ quote, onClose, onSaved }) {
               phone: hosp.phone || linkedLead.contact_phone || '',
             });
           }
-        } else if (status === '완료') {
-          // 병원 신규 등록 — 리드 정보 자동 채움
-          hospitalId = await dbSaveHospital({
-            name: hospitalName.trim(),
-            contact_name: linkedLead?.contact_name || '',
-            contact_phone: linkedLead?.contact_phone || '',
-            phone: linkedLead?.contact_phone || '',
-            notes: linkedLead ? `리드(${linkedLead.source || linkedLead.contact_name || '직접입력'}) 계약 완료 — ${linkedLead.contact_name || ''}${linkedLead.contact_phone ? ' · ' + linkedLead.contact_phone : ''}`.trim() : '',
-          });
-        } else {
-          hospitalId = await dbSaveHospital({ name: hospitalName.trim() });
         }
+        // 마스터에 없으면 hospital_id=null — 자동 등록 안 함
+        // (병원 마스터 등록은 '영업관리 → 납품완료 → 관리등록' 또는 '병원 관리' 메뉴에서만)
       }
       await dbSaveContract({
         hospital_id: hospitalId,
