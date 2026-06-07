@@ -12304,10 +12304,8 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
         <span className="ml-auto text-xs text-slate-400">{(from || to) ? '선택 기간' : '전체 기간'} 기준</span>
       </div>
 
-      {/* 매입·통장 요약 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Card label="매입 (기간)" value={summary.purchase} color="bg-amber-50 border-amber-200 text-amber-800" />
-        <Card label="지급 (기간)" value={summary.payment} color="bg-blue-50 border-blue-200 text-blue-800" />
+      {/* 통장·외상 요약 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card label="통장 입금" value={summary.cashIn} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
         <Card label="통장 출금" value={summary.cashOut} color="bg-rose-50 border-rose-200 text-rose-800" />
         <Card label="줄 돈 (거래처 외상잔액 +)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
