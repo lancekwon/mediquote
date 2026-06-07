@@ -12261,6 +12261,19 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       .slice(0, 12);
   }, [balances]);
 
+  // 미수금 순위 (예상매출 collected=false, 대상별 합산, 상위 12)
+  const outstandingRank = useMemo(() => {
+    const m = new Map();
+    expectedRev.filter(r => !r.collected).forEach(r => {
+      const key = `${r.kind}|${r.target_name}`;
+      if (!m.has(key)) m.set(key, { kind: r.kind, target_name: r.target_name, amount: 0, count: 0 });
+      const g = m.get(key);
+      g.amount += r.amount || 0;
+      g.count++;
+    });
+    return Array.from(m.values()).sort((a, b) => b.amount - a.amount).slice(0, 12);
+  }, [expectedRev]);
+
   const Card = ({ label, value, color }) => (
     <div className={`rounded-xl border p-4 ${color}`}>
       <div className="text-xs mb-1 opacity-80">{label}</div>
@@ -12395,6 +12408,41 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
                   <td className={`px-3 py-1.5 text-right font-mono text-xs font-semibold ${(b.balance || 0) < 0 ? 'text-red-600' : 'text-slate-800'}`}>{(b.balance || 0).toLocaleString()}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 미수금 순위 (예상매출 미수, 대상별, 상위 12) */}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700">미수금 순위 (상위 12)</div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="px-3 py-2 text-left w-8">#</th>
+                <th className="px-3 py-2 text-left">대상</th>
+                <th className="px-3 py-2 text-center w-16">회차</th>
+                <th className="px-3 py-2 text-right w-32">미수금</th>
+              </tr>
+            </thead>
+            <tbody>
+              {outstandingRank.length === 0 ? (
+                <tr><td colSpan={4} className="py-6 text-center text-slate-400 text-sm">미수금 없음 (모두 수금 완료)</td></tr>
+              ) : outstandingRank.map((r, i) => {
+                const m = (typeof REVENUE_KIND_META !== 'undefined' && REVENUE_KIND_META[r.kind]) || { label: r.kind, color: 'bg-slate-100 text-slate-600' };
+                return (
+                  <tr key={`${r.kind}-${r.target_name}-${i}`} className="border-t border-slate-100">
+                    <td className="px-3 py-1.5 text-slate-400 text-xs">{i + 1}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${m.color}`}>{m.label}</span>
+                        <span className="text-slate-800">{r.target_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-center text-xs text-slate-500">{r.count}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-xs font-semibold text-rose-700">{r.amount.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
