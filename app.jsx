@@ -11708,8 +11708,15 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
 function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [] }) {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  // 기본: 오늘부터 최근 한 달
+  const defaultRange = useMemo(() => {
+    const today = new Date();
+    const monthAgo = new Date(today.getTime() - 30 * 86400000);
+    const fmt = d => d.toISOString().slice(0, 10);
+    return { from: fmt(monthAgo), to: fmt(today) };
+  }, []);
+  const [from, setFrom] = useState(defaultRange.from);
+  const [to, setTo] = useState(defaultRange.to);
 
   const inRange = (d) => {
     if (!d) return false;
@@ -11797,7 +11804,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
   );
 
   return (
-    <div className="p-4 space-y-5">
+    <div className="p-4 space-y-5 overflow-auto" style={{maxHeight: 'calc(100vh - 260px)'}}>
       {/* 기간 */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-slate-500">기간</span>
