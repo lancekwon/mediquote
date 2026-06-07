@@ -12378,11 +12378,6 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
               미수금 {summary.totalReceivable.toLocaleString()} − 외상매입 {summary.totalBalance.toLocaleString()}
             </div>
           </div>
-          <div className="text-right text-xs text-slate-500 max-w-xs">
-            {summary.netPosition >= 0
-              ? '받을 돈이 줄 돈보다 큼 — 자금 흐름 여유'
-              : '줄 돈이 받을 돈보다 큼 — 자금 부족 가능, 수금 독려 권장'}
-          </div>
         </div>
       </div>
 
