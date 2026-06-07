@@ -10249,17 +10249,13 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   );
 }
 
-// 통장 메모 prefix → 유형 배지 스타일
+// 통장 메모 prefix → 유형 배지 스타일 (거래입력 8유형과 일치)
 const CASH_TAG_STYLE = {
   '병원 입금':       { bg:'bg-emerald-100', text:'text-emerald-700' },
   '수수료·광고 입금': { bg:'bg-teal-100',   text:'text-teal-700' },
   '잡수입':          { bg:'bg-lime-100',    text:'text-lime-700' },
   '거래처 송금':     { bg:'bg-blue-100',    text:'text-blue-700' },
   '운영비':          { bg:'bg-amber-100',   text:'text-amber-700' },
-  '세금':            { bg:'bg-amber-100',   text:'text-amber-700' },
-  '임대료':          { bg:'bg-amber-100',   text:'text-amber-700' },
-  '인건비':          { bg:'bg-amber-100',   text:'text-amber-700' },
-  '광고비':          { bg:'bg-amber-100',   text:'text-amber-700' },
   '선지급':          { bg:'bg-violet-100',  text:'text-violet-700' },
   '잡지출':          { bg:'bg-rose-100',    text:'text-rose-700' },
 };
@@ -10321,7 +10317,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
       else grp.outSum += -l.delta;
     });
     // 정렬: 입금성(+) 먼저 → 출금성(−), 그 안에서 합계 큰 순
-    const ORDER = ['병원 입금','수수료·광고 입금','잡수입','거래처 송금','운영비','세금','임대료','인건비','광고비','선지급','잡지출','(미분류)'];
+    const ORDER = ['병원 입금','수수료·광고 입금','잡수입','거래처 송금','운영비','선지급','잡지출','(미분류)'];
     return Array.from(g.values()).sort((a,b) => {
       const oa = ORDER.indexOf(a.tag); const ob = ORDER.indexOf(b.tag);
       if (oa !== ob) return (oa === -1 ? 99 : oa) - (ob === -1 ? 99 : ob);
@@ -11757,7 +11753,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       '거래처 송금': 'payment',
       '병원 입금': 'collect',
       '수수료·광고 입금': 'platform',
-      '운영비': 'opex', '세금': 'opex', '임대료': 'opex', '인건비': 'opex', '광고비': 'opex',
+      '운영비': 'opex',
       '선지급': 'advance',
       '잡수입': 'etc_in',
       '잡지출': 'etc_out',
