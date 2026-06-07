@@ -10209,7 +10209,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'expected' ? (
             <ExpectedRevenueTab rows={expectedRev} hospitals={hospitals} cashLogs={cashLogs} onReload={reload} showToast={showToast} />
           ) : tab === 'report' ? (
-            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} />
+            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} />
           )}
@@ -12190,7 +12190,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
-function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [] }) {
+function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [] }) {
   // 기본: 오늘부터 최근 한 달
   const defaultRange = useMemo(() => {
     const today = new Date();
@@ -12222,17 +12222,21 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
     // 줄 돈(양수만) + 과지급(음수만 절댓값) 분리 — 거래처 원장과 일치
     const totalBalance     = balances.reduce((s, b) => s + Math.max(0,  (b.balance || 0)), 0);
     const totalOverpaidAp  = balances.reduce((s, b) => s + Math.max(0, -(b.balance || 0)), 0);
-    // AR (병원 매출/수금)
-    const totalReceivable = arBalances.reduce((s, b) => s + Math.max(0, b.balance || 0), 0);
-    const totalInvoice    = arBalances.reduce((s, b) => s + (b.total_invoice || 0), 0);
-    const totalCollected  = arBalances.reduce((s, b) => s + (b.total_collected || 0), 0);
-    const arCollectInRange = arTransactions
-      .filter(t => t.tx_type === 'collect' && ((!from && !to) ? true : inRange(t.tx_date)))
-      .reduce((s, t) => s + (t.amount || 0), 0);
+    // AR (예상 매출 기반 — 미수=collected=false 합)
+    const totalReceivable = expectedRev
+      .filter(r => !r.collected)
+      .reduce((s, r) => s + (r.amount || 0), 0);
+    const totalInvoice    = expectedRev.reduce((s, r) => s + (r.amount || 0), 0);
+    const totalCollected  = expectedRev
+      .filter(r => r.collected)
+      .reduce((s, r) => s + (r.amount || 0), 0);
+    const arCollectInRange = expectedRev
+      .filter(r => r.collected && r.collected_date && ((!from && !to) ? true : inRange(r.collected_date)))
+      .reduce((s, r) => s + (r.amount || 0), 0);
     const netPosition = totalReceivable - totalBalance; // 받을 - 줄
     return { purchase, payment, cashIn, cashOut, totalBalance, totalOverpaidAp,
              totalReceivable, totalInvoice, totalCollected, arCollectInRange, netPosition };
-  }, [fTx, fCash, balances, arBalances, arTransactions, from, to]);
+  }, [fTx, fCash, balances, expectedRev, from, to]);
 
   // 유형별 요약 (cash 메모 prefix 파싱 → 12유형 분류)
   const byType = useMemo(() => {
