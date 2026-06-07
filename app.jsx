@@ -10051,7 +10051,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   }, [transactions]);
 
   const totals = useMemo(() => {
-    const totalBal = balances.reduce((s, b) => s + (b.balance || 0), 0);
+    // 양수 잔액만 합산 (거래처 원장·리포트와 일치) — 음수 거래처는 과지급/이월누락이므로 줄 돈에서 제외
+    const totalBal = balances.reduce((s, b) => s + Math.max(0, b.balance || 0), 0);
     const totalPurchase = balances.reduce((s, b) => s + (b.total_purchase || 0), 0);
     const totalPayment = balances.reduce((s, b) => s + (b.total_payment || 0), 0);
     const activeCount = balances.filter(b => (b.balance || 0) > 0).length;
