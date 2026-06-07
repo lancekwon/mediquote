@@ -12306,12 +12306,6 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
         <Card label="통장 출금" value={summary.cashOut} color="bg-rose-50 border-rose-200 text-rose-800" />
         <Card label="줄 돈 (거래처 외상잔액 +)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
       </div>
-      {summary.totalOverpaidAp > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-xs text-amber-800 flex items-center gap-2">
-          <span>⚠️</span>
-          <span><b>거래처 과지급/이월잔액 누락 {summary.totalOverpaidAp.toLocaleString()}원</b> — 매입 기록 없이 송금만 된 거래처 합. 4월 이전 외상이 있던 거래처라면 이월잔액(opening) 등록이 필요합니다.</span>
-        </div>
-      )}
 
       {/* 유형별 요약 (기간 기준) */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -12367,13 +12361,6 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
         </table>
       </div>
 
-      {/* 매출·수금 요약 (AR) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card label="총 청구 (전체 계약)" value={summary.totalInvoice}   color="bg-indigo-50 border-indigo-200 text-indigo-800" />
-        <Card label="누적 수금 (전체)"    value={summary.totalCollected} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
-        <Card label="수금 (기간)"          value={summary.arCollectInRange} color="bg-teal-50 border-teal-200 text-teal-800" />
-        <Card label="현재 총 미수금 (받을 돈)" value={summary.totalReceivable} color="bg-rose-50 border-rose-200 text-rose-800" />
-      </div>
 
       {/* 순 자금 포지션 — 받을 돈 − 줄 돈 */}
       <div className={`rounded-xl border p-5 ${summary.netPosition >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
@@ -12396,32 +12383,6 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* 월별 매입/지급 */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700">월별 매입 / 지급</div>
-          <div className="p-4 space-y-2.5">
-            {monthly.length === 0 ? (
-              <div className="text-center text-slate-400 text-sm py-6">데이터 없음</div>
-            ) : monthly.map(r => (
-              <div key={r.month} className="text-xs">
-                <div className="flex justify-between mb-1">
-                  <span className="font-medium text-slate-600">{r.month}</span>
-                  <span className="font-mono text-slate-500">매입 {r.purchase.toLocaleString()} · 지급 {r.payment.toLocaleString()}</span>
-                </div>
-                <div className="flex gap-1 h-3">
-                  <div className="bg-amber-400 rounded-sm" style={{ width: `${Math.max(2, r.purchase / monthlyMax * 100)}%` }} title={`매입 ${r.purchase.toLocaleString()}`}></div>
-                </div>
-                <div className="flex gap-1 h-3 mt-0.5">
-                  <div className="bg-blue-400 rounded-sm" style={{ width: `${Math.max(2, r.payment / monthlyMax * 100)}%` }} title={`지급 ${r.payment.toLocaleString()}`}></div>
-                </div>
-              </div>
-            ))}
-            <div className="flex gap-4 text-[10px] text-slate-400 pt-1">
-              <span><span className="inline-block w-2 h-2 bg-amber-400 rounded-sm mr-1"></span>매입</span>
-              <span><span className="inline-block w-2 h-2 bg-blue-400 rounded-sm mr-1"></span>지급</span>
-            </div>
-          </div>
-        </div>
 
         {/* 거래처별 순위 */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
