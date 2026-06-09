@@ -5539,6 +5539,13 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     const base = items.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
     return vatIncluded ? Math.round(base * 1.1) : base;
   };
+  const vendorSaleTotal = (items) => {
+    const base = items.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
+    return vatIncluded ? Math.round(base * 1.1) : base;
+  };
+  // 거래처별 펼침/접힘 상태 (기본: 펼침)
+  const [collapsedVendors, setCollapsedVendors] = React.useState({});
+  const toggleVendor = (v) => setCollapsedVendors(p => ({ ...p, [v]: !p[v] }));
 
   // 저장: 거래처별로 PO upsert (장비 매입가도 갱신 + 이력 기록)
   const handleSave = async () => {
@@ -6032,7 +6039,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             견적서를 찾을 수 없습니다 ({lead?.quote_no})
           </div>
         ) : (
-          <div className="max-w-7xl mx-auto space-y-4">
+          <div className="max-w-7xl mx-auto space-y-1">
             {/* 헤더 정보 */}
             <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
               <div className="grid grid-cols-12 gap-4 items-start">
@@ -6089,58 +6096,70 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
               </div>
             </div>
 
-            {/* 거래처별 그룹 */}
+            {/* 거래처별 그룹 — 엑셀시트 컴팩트 디자인 */}
             {Object.entries(vendorGroups).map(([vendor, vItems]) => {
               const vendorPo = pos.find(p => p.manufacturer_name === vendor);
+              const isCollapsed = !!collapsedVendors[vendor];
+              const totalQty = vItems.reduce((s, it) => s + (Number(it.quantity)||0), 0);
+              const firstModel = vItems[0]?.modelName || vItems[0]?.itemName || '';
+              const moreCount = vItems.length - 1;
+              const ord  = vItems.filter(i => i.ordered).length;
+              const paid = vItems.filter(i => i.paid).length;
+              const tax  = vItems.filter(i => i.taxInvoiced).length;
+              const del  = vItems.filter(i => i.delivered).length;
+              const sendKakao = () => {
+                const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
+                const companyName = company.name || '대원메디칼';
+                const lines = [`[${companyName} 발주요청]`, ''];
+                vItems.forEach((it, i) => lines.push(`${i+1}. ${it.itemName}${it.modelName ? ' · ' + it.modelName : ''} — ${it.quantity}개`));
+                lines.push('', `병원: ${quote.hospital || lead.hospital_name || ''}`, `납기일: ${deliveryDate || '협의'}`);
+                if (hospitalAddress) lines.push(`주소: ${hospitalAddress}`);
+                if (lead.contact_name) lines.push(`담당: ${lead.contact_name}${lead.contact_phone ? ' (' + lead.contact_phone + ')' : ''}`);
+                setKakaoModal({ vendor, text: lines.join('\n') });
+              };
               return (
-                <div key={vendor} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3 bg-slate-50 flex-wrap">
-                    <div className="font-bold text-slate-900">{vendor}</div>
-                    {vendorPo && <span className="font-mono text-xs text-slate-500">{vendorPo.po_no}{vendorPo.revision ? `-R${vendorPo.revision}` : ''}</span>}
-                    {(() => {
-                      const ord  = vItems.filter(i => i.ordered).length;
-                      const paid = vItems.filter(i => i.paid).length;
-                      const tax  = vItems.filter(i => i.taxInvoiced).length;
-                      const del  = vItems.filter(i => i.delivered).length;
-                      const badge = (n, label, on, off) => <span className={`px-2 py-0.5 rounded font-semibold ${n === vItems.length ? on : n > 0 ? off : 'bg-slate-100 text-slate-500'}`}>{label} {n}/{vItems.length}</span>;
-                      return (
-                        <span className="flex items-center gap-1.5 text-xs">
-                          {badge(ord,  '발주',     'bg-blue-500 text-white',    'bg-blue-100 text-blue-700')}
-                          {badge(paid, '입금',     'bg-violet-500 text-white',  'bg-violet-100 text-violet-700')}
-                          {badge(tax,  '세금계산서','bg-amber-500 text-white',  'bg-amber-100 text-amber-700')}
-                          {badge(del,  '납품완료', 'bg-emerald-500 text-white', 'bg-emerald-100 text-emerald-700')}
-                        </span>
-                      );
-                    })()}
-                    <span className="ml-auto font-semibold text-slate-700 text-sm">매입 합계 <span className="tnum">{vendorTotal(vItems).toLocaleString('ko-KR')}</span>원</span>
-                    {vendorPo && (vendorPo.status === '발주완료' || vendorPo.status === '납품완료') && (
-                      <button onClick={() => handleCancelVendor(vendor, vItems)}
-                        className="px-3 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded hover:bg-rose-100"
-                        title="이 거래처의 발주를 취소합니다 (히스토리 보존)">발주 취소</button>
-                    )}
-                    <button onClick={() => handleGeneratePdf(vendor, vItems)}
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-500">발주서 PDF</button>
-                    <button onClick={() => {
-                      const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
-                      const companyName = company.name || '대원메디칼';
-                      const lines = [];
-                      lines.push(`[${companyName} 발주요청]`);
-                      lines.push('');
-                      vItems.forEach((it, i) => {
-                        lines.push(`${i+1}. ${it.itemName}${it.modelName ? ' · ' + it.modelName : ''} — ${it.quantity}개`);
-                      });
-                      lines.push('');
-                      lines.push(`병원: ${quote.hospital || lead.hospital_name || ''}`);
-                      lines.push(`납기일: ${deliveryDate || '협의'}`);
-                      if (hospitalAddress) lines.push(`주소: ${hospitalAddress}`);
-                      if (lead.contact_name) lines.push(`담당: ${lead.contact_name}${lead.contact_phone ? ' (' + lead.contact_phone + ')' : ''}`);
-                      setKakaoModal({ vendor, text: lines.join('\n') });
-                    }}
-                      className="px-3 py-1.5 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300">카톡 발송</button>
+                <div key={vendor} className="bg-white border border-slate-200 overflow-hidden">
+                  {/* 한 줄 헤더 — 발주번호 / 거래처 / 모델 / 수량 / 매출 / 매입 / 카톡 */}
+                  <div className="px-2 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-xs">
+                    <button onClick={() => toggleVendor(vendor)} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-200 rounded select-none">{isCollapsed ? '▶' : '▼'}</button>
+                    <span className="font-mono text-slate-500 w-32 shrink-0">{vendorPo ? `${vendorPo.po_no}${vendorPo.revision ? '-R'+vendorPo.revision : ''}` : '신규'}</span>
+                    <span className="font-semibold text-slate-800 w-32 shrink-0 truncate" title={vendor}>{vendor}</span>
+                    <span className="flex-1 text-slate-600 truncate" title={firstModel}>
+                      {firstModel}{moreCount > 0 && <span className="text-slate-400"> 외 {moreCount}건</span>}
+                    </span>
+                    <span className="w-12 text-center text-slate-600">{totalQty}개</span>
+                    <span className="w-32 text-right font-mono text-slate-700">매출 <span className="tnum">{vendorSaleTotal(vItems).toLocaleString('ko-KR')}</span></span>
+                    <span className="w-32 text-right font-mono text-slate-700">매입 <span className="tnum">{vendorTotal(vItems).toLocaleString('ko-KR')}</span></span>
+                    <button onClick={sendKakao} className="px-2.5 py-1 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300">카톡</button>
                   </div>
+
+                  {/* 펼친 영역 — 4단계 배지 + 액션 + 표 */}
+                  {!isCollapsed && (
+                    <>
+                      <div className="px-2 py-1.5 bg-slate-50/70 border-b border-slate-200 flex items-center gap-2 text-xs">
+                        {(() => {
+                          const badge = (n, label, on, off) => <span className={`px-2 py-0.5 rounded font-semibold ${n === vItems.length ? on : n > 0 ? off : 'bg-slate-100 text-slate-500'}`}>{label} {n}/{vItems.length}</span>;
+                          return (
+                            <span className="flex items-center gap-1.5">
+                              {badge(ord,  '발주',      'bg-blue-500 text-white',    'bg-blue-100 text-blue-700')}
+                              {badge(paid, '입금',      'bg-violet-500 text-white',  'bg-violet-100 text-violet-700')}
+                              {badge(tax,  '세금계산서','bg-amber-500 text-white',  'bg-amber-100 text-amber-700')}
+                              {badge(del,  '납품완료',  'bg-emerald-500 text-white', 'bg-emerald-100 text-emerald-700')}
+                            </span>
+                          );
+                        })()}
+                        <span className="ml-auto flex items-center gap-1.5">
+                          {vendorPo && (vendorPo.status === '발주완료' || vendorPo.status === '납품완료') && (
+                            <button onClick={() => handleCancelVendor(vendor, vItems)}
+                              className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded hover:bg-rose-100">발주 취소</button>
+                          )}
+                          <button onClick={() => handleGeneratePdf(vendor, vItems)}
+                            className="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-500">발주서 PDF</button>
+                        </span>
+                      </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
-                      <thead className="bg-slate-50 text-slate-600">
+                      <thead className="bg-slate-100 text-slate-600">
                         <tr>
                           <th className="px-2 py-2 text-center w-12">발주</th>
                           <th className="px-2 py-2 text-center w-12">입금</th>
@@ -6259,11 +6278,13 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                         })}
                       </tbody>
                     </table>
-                    <div className="px-3 py-2 border-t border-slate-100">
+                    <div className="px-2 py-1 border-t border-slate-200">
                       <button onClick={() => addPlanItem(vendor)}
                         className="text-xs text-blue-600 hover:text-blue-800 font-medium">+ 이 거래처에 품목 추가</button>
                     </div>
                   </div>
+                    </>
+                  )}
                 </div>
               );
             })}
