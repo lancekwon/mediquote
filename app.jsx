@@ -6133,8 +6133,9 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       );
                       const sendKakaoOne = () => {
                         const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
-                        const cleanCo = (company.name || '대원메디칼').replace(/^(주식회사|㈜|\(주\))\s*/, '').trim();
-                        const sender = (company.contact_name || '').trim();
+                        const cleanName = (company.name || '대원메디칼').replace(/^(주식회사|㈜|\(주\))\s*/, '').trim();
+                        const cleanCo = `(주)${cleanName}`;
+                        const sender = '권우혁';
                         const fmtKDate = (s) => {
                           if (!s) return '';
                           const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
@@ -6144,7 +6145,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           return `${parseInt(m[2])}월 ${parseInt(m[3])}일 ${days[d.getDay()]}요일`;
                         };
                         const lines = [];
-                        lines.push(`대표님 안녕하세요 ${cleanCo}${sender ? ' ' + sender : ''}입니다.`);
+                        lines.push(`대표님 안녕하세요 ${cleanCo} ${sender}입니다.`);
                         lines.push('발주내용 보내드립니다.');
                         lines.push('');
                         lines.push(`${it.modelName || it.itemName || ''} ${it.quantity}대`);
@@ -6162,7 +6163,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                         }
                         lines.push('');
                         lines.push('감사합니다.');
-                        if (sender) lines.push(`${sender}올림`);
+                        lines.push(`${sender}올림`);
                         setKakaoModal({ vendor: it.vendor, text: lines.join('\n') });
                       };
                       return (
