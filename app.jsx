@@ -12589,6 +12589,37 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
   };
 
   const [noteModal, setNoteModal] = useState(null); // { po }
+  const [editModal, setEditModal] = useState(null); // { po }
+  const [kakaoModal, setKakaoModal] = useState(null); // { vendor, text }
+
+  const handleCancel = async (p) => {
+    if (!confirm(`발주 [${p.po_no}] 를 취소할까요?\n거래처: ${p.manufacturer_name}\n금액: ${(p.total_amount||0).toLocaleString()}원\n\n외상매입에 등록된 금액이 있으면 자동 정산됩니다.`)) return;
+    try {
+      const today = new Date().toISOString().slice(0,10);
+      if (p.manufacturer_id) {
+        try { await dbCancelPayableForPo({ poId: p.id, manufacturerId: p.manufacturer_id, txDate: today, reason: '발주 진행 화면에서 취소' }); } catch (_) {}
+      }
+      await dbUpdatePurchaseOrder(p.id, { status: '취소', is_active: false });
+      await dbInsertPoNote({ po_id: p.id, category: 'change', body: '발주 취소 처리', author: user?.email || user?.name || null });
+      reload();
+      showToast('발주 취소됨');
+    } catch (e) { alert('취소 실패: '+(e.message||e)); }
+  };
+
+  const handleResend = (p) => {
+    const lines = (p.purchase_order_items || []).map(it => `· ${it.item_name || '-'}${it.model_name ? ' ('+it.model_name+')':''} × ${it.quantity || 1}`);
+    const text = [
+      `[변경 발주서] ${p.po_no || ''}`,
+      `${p.hospital_name ? '병원: ' + p.hospital_name : ''}`,
+      '',
+      lines.join('\n'),
+      '',
+      `합계: ${(p.total_amount||0).toLocaleString()}원`,
+      '',
+      '변경 사항 반영된 발주서입니다. 확인 부탁드립니다.',
+    ].filter(Boolean).join('\n');
+    setKakaoModal({ vendor: p.manufacturer_name || '거래처', text });
+  };
   return (
     <div style={{minHeight:'100vh', background:'#f1f5f9'}}>
       <AppHeader title="발주 진행" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
@@ -12653,6 +12684,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                       <th className="px-3 py-2 text-center w-24">도착</th>
                       <th className="px-3 py-2 text-center w-28">세금계산서</th>
                       <th className="px-3 py-2 text-center w-20">메모</th>
+                      <th className="px-3 py-2 text-center w-32">액션</th>
                       <th className="px-3 py-2 text-center w-10"></th>
                     </tr>
                   </thead>
@@ -12675,11 +12707,16 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                               {p.notes.length > 0 && <span className={`mr-1 font-semibold ${p.issues>0?'text-rose-600':'text-slate-500'}`}>{p.notes.length}</span>}
                               <button onClick={e => { e.stopPropagation(); setNoteModal({po:p}); }} className="text-blue-500 hover:text-blue-700">메모</button>
                             </td>
+                            <td className="px-3 py-2 text-center text-xs whitespace-nowrap">
+                              <button onClick={e => { e.stopPropagation(); setEditModal({po:p}); }} className="text-slate-500 hover:text-slate-700 mr-1" title="매입가·수량 수정">수정</button>
+                              <button onClick={e => { e.stopPropagation(); handleResend(p); }} className="text-emerald-500 hover:text-emerald-700 mr-1" title="변경 발주서 카카오톡 메시지">재발송</button>
+                              <button onClick={e => { e.stopPropagation(); handleCancel(p); }} className="text-rose-400 hover:text-rose-600" title="발주 취소">취소</button>
+                            </td>
                             <td className="px-3 py-2 text-center text-slate-400 text-xs">{isOpen ? '▼' : '▶'}</td>
                           </tr>
                           {isOpen && (
                             <tr className="bg-slate-50/50">
-                              <td colSpan={8} className="px-3 py-3">
+                              <td colSpan={9} className="px-3 py-3">
                                 <table className="w-full text-xs">
                                   <thead className="text-slate-500">
                                     <tr>
@@ -12757,6 +12794,14 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
         <PoNoteModal po={noteModal.po} user={user} notes={notesByPo.get(noteModal.po.id) || []}
           onClose={()=>setNoteModal(null)}
           onChanged={()=>{ reload(); }} />
+      )}
+      {editModal && (
+        <PoQuickEditModal po={editModal.po} user={user}
+          onClose={()=>setEditModal(null)}
+          onSaved={()=>{ reload(); showToast('수정 저장됨'); }} />
+      )}
+      {kakaoModal && (
+        <KakaoMessageModal vendor={kakaoModal.vendor} text={kakaoModal.text} onClose={()=>setKakaoModal(null)} />
       )}
     </div>
   );
@@ -12841,6 +12886,167 @@ function PoNoteModal({ po, user, notes = [], onClose, onChanged }) {
             </div>
           </div>
         ))}
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ========== 발주 빠른 수정 모달 — 매입가·수량만, 외상 차액 자동 조정 ========== */
+function PoQuickEditModal({ po, user, onClose, onSaved }) {
+  const [vendor, setVendor] = useState(po.manufacturer_name || '');
+  const [items, setItems] = useState((po.purchase_order_items || []).map(it => ({
+    ...it,
+    _quantity: String(it.quantity ?? 1),
+    _unit_price: Number(it.unit_price || 0).toLocaleString('ko-KR'),
+  })));
+  const [saving, setSaving] = useState(false);
+
+  const parseAmt = v => Number((v||'').toString().replace(/[,\s]/g,'')) || 0;
+  const fmtInput = v => { const d = (v||'').toString().replace(/[^\d]/g,''); return d ? Number(d).toLocaleString('ko-KR') : ''; };
+
+  const updateItem = (id, patch) => setItems(arr => arr.map(it => it.id === id ? {...it, ...patch} : it));
+
+  const newTotal = items.reduce((s, it) => s + parseAmt(it._unit_price) * (Number(it._quantity) || 0), 0);
+  const oldTotal = po.total_amount || 0;
+  const diff = newTotal - oldTotal;
+
+  // 세금계산서 ✅ 품목만 합산 (외상매입 조정 기준)
+  const taxedNewTotal = items.filter(it => it.tax_invoiced).reduce((s, it) => s + parseAmt(it._unit_price) * (Number(it._quantity) || 0), 0);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const changes = [];
+      // 1. 각 item 업데이트
+      for (const it of items) {
+        const oldQty = (po.purchase_order_items || []).find(x => x.id === it.id)?.quantity || 1;
+        const oldUnit = (po.purchase_order_items || []).find(x => x.id === it.id)?.unit_price || 0;
+        const newQty = Number(it._quantity) || 1;
+        const newUnit = parseAmt(it._unit_price);
+        if (oldQty !== newQty || oldUnit !== newUnit) {
+          await dbUpdatePoItem(it.id, { quantity: newQty, unit_price: newUnit, amount: newQty * newUnit });
+          if (oldUnit !== newUnit) changes.push(`${it.item_name || it.model_name || '품목'}: 매입가 ${oldUnit.toLocaleString()} → ${newUnit.toLocaleString()}`);
+          if (oldQty !== newQty) changes.push(`${it.item_name || it.model_name || '품목'}: 수량 ${oldQty} → ${newQty}`);
+        }
+      }
+      // 2. PO 헤더 업데이트 (거래처명·총액)
+      const headerPatch = { total_amount: newTotal };
+      if (vendor !== po.manufacturer_name) {
+        headerPatch.manufacturer_name = vendor;
+        headerPatch.vendor_name = vendor;
+        changes.push(`거래처: ${po.manufacturer_name} → ${vendor}`);
+      }
+      await dbUpdatePurchaseOrder(po.id, headerPatch);
+
+      // 3. 세금계산서 ✅ 품목 합산이 바뀌었으면 외상매입 차액 조정
+      if (taxedNewTotal > 0 && po.manufacturer_id) {
+        try {
+          await dbAdjustPayableForPo({
+            poId: po.id, manufacturerId: po.manufacturer_id,
+            txDate: new Date().toISOString().slice(0,10),
+            newAmount: taxedNewTotal,
+            memo: `발주 수정 — ${po.po_no}`,
+          });
+        } catch (_) {}
+      }
+
+      // 4. 변경 사항 메모 자동 추가
+      if (changes.length > 0) {
+        await dbInsertPoNote({
+          po_id: po.id,
+          category: 'change',
+          body: '발주 수정\n' + changes.map(c => '· ' + c).join('\n'),
+          author: user?.email || user?.name || null,
+        });
+      }
+      onSaved && onSaved();
+      onClose();
+    } catch (e) { alert('저장 실패: ' + (e.message||e)); }
+    setSaving(false);
+  };
+
+  const inputCls = "bg-white border border-slate-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-400";
+
+  return (
+    <ModalShell title={`발주 수정 — ${po.po_no || ''}`} subtitle={po.hospital_name || ''} onClose={onClose} wide>
+      <div className="mb-3">
+        <label className="text-xs text-slate-500 mb-1 block">거래처</label>
+        <input type="text" value={vendor} onChange={e=>setVendor(e.target.value)} className={`w-full ${inputCls}`} />
+      </div>
+
+      <div className="border border-slate-200 rounded overflow-hidden mb-3">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs">
+            <tr>
+              <th className="px-2 py-1.5 text-left">품명 / 모델</th>
+              <th className="px-2 py-1.5 text-center w-20">수량</th>
+              <th className="px-2 py-1.5 text-right w-32">매입가</th>
+              <th className="px-2 py-1.5 text-right w-32">소계</th>
+              <th className="px-2 py-1.5 text-center w-16">세금</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(it => {
+              const sub = (Number(it._quantity)||0) * parseAmt(it._unit_price);
+              return (
+                <tr key={it.id} className="border-t border-slate-100">
+                  <td className="px-2 py-1.5">
+                    <div className="text-slate-800">{it.item_name || '—'}</div>
+                    <div className="text-[11px] text-slate-500">{it.model_name || ''}</div>
+                  </td>
+                  <td className="px-2 py-1.5 text-center">
+                    <input type="text" value={it._quantity}
+                      onChange={e => updateItem(it.id, { _quantity: e.target.value.replace(/[^\d]/g,'') })}
+                      className={`w-16 ${inputCls} text-center`} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    <input type="text" value={it._unit_price}
+                      onChange={e => updateItem(it.id, { _unit_price: fmtInput(e.target.value) })}
+                      className={`w-28 ${inputCls} font-mono text-right`} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono text-slate-700">{sub.toLocaleString()}</td>
+                  <td className="px-2 py-1.5 text-center">
+                    <span className={`text-sm ${it.tax_invoiced ? 'text-emerald-600' : 'text-slate-300'}`}>{it.tax_invoiced ? '✅' : '⬜'}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot className="bg-slate-50 font-semibold">
+            <tr>
+              <td colSpan={3} className="px-2 py-2 text-right text-slate-700">합계</td>
+              <td className="px-2 py-2 text-right font-mono">{newTotal.toLocaleString()}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div className="bg-slate-50 border border-slate-200 rounded p-3 mb-4 text-xs text-slate-600">
+        <div className="flex justify-between">
+          <span>기존 총액</span>
+          <span className="font-mono">{oldTotal.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>변경 후 총액</span>
+          <span className="font-mono">{newTotal.toLocaleString()}</span>
+        </div>
+        <div className={`flex justify-between font-semibold pt-1 mt-1 border-t border-slate-200 ${diff > 0 ? 'text-amber-700' : diff < 0 ? 'text-emerald-700' : 'text-slate-600'}`}>
+          <span>차액</span>
+          <span className="font-mono">{diff > 0 ? '+' : ''}{diff.toLocaleString()}</span>
+        </div>
+        {taxedNewTotal > 0 && (
+          <div className="text-[10px] text-slate-400 mt-2">
+            * 세금계산서 ✅ 품목 합계 {taxedNewTotal.toLocaleString()}원이 외상매입금에 자동 반영됩니다 (이미 등록된 금액과의 차액만 조정)
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">취소</button>
+        <button onClick={handleSave} disabled={saving} className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold disabled:opacity-40">
+          {saving ? '저장 중...' : '저장'}
+        </button>
       </div>
     </ModalShell>
   );
