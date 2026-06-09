@@ -1396,7 +1396,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onDashboard, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1408,6 +1408,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
   }, []);
 
   const menuItems = [
+    { label:'홈',               onClick: onDashboard, icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { label:'영업 관리',         onClick: onLeads,    icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
     { label:'발주 진행',         onClick: onPoTracking, icon:'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1' },
     { label:'견적 작성',         onClick: onHome,     icon:'M12 4v16m8-8H4' },
@@ -1510,6 +1511,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     return () => document.removeEventListener('mousedown', handler);
   }, []);
   const menuItems = [
+    { label:'홈',               onClick: nav?.home,      icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { label:'영업 관리',         onClick: nav?.leads,     icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
     { label:'발주 진행',         onClick: nav?.poTracking, icon:'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1' },
     { label:'견적 작성',         onClick: nav?.editor,    icon:'M12 4v16m8-8H4' },
@@ -12742,11 +12744,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
     setKakaoModal({ vendor: p.manufacturer_name || '거래처', text });
   };
   return (
-    <div style={{minHeight:'100vh', background:'#f1f5f9'}}>
+    <div style={{height:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', overflow:'hidden'}}>
       <AppHeader title="발주 진행" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
       {toast && <div className={`fixed top-6 right-6 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white ${toast.type==='error'?'bg-red-500':'bg-emerald-500'}`}>{toast.msg}</div>}
 
-      <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%'}}>
+      <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%', flex:1, overflowY:'auto'}}>
         {/* 통계 카드 4개 — 클릭하면 그 단계 미완료 필터 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {[
@@ -13100,6 +13102,236 @@ function PoQuickEditModal({ po, user, onClose, onSaved }) {
 }
 
 /* ============================================================
+   HOME 대시보드 — 출근 첫 화면
+   ============================================================ */
+function HomePage({ user, onLogout, nav }) {
+  const [loading, setLoading] = useState(true);
+  const [pos, setPos] = useState([]);
+  const [balances, setBalances] = useState([]);
+  const [cashLogs, setCashLogs] = useState([]);
+  const [expectedRev, setExpectedRev] = useState([]);
+  const [notes, setNotes] = useState([]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [poData, bal, cash, er] = await Promise.all([
+        sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
+        dbLoadPayableBalances(),
+        dbLoadCashBalanceLog({ limit: 100 }),
+        dbLoadExpectedRevenue(),
+      ]);
+      setPos(poData);
+      setBalances(bal);
+      setCashLogs(cash);
+      setExpectedRev(er);
+      const poIds = poData.map(p => p.id);
+      if (poIds.length > 0) {
+        const ns = await dbLoadPoNotes(poIds);
+        setNotes(ns);
+      }
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  // 발주 4단계 미완료 카운트
+  const poStats = useMemo(() => {
+    let notOrdered=0, notPaid=0, notTax=0, notDelivered=0, done=0;
+    pos.forEach(p => {
+      const items = p.purchase_order_items || [];
+      const total = items.length;
+      if (total === 0) return;
+      const o = items.filter(it=>it.ordered).length;
+      const pd = items.filter(it=>it.paid).length;
+      const t = items.filter(it=>it.tax_invoiced).length;
+      const d = items.filter(it=>it.delivered).length;
+      const all = o===total && pd===total && t===total && d===total;
+      if (all) { done++; return; }
+      if (o<total) notOrdered++;
+      if (pd<total) notPaid++;
+      if (t<total) notTax++;
+      if (d<total) notDelivered++;
+    });
+    return { notOrdered, notPaid, notTax, notDelivered, done, total: pos.length };
+  }, [pos]);
+
+  // 통장 잔액
+  const cashCurrent = useMemo(() => {
+    if (!cashLogs.length) return null;
+    const asc = [...cashLogs].sort((a,b) =>
+      (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at||'') < (b.created_at||'') ? -1 : 1));
+    let running = 0;
+    asc.forEach(r => { if (r.balance_after != null) running = r.balance_after; else running += (r.delta||0); });
+    return running;
+  }, [cashLogs]);
+
+  // 받을 돈(예상매출 미수) / 줄 돈(외상매입 양수만)
+  const receivable = useMemo(() => expectedRev.filter(r=>!r.collected).reduce((s,r)=>s+(r.amount||0),0), [expectedRev]);
+  const payable    = useMemo(() => balances.reduce((s,b)=>s+Math.max(0, b.balance||0), 0), [balances]);
+  const netPos = receivable - payable;
+
+  // 다가오는 일정 (7일 내 — 납기일 또는 예상매출 due_date)
+  const today = new Date(); today.setHours(0,0,0,0);
+  const weekLater = new Date(today.getTime() + 7*86400000);
+  const upcoming = useMemo(() => {
+    const items = [];
+    pos.forEach(p => {
+      if (!p.delivery_date) return;
+      const d = new Date(p.delivery_date);
+      if (d >= today && d <= weekLater) {
+        const allDone = (p.purchase_order_items||[]).every(it => it.delivered);
+        if (!allDone) items.push({ kind:'po', date:p.delivery_date, label:`${p.hospital_name||'-'} · ${p.manufacturer_name||'-'}`, sub:p.po_no });
+      }
+    });
+    expectedRev.forEach(r => {
+      if (r.collected || !r.due_date) return;
+      const d = new Date(r.due_date);
+      if (d >= today && d <= weekLater) {
+        items.push({ kind:'rev', date:r.due_date, label:`${r.target_name||'-'} · ${r.installment_label||''}`, sub:(r.amount||0).toLocaleString()+'원' });
+      }
+    });
+    return items.sort((a,b) => a.date.localeCompare(b.date)).slice(0,10);
+  }, [pos, expectedRev]);
+
+  // 미해결 이슈
+  const openIssues = useMemo(() => {
+    return notes
+      .filter(n => n.category === 'issue' && !n.resolved)
+      .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''))
+      .slice(0, 8)
+      .map(n => {
+        const po = pos.find(p => p.id === n.po_id);
+        return { ...n, poNo: po?.po_no || '-', vendor: po?.manufacturer_name || '-' };
+      });
+  }, [notes, pos]);
+
+  const fmt = n => (n||0).toLocaleString('ko-KR');
+  const dday = (s) => {
+    const d = new Date(s); d.setHours(0,0,0,0);
+    const diff = Math.round((d - today) / 86400000);
+    if (diff === 0) return '오늘';
+    if (diff > 0) return `D-${diff}`;
+    return `D+${-diff}`;
+  };
+  const greeting = (() => { const h = new Date().getHours(); return h<11?'좋은 아침이에요':h<14?'점심 잘 챙기세요':h<18?'좋은 오후예요':'고생하셨어요'; })();
+
+  return (
+    <div style={{height:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', overflow:'hidden'}}>
+      <AppHeader title="홈 대시보드" user={user} onLogout={onLogout} nav={nav} />
+
+      <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%', flex:1, overflowY:'auto'}}>
+        {/* 인사 */}
+        <div className="mb-4">
+          <div className="text-sm text-slate-500">{greeting}, {user?.email?.split('@')[0] || ''}님</div>
+          <div className="text-lg font-bold text-slate-800">{new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'})}</div>
+        </div>
+
+        {/* 1행 — 발주 4단계 미완료 (클릭 시 발주 진행으로 점프) */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-slate-700">📦 발주 진행</h3>
+            <button onClick={() => nav?.poTracking?.()} className="text-xs text-blue-500 hover:text-blue-700">전체 보기 →</button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[
+              { label:'발주 미완료',     n:poStats.notOrdered,   c:'text-blue-600',     k:'ordered' },
+              { label:'입금 미완료',     n:poStats.notPaid,      c:'text-violet-600',   k:'paid' },
+              { label:'세금계산서 미수령', n:poStats.notTax,       c:'text-amber-600',    k:'tax' },
+              { label:'납품 미완료',     n:poStats.notDelivered, c:'text-emerald-600',  k:'delivered' },
+              { label:'완료',           n:poStats.done,         c:'text-slate-500',    k:'done' },
+            ].map(card => (
+              <button key={card.k} onClick={() => nav?.poTracking?.()}
+                className="bg-white rounded-xl border border-slate-200 p-4 text-left hover:border-blue-300 transition-colors">
+                <div className="text-xs text-slate-500 mb-1">{card.label}</div>
+                <div className={`text-2xl font-bold ${card.c}`}>{card.n}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 2행 — 자금 요약 */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-slate-700">💰 자금 흐름</h3>
+            <button onClick={() => nav?.payables?.()} className="text-xs text-blue-500 hover:text-blue-700">매입매출 관리 →</button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="text-xs text-slate-500 mb-1">통장잔액</div>
+              <div className={`text-xl font-bold ${cashCurrent != null && cashCurrent < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                {cashCurrent != null ? fmt(cashCurrent)+'원' : '—'}
+              </div>
+            </div>
+            <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
+              <div className="text-xs text-emerald-700 mb-1">받을 돈 (미수금)</div>
+              <div className="text-xl font-bold text-emerald-800">{fmt(receivable)}원</div>
+            </div>
+            <div className="bg-rose-50 rounded-xl border border-rose-200 p-4">
+              <div className="text-xs text-rose-700 mb-1">줄 돈 (외상매입)</div>
+              <div className="text-xl font-bold text-rose-800">{fmt(payable)}원</div>
+            </div>
+            <div className={`rounded-xl border p-4 ${netPos >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'}`}>
+              <div className={`text-xs mb-1 ${netPos >= 0 ? 'text-blue-700' : 'text-amber-700'}`}>순 포지션 (받을 − 줄)</div>
+              <div className={`text-xl font-bold ${netPos >= 0 ? 'text-blue-800' : 'text-amber-800'}`}>
+                {netPos >= 0 ? '+' : ''}{fmt(netPos)}원
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3행 — 다가오는 일정 + 미해결 이슈 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* 다가오는 일정 */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700 flex items-center justify-between">
+              <span>📅 다가오는 일정 (7일 내)</span>
+              <span className="text-xs text-slate-400">{upcoming.length}건</span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {upcoming.length === 0 ? (
+                <div className="px-4 py-8 text-center text-slate-400 text-sm">예정된 일정이 없습니다</div>
+              ) : upcoming.map((it, i) => (
+                <div key={i} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50">
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${it.kind==='po'?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}`}>
+                    {it.kind === 'po' ? '납기' : '수금'}
+                  </span>
+                  <span className="text-xs text-slate-500 w-20">{it.date} <span className="text-slate-400">({dday(it.date)})</span></span>
+                  <span className="flex-1 text-sm text-slate-800 truncate">{it.label}</span>
+                  <span className="text-xs text-slate-500">{it.sub}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 미해결 이슈 */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700 flex items-center justify-between">
+              <span>⚠️ 미해결 이슈</span>
+              <span className="text-xs text-slate-400">{openIssues.length}건</span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {openIssues.length === 0 ? (
+                <div className="px-4 py-8 text-center text-slate-400 text-sm">미해결 이슈 없음 — 좋아요!</div>
+              ) : openIssues.map(n => (
+                <div key={n.id} className="px-4 py-2.5 flex items-start gap-3 hover:bg-slate-50">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 shrink-0">이슈</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-slate-800 truncate">{n.body}</div>
+                    <div className="text-[10px] text-slate-400">{n.poNo} · {n.vendor} · {n.created_at?.slice(0,10)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {loading && <div className="text-center text-slate-400 text-xs mt-3">불러오는 중...</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    MAIN APP
    ============================================================ */
 function App() {
@@ -13122,7 +13354,7 @@ function App() {
   const [productModal, setProductModal] = useState(null);   // { modelId, modelName, manufacturer, catName, catColorKey }
   const [mfrModal, setMfrModal] = useState(null);           // manufacturerName string
   const [toasts, setToasts] = useState([]);
-  const [view, setView] = useState('leads'); // 'editor' | 'list' | 'manage' | 'leads' | 'po-plan'
+  const [view, setView] = useState('home'); // 'home' | 'editor' | 'list' | 'manage' | 'leads' | 'po-plan' | 'po-tracking' | 'payables' | 'hospitals' | 'service'
   const [poPlanLead, setPoPlanLead] = useState(null);
   const [leadsStageFilter, setLeadsStageFilter] = useState(null); // 영업관리 진입 시 초기 단계 필터 (발주계획서 뒤로가기 → '발주진행중')
   const [listInitialTab, setListInitialTab] = useState('saved');
@@ -13361,14 +13593,18 @@ function App() {
     goToHospital: (hospId, tab = 'info') => goToHospital(hospId, tab),
     service:   () => { setListInitialTab('saved'); setListInitialDept(null); setView('service'); },
     manage:    () => setView('manage'),
+    home:       () => setView('home'),
     payables:  () => setView('payables'),
     poTracking: () => setView('po-tracking'),
     poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
   };
 
+  if (view === 'home') {
+    return <HomePage user={user} onLogout={handleLogout} nav={nav} />;
+  }
   if (view === 'po-tracking') {
     return <PurchaseOrderTrackingPage
-      onBack={() => setView('editor')}
+      onBack={() => setView('home')}
       user={user}
       onLogout={handleLogout}
       nav={nav}
@@ -13506,7 +13742,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onDashboard={() => setView('home')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
