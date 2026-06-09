@@ -5547,6 +5547,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   const [expandedVendors, setExpandedVendors] = React.useState({});
   const toggleVendor = (v) => setExpandedVendors(p => ({ ...p, [v]: !p[v] }));
   const [itemMemoModal, setItemMemoModal] = React.useState(null); // { key, item }
+  const [contactModal, setContactModal] = React.useState(null);   // { vendor, items }
 
   // 저장: 거래처별로 PO upsert (장비 매입가도 갱신 + 이력 기록)
   const handleSave = async () => {
@@ -6100,7 +6101,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             {/* 거래처별 그룹 — 엑셀시트 컴팩트 디자인 */}
             {Object.entries(vendorGroups).map(([vendor, vItems]) => {
               const vendorPo = pos.find(p => p.manufacturer_name === vendor);
-              const isExpanded = !!expandedVendors[vendor]; // 기본: 접힘
+              const isExpanded = expandedVendors[vendor] !== false; // 기본: 펼침 (사용자가 접으면 false)
               const totalQty = vItems.reduce((s, it) => s + (Number(it.quantity)||0), 0);
               const firstModel = vItems[0]?.modelName || vItems[0]?.itemName || '';
               const moreCount = vItems.length - 1;
@@ -6138,6 +6139,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       {headBadge(tax,  '세금', 'bg-amber-500 text-white',   'bg-amber-100 text-amber-700')}
                       {headBadge(del,  '납품', 'bg-emerald-500 text-white', 'bg-emerald-100 text-emerald-700')}
                     </span>
+                    <button onClick={() => setContactModal({ vendor, items: vItems })}
+                      className="px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded hover:bg-slate-200 shrink-0 border border-slate-200">담당자</button>
                     <button onClick={sendKakao} className="px-2.5 py-1 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300 shrink-0">카톡</button>
                   </div>
 
@@ -6158,14 +6161,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           <th className="px-2 py-2 text-center w-12">입금</th>
                           <th className="px-2 py-2 text-center w-16">세금<br/>계산서</th>
                           <th className="px-2 py-2 text-center w-16">납품<br/>완료</th>
-                          <th className="px-2 py-2 text-left w-28">제조사</th>
-                          <th className="px-2 py-2 text-left w-28">거래처</th>
+                          <th className="px-2 py-2 text-left">모델명</th>
                           <th className="px-2 py-2 text-center w-14">수량</th>
                           <th className="px-2 py-2 text-right w-28">매출가</th>
                           <th className="px-2 py-2 text-right w-28">매입가</th>
-                          <th className="px-2 py-2 text-left w-24">담당자</th>
-                          <th className="px-2 py-2 text-left w-28">연락처</th>
-                          <th className="px-2 py-2 text-center w-16">메모</th>
+                          <th className="px-2 py-2 text-left w-48">메모</th>
                           <th className="px-2 py-2 text-center w-10"></th>
                         </tr>
                       </thead>
@@ -6198,25 +6198,34 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                   className="w-4 h-4 rounded cursor-pointer accent-emerald-600"/>
                               </td>
                               <td className="px-2 py-1">
-                                {it.manufacturer ? (
-                                  <input value={it.manufacturer} onChange={e => setItem(it.key, { manufacturer: e.target.value })}
-                                    className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
-                                ) : (
-                                  <input list={`mfr-list-${it.key}`} placeholder="선택/입력" value={it.manufacturer}
-                                    onChange={e => setItem(it.key, { manufacturer: e.target.value })}
-                                    className="w-full px-1.5 py-1 border border-amber-300 rounded text-xs bg-amber-50"/>
-                                )}
-                                <datalist id={`mfr-list-${it.key}`}>
-                                  {manufacturerOptions.map(m => <option key={m} value={m}/>)}
+                                {/* 모델명 — 그 거래처가 다루는 장비 목록에서 선택 (또는 자유 입력) */}
+                                <input list={`model-list-${it.key}`} value={it.modelName || ''}
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    const eq = equipments.find(eq =>
+                                      (eq.vendor === vendor || eq.model?.manufacturer === vendor) &&
+                                      eq.model?.name === v
+                                    );
+                                    if (eq) {
+                                      setItem(it.key, {
+                                        modelName: v,
+                                        manufacturer: eq.model?.manufacturer || it.manufacturer,
+                                        purchasePrice: Number(eq.purchasePrice) || it.purchasePrice || 0,
+                                        salePrice: Number(eq.model?.price) || it.salePrice || 0,
+                                        itemName: it.itemName || eq.catName || eq.model?.name || '',
+                                      });
+                                    } else {
+                                      setItem(it.key, { modelName: v });
+                                    }
+                                  }}
+                                  placeholder="모델 선택/입력"
+                                  className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
+                                <datalist id={`model-list-${it.key}`}>
+                                  {equipments
+                                    .filter(eq => eq.vendor === vendor || eq.model?.manufacturer === vendor)
+                                    .map(eq => <option key={eq.id} value={eq.model?.name || ''}>{eq.model?.manufacturer ? `${eq.model.manufacturer}` : ''}</option>)}
                                 </datalist>
-                              </td>
-                              <td className="px-2 py-1">
-                                <select value={it.vendor || ''} onChange={e => setItem(it.key, { vendor: e.target.value })}
-                                  className={`w-full px-1 py-1 border rounded text-xs ${it.vendor ? 'border-slate-200' : 'border-amber-300 bg-amber-50'}`}>
-                                  <option value="">선택</option>
-                                  {it.vendor && !vendorOptions.includes(it.vendor) && <option value={it.vendor}>{it.vendor}</option>}
-                                  {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
-                                </select>
+                                {it.manufacturer && <div className="text-[10px] text-slate-400 mt-0.5 truncate" title={it.manufacturer}>{it.manufacturer}</div>}
                               </td>
                               <td className="px-2 py-1">
                                 <input type="number" min="1" value={it.quantity}
@@ -6240,18 +6249,14 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                   className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs text-right tnum"/>
                               </td>
                               <td className="px-2 py-1">
-                                <input value={it.vendorContactName} onChange={e => setItem(it.key, { vendorContactName: e.target.value })}
-                                  placeholder="담당자명" className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
-                              </td>
-                              <td className="px-2 py-1">
-                                <input value={it.vendorContactPhone} onChange={e => setItem(it.key, { vendorContactPhone: e.target.value })}
-                                  placeholder="010-..." className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
-                              </td>
-                              <td className="px-2 py-1 text-center">
                                 <button onClick={() => setItemMemoModal({ key: it.key, item: it })}
-                                  className={`px-2 py-0.5 rounded text-[11px] font-medium ${it.memo ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                  className={`w-full text-left px-2 py-1 rounded text-[11px] border ${it.memo ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100' : 'border-dashed border-slate-200 text-slate-400 hover:bg-slate-50'}`}
                                   title={it.memo || '메모 작성'}>
-                                  {it.memo ? '메모 ●' : '메모'}
+                                  {it.memo ? (
+                                    <span className="line-clamp-1 break-all">{it.memo.split('\n')[0]}</span>
+                                  ) : (
+                                    <span>+ 메모</span>
+                                  )}
                                 </button>
                               </td>
                               <td className="px-2 py-1 text-center">
@@ -6318,7 +6323,50 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           onClose={() => setItemMemoModal(null)}
         />
       )}
+      {contactModal && (
+        <VendorContactModal
+          vendor={contactModal.vendor}
+          items={contactModal.items}
+          manufacturers={manufacturers}
+          onSave={(patch) => {
+            // 거래처의 모든 행에 담당자/연락처 반영 + manufacturers 마스터도 갱신
+            contactModal.items.forEach(it => setItem(it.key, { vendorContactName: patch.contact_name, vendorContactPhone: patch.contact_phone }));
+            const mfr = manufacturers.find(m => m.name === contactModal.vendor);
+            if (mfr) { try { dbUpdateManufacturer(mfr.id, { contact_name: patch.contact_name, contact_phone: patch.contact_phone }); } catch(_){} }
+            setContactModal(null);
+          }}
+          onClose={() => setContactModal(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function VendorContactModal({ vendor, items, manufacturers = [], onSave, onClose }) {
+  const mfr = manufacturers.find(m => m.name === vendor);
+  const first = items?.[0] || {};
+  const [name, setName] = React.useState(first.vendorContactName || mfr?.contact_name || '');
+  const [phone, setPhone] = React.useState(first.vendorContactPhone || mfr?.contact_phone || '');
+  const inputCls = "bg-white border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400";
+  return (
+    <ModalShell title={`거래처 담당자 — ${vendor}`} onClose={onClose}>
+      <div className="space-y-3 mb-4">
+        <div>
+          <label className="text-xs text-slate-500 mb-1 block">담당자명</label>
+          <input value={name} onChange={e=>setName(e.target.value)} className={`w-full ${inputCls}`} placeholder="담당자 이름"/>
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 mb-1 block">연락처</label>
+          <input value={phone} onChange={e=>setPhone(e.target.value)} className={`w-full ${inputCls}`} placeholder="010-0000-0000"/>
+        </div>
+        <div className="text-[11px] text-slate-400">저장 시 거래처 마스터(거래처 관리)에도 함께 갱신됩니다.</div>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">취소</button>
+        <button onClick={() => onSave({ contact_name: name.trim(), contact_phone: phone.trim() })}
+          className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold">저장</button>
+      </div>
+    </ModalShell>
   );
 }
 
