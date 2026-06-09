@@ -6133,13 +6133,36 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       );
                       const sendKakaoOne = () => {
                         const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
-                        const lines = [`[${company.name||'대원메디칼'} 발주요청]`, '',
-                          `1. ${it.itemName||''}${it.modelName ? ' · '+it.modelName:''} — ${it.quantity}개`,
-                          '',
-                          `병원: ${quote.hospital || lead.hospital_name || ''}`,
-                          `납기일: ${deliveryDate || '협의'}`];
-                        if (hospitalAddress) lines.push(`주소: ${hospitalAddress}`);
-                        if (lead.contact_name) lines.push(`담당: ${lead.contact_name}${lead.contact_phone ? ' ('+lead.contact_phone+')' : ''}`);
+                        const cleanCo = (company.name || '대원메디칼').replace(/^(주식회사|㈜|\(주\))\s*/, '').trim();
+                        const sender = (company.contact_name || '').trim();
+                        const fmtKDate = (s) => {
+                          if (!s) return '';
+                          const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+                          if (!m) return s;
+                          const d = new Date(`${s}T00:00:00`);
+                          const days = ['일','월','화','수','목','금','토'];
+                          return `${parseInt(m[2])}월 ${parseInt(m[3])}일 ${days[d.getDay()]}요일`;
+                        };
+                        const lines = [];
+                        lines.push(`대표님 안녕하세요 ${cleanCo}${sender ? ' ' + sender : ''}입니다.`);
+                        lines.push('발주내용 보내드립니다.');
+                        lines.push('');
+                        lines.push(`${it.modelName || it.itemName || ''} ${it.quantity}대`);
+                        lines.push('');
+                        const hosp = quote.hospital || lead.hospital_name || '';
+                        if (hosp) lines.push(`병원명 : ${hosp}`);
+                        if (hospitalAddress) lines.push(`주소 : ${hospitalAddress}`);
+                        if (deliveryDate) lines.push(`납품일자 : ${fmtKDate(deliveryDate)}`);
+                        if (lead.contact_name || lead.contact_phone) {
+                          const parts = [];
+                          if (lead.contact_phone) parts.push(lead.contact_phone);
+                          if (lead.contact_name) parts.push(lead.contact_name);
+                          if (lead.dept) parts.push(lead.dept);
+                          lines.push(`담당자 : ${parts.join(' ')}`);
+                        }
+                        lines.push('');
+                        lines.push('감사합니다.');
+                        if (sender) lines.push(`${sender}올림`);
                         setKakaoModal({ vendor: it.vendor, text: lines.join('\n') });
                       };
                       return (
