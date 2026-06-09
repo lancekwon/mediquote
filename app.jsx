@@ -6154,13 +6154,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                         if (hosp) lines.push(`병원명 : ${hosp}`);
                         if (hospitalAddress) lines.push(`주소 : ${hospitalAddress}`);
                         if (deliveryDate) lines.push(`납품일자 : ${fmtKDate(deliveryDate)}`);
-                        if (lead.contact_name || lead.contact_phone) {
-                          const parts = [];
-                          if (lead.contact_phone) parts.push(lead.contact_phone);
-                          if (lead.contact_name) parts.push(lead.contact_name);
-                          if (lead.dept) parts.push(lead.dept);
-                          lines.push(`담당자 : ${parts.join(' ')}`);
-                        }
+                        lines.push('담당자 : 010-9471-0522 최윤철 과장');
                         lines.push('');
                         lines.push('감사합니다.');
                         lines.push(`${sender}올림`);
