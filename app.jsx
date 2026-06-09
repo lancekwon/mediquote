@@ -13118,29 +13118,17 @@ function PoQuickEditModal({ po, user, onClose, onSaved }) {
 function HomePage({ user, onLogout, nav }) {
   const [loading, setLoading] = useState(true);
   const [pos, setPos] = useState([]);
-  const [balances, setBalances] = useState([]);
-  const [cashLogs, setCashLogs] = useState([]);
-  const [expectedRev, setExpectedRev] = useState([]);
-  const [notes, setNotes] = useState([]);
+  const [leads, setLeads] = useState([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poData, bal, cash, er] = await Promise.all([
+      const [poData, ldData] = await Promise.all([
         sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
-        dbLoadPayableBalances(),
-        dbLoadCashBalanceLog({ limit: 100 }),
-        dbLoadExpectedRevenue(),
+        dbLoadLeads(),
       ]);
       setPos(poData);
-      setBalances(bal);
-      setCashLogs(cash);
-      setExpectedRev(er);
-      const poIds = poData.map(p => p.id);
-      if (poIds.length > 0) {
-        const ns = await dbLoadPoNotes(poIds);
-        setNotes(ns);
-      }
+      setLeads(ldData);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -13166,65 +13154,17 @@ function HomePage({ user, onLogout, nav }) {
     return { notOrdered, notPaid, notTax, notDelivered, done, total: pos.length };
   }, [pos]);
 
-  // 통장 잔액
-  const cashCurrent = useMemo(() => {
-    if (!cashLogs.length) return null;
-    const asc = [...cashLogs].sort((a,b) =>
-      (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at||'') < (b.created_at||'') ? -1 : 1));
-    let running = 0;
-    asc.forEach(r => { if (r.balance_after != null) running = r.balance_after; else running += (r.delta||0); });
-    return running;
-  }, [cashLogs]);
+  // 신규 문의 lead (영업관리 신규문의 단계)
+  const newInquiries = useMemo(() => leads.filter(l => (l.stage || '신규문의') === '신규문의')
+    .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||'')), [leads]);
 
-  // 받을 돈(예상매출 미수) / 줄 돈(외상매입 양수만)
-  const receivable = useMemo(() => expectedRev.filter(r=>!r.collected).reduce((s,r)=>s+(r.amount||0),0), [expectedRev]);
-  const payable    = useMemo(() => balances.reduce((s,b)=>s+Math.max(0, b.balance||0), 0), [balances]);
-  const netPos = receivable - payable;
-
-  // 다가오는 일정 (7일 내 — 납기일 또는 예상매출 due_date)
-  const today = new Date(); today.setHours(0,0,0,0);
-  const weekLater = new Date(today.getTime() + 7*86400000);
-  const upcoming = useMemo(() => {
-    const items = [];
-    pos.forEach(p => {
-      if (!p.delivery_date) return;
-      const d = new Date(p.delivery_date);
-      if (d >= today && d <= weekLater) {
-        const allDone = (p.purchase_order_items||[]).every(it => it.delivered);
-        if (!allDone) items.push({ kind:'po', date:p.delivery_date, label:`${p.hospital_name||'-'} · ${p.manufacturer_name||'-'}`, sub:p.po_no });
-      }
-    });
-    expectedRev.forEach(r => {
-      if (r.collected || !r.due_date) return;
-      const d = new Date(r.due_date);
-      if (d >= today && d <= weekLater) {
-        items.push({ kind:'rev', date:r.due_date, label:`${r.target_name||'-'} · ${r.installment_label||''}`, sub:(r.amount||0).toLocaleString()+'원' });
-      }
-    });
-    return items.sort((a,b) => a.date.localeCompare(b.date)).slice(0,10);
-  }, [pos, expectedRev]);
-
-  // 미해결 이슈
-  const openIssues = useMemo(() => {
-    return notes
-      .filter(n => n.category === 'issue' && !n.resolved)
-      .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''))
-      .slice(0, 8)
-      .map(n => {
-        const po = pos.find(p => p.id === n.po_id);
-        return { ...n, poNo: po?.po_no || '-', vendor: po?.manufacturer_name || '-' };
-      });
-  }, [notes, pos]);
-
-  const fmt = n => (n||0).toLocaleString('ko-KR');
-  const dday = (s) => {
-    const d = new Date(s); d.setHours(0,0,0,0);
-    const diff = Math.round((d - today) / 86400000);
-    if (diff === 0) return '오늘';
-    if (diff > 0) return `D-${diff}`;
-    return `D+${-diff}`;
-  };
   const greeting = (() => { const h = new Date().getHours(); return h<11?'좋은 아침이에요':h<14?'점심 잘 챙기세요':h<18?'좋은 오후예요':'고생하셨어요'; })();
+
+  // 영업관리에서 lead 열기
+  const openLead = (lead) => {
+    // 영업관리 페이지로 점프 (lead 클릭은 LeadsPage에서 자동 처리되도록 lead.id 전달 어려움 → 일단 leads로 이동)
+    nav?.leads?.();
+  };
 
   return (
     <div style={{height:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', overflow:'hidden'}}>
@@ -13260,78 +13200,41 @@ function HomePage({ user, onLogout, nav }) {
           </div>
         </div>
 
-        {/* 2행 — 자금 요약 */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-slate-700">💰 자금 흐름</h3>
-            <button onClick={() => nav?.payables?.()} className="text-xs text-blue-500 hover:text-blue-700">매입매출 관리 →</button>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="text-xs text-slate-500 mb-1">통장잔액</div>
-              <div className={`text-xl font-bold ${cashCurrent != null && cashCurrent < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-                {cashCurrent != null ? fmt(cashCurrent)+'원' : '—'}
-              </div>
-            </div>
-            <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
-              <div className="text-xs text-emerald-700 mb-1">받을 돈 (미수금)</div>
-              <div className="text-xl font-bold text-emerald-800">{fmt(receivable)}원</div>
-            </div>
-            <div className="bg-rose-50 rounded-xl border border-rose-200 p-4">
-              <div className="text-xs text-rose-700 mb-1">줄 돈 (외상매입)</div>
-              <div className="text-xl font-bold text-rose-800">{fmt(payable)}원</div>
-            </div>
-            <div className={`rounded-xl border p-4 ${netPos >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'}`}>
-              <div className={`text-xs mb-1 ${netPos >= 0 ? 'text-blue-700' : 'text-amber-700'}`}>순 포지션 (받을 − 줄)</div>
-              <div className={`text-xl font-bold ${netPos >= 0 ? 'text-blue-800' : 'text-amber-800'}`}>
-                {netPos >= 0 ? '+' : ''}{fmt(netPos)}원
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 3행 — 다가오는 일정 + 미해결 이슈 */}
+        {/* 2행 — 신규 문의 + 캘린더 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* 다가오는 일정 */}
+          {/* 신규 문의 (영업관리 신규문의 단계) */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700 flex items-center justify-between">
-              <span>📅 다가오는 일정 (7일 내)</span>
-              <span className="text-xs text-slate-400">{upcoming.length}건</span>
+              <span>🆕 신규 문의</span>
+              <button onClick={() => nav?.leads?.()} className="text-xs text-blue-500 hover:text-blue-700">영업관리 →</button>
             </div>
-            <div className="divide-y divide-slate-100">
-              {upcoming.length === 0 ? (
-                <div className="px-4 py-8 text-center text-slate-400 text-sm">예정된 일정이 없습니다</div>
-              ) : upcoming.map((it, i) => (
-                <div key={i} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${it.kind==='po'?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}`}>
-                    {it.kind === 'po' ? '납기' : '수금'}
-                  </span>
-                  <span className="text-xs text-slate-500 w-20">{it.date} <span className="text-slate-400">({dday(it.date)})</span></span>
-                  <span className="flex-1 text-sm text-slate-800 truncate">{it.label}</span>
-                  <span className="text-xs text-slate-500">{it.sub}</span>
-                </div>
+            <div className="divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
+              {newInquiries.length === 0 ? (
+                <div className="px-4 py-8 text-center text-slate-400 text-sm">신규 문의가 없습니다</div>
+              ) : newInquiries.map(l => (
+                <button key={l.id} onClick={() => openLead(l)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-800 truncate">{l.hospital_name || '(병원 미정)'}</div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {l.contact_name || ''}{l.contact_phone ? ' · ' + l.contact_phone : ''}
+                      {l.source ? ' · ' + l.source : ''}
+                    </div>
+                    {l.memo && <div className="text-[11px] text-slate-400 truncate mt-0.5">{l.memo}</div>}
+                  </div>
+                  <span className="text-[10px] text-slate-400 shrink-0">{(l.created_at || '').slice(0,10)}</span>
+                </button>
               ))}
             </div>
           </div>
 
-          {/* 미해결 이슈 */}
+          {/* 영업관리 캘린더 */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700 flex items-center justify-between">
-              <span>⚠️ 미해결 이슈</span>
-              <span className="text-xs text-slate-400">{openIssues.length}건</span>
+              <span>📅 캘린더</span>
+              <button onClick={() => nav?.leads?.()} className="text-xs text-blue-500 hover:text-blue-700">영업관리 →</button>
             </div>
-            <div className="divide-y divide-slate-100">
-              {openIssues.length === 0 ? (
-                <div className="px-4 py-8 text-center text-slate-400 text-sm">미해결 이슈 없음 — 좋아요!</div>
-              ) : openIssues.map(n => (
-                <div key={n.id} className="px-4 py-2.5 flex items-start gap-3 hover:bg-slate-50">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 shrink-0">이슈</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-slate-800 truncate">{n.body}</div>
-                    <div className="text-[10px] text-slate-400">{n.poNo} · {n.vendor} · {n.created_at?.slice(0,10)}</div>
-                  </div>
-                </div>
-              ))}
+            <div className="p-2">
+              <LeadsCalendar leads={leads} onEdit={openLead} onNewLead={() => nav?.leads?.()} onLoadQuote={() => nav?.leads?.()} />
             </div>
           </div>
         </div>
