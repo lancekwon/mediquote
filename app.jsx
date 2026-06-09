@@ -12808,17 +12808,28 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                   </thead>
                   <tbody>
                     {g.list.map(p => {
-                      const Step = ({ n, total, icon }) => {
+                      const toggleAll = async (field, atField) => {
+                        const today = new Date().toISOString().slice(0,10);
+                        const items = p.items || [];
+                        const allOn = items.length > 0 && items.every(it => !!it[field]);
+                        const newVal = !allOn;
+                        await Promise.all(items.map(it => dbUpdatePoItem(it.id, {
+                          [field]: newVal,
+                          [atField]: newVal ? (it[atField] || today) : null,
+                        })));
+                        reload();
+                      };
+                      const Step = ({ n, total, icon, onClick, title }) => {
                         const cls = total === 0
                           ? 'bg-slate-100 text-slate-300'
                           : n === total ? 'bg-emerald-500 text-white'
                           : n > 0 ? 'bg-amber-400 text-white'
-                          : 'bg-slate-100 text-slate-400';
+                          : 'bg-slate-100 text-slate-400 hover:bg-slate-200';
                         return (
-                          <span className={`inline-flex items-center justify-center w-8 h-7 rounded ${cls}`}>
+                          <button onClick={onClick} title={title}
+                            className={`inline-flex items-center justify-center w-8 h-7 rounded transition-colors ${cls}`}>
                             {icon}
-                            {total > 1 && <span className="ml-1 text-[10px] font-semibold">{n}/{total}</span>}
-                          </span>
+                          </button>
                         );
                       };
                       const ICONS = {
@@ -12837,10 +12848,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                             <span className="text-slate-400 text-xs ml-2">({p.totalQty}개)</span>
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>
-                          <td className="px-3 py-2 text-center"><Step n={p.orderedN} total={p.total} icon={ICONS.send}/></td>
-                          <td className="px-3 py-2 text-center"><Step n={p.paidN} total={p.total} icon={ICONS.cash}/></td>
-                          <td className="px-3 py-2 text-center"><Step n={p.taxN} total={p.total} icon={ICONS.doc}/></td>
-                          <td className="px-3 py-2 text-center"><Step n={p.deliveredN} total={p.total} icon={ICONS.box}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.orderedN} total={p.total} icon={ICONS.send} title="발주" onClick={()=>toggleAll('ordered','ordered_at')}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.paidN} total={p.total} icon={ICONS.cash} title="입금" onClick={()=>toggleAll('paid','paid_at')}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.taxN} total={p.total} icon={ICONS.doc} title="세금계산서" onClick={()=>toggleAll('tax_invoiced','tax_invoiced_at')}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.deliveredN} total={p.total} icon={ICONS.box} title="납품" onClick={()=>toggleAll('delivered','delivered_at')}/></td>
                         </tr>
                       );
                     })}
