@@ -12609,7 +12609,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('active'); // active | done | issues | all
+  const [filter, setFilter] = useState('all'); // all | ordered | paid | tax | delivered | done
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState({}); // poId → bool
   const [toast, setToast] = useState(null);
@@ -12650,7 +12650,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
     const deliveredN = items.filter(it => it.delivered).length;
     const ns = notesByPo.get(p.id) || [];
     const issues = ns.filter(n => n.category === 'issue' && !n.resolved).length;
-    const allDone = total > 0 && deliveredN === total && taxN === total;
+    const allDone = total > 0 && orderedN === total && paidN === total && taxN === total && deliveredN === total;
     const ctr = contracts.find(c => c.id === p.contract_id);
     const hospName = ctr?.hospital_name || p.hospital_name || '(병원 미지정)';
     const firstModel = items[0]?.model_name || items[0]?.item_name || '';
@@ -12661,9 +12661,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return enriched.filter(p => {
-      if (filter === 'active' && p.allDone) return false;
       if (filter === 'done' && !p.allDone) return false;
-      if (filter === 'issues' && p.issues === 0) return false;
+      if (filter === 'ordered'   && (p.allDone || p.orderedN   === p.total)) return false;
+      if (filter === 'paid'      && (p.allDone || p.paidN      === p.total)) return false;
+      if (filter === 'tax'       && (p.allDone || p.taxN       === p.total)) return false;
+      if (filter === 'delivered' && (p.allDone || p.deliveredN === p.total)) return false;
       if (q) {
         const hay = `${p.po_no} ${p.hospName} ${p.manufacturer_name || ''} ${p.vendor_name || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -12689,14 +12691,12 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
   }, [filtered]);
 
   // 통계
-  const stats = useMemo(() => {
-    return {
-      active: enriched.filter(p => !p.allDone).length,
-      pendingDelivery: enriched.reduce((s,p) => s + (p.total - p.deliveredN), 0),
-      pendingTax: enriched.reduce((s,p) => s + (p.total - p.taxN), 0),
-      issues: enriched.reduce((s,p) => s + p.issues, 0),
-    };
-  }, [enriched]);
+  const stats = useMemo(() => ({
+    notOrdered:   enriched.filter(p => !p.allDone && p.orderedN   < p.total).length,
+    notPaid:      enriched.filter(p => !p.allDone && p.paidN      < p.total).length,
+    notTax:       enriched.filter(p => !p.allDone && p.taxN       < p.total).length,
+    notDelivered: enriched.filter(p => !p.allDone && p.deliveredN < p.total).length,
+  }), [enriched]);
 
   // 액션
   const toggleItem = async (item, field) => {
@@ -12747,30 +12747,26 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
       {toast && <div className={`fixed top-6 right-6 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white ${toast.type==='error'?'bg-red-500':'bg-emerald-500'}`}>{toast.msg}</div>}
 
       <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%'}}>
-        {/* 통계 카드 4개 */}
+        {/* 통계 카드 4개 — 클릭하면 그 단계 미완료 필터 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <button onClick={()=>setFilter('active')} className={`text-left bg-white rounded-xl border p-4 ${filter==='active'?'border-blue-500 ring-2 ring-blue-200':'border-slate-200'}`}>
-            <div className="text-xs text-slate-500 mb-1">진행 중 발주</div>
-            <div className="text-2xl font-bold text-slate-900">{stats.active}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
-          </button>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">도착 대기 품목</div>
-            <div className="text-2xl font-bold text-amber-700">{stats.pendingDelivery}<span className="text-sm font-normal text-slate-500 ml-1">개</span></div>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">세금계산서 미수령</div>
-            <div className="text-2xl font-bold text-rose-700">{stats.pendingTax}<span className="text-sm font-normal text-slate-500 ml-1">개</span></div>
-          </div>
-          <button onClick={()=>setFilter('issues')} className={`text-left bg-white rounded-xl border p-4 ${filter==='issues'?'border-rose-500 ring-2 ring-rose-200':'border-slate-200'}`}>
-            <div className="text-xs text-slate-500 mb-1">미해결 이슈</div>
-            <div className="text-2xl font-bold text-rose-700">{stats.issues}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
-          </button>
+          {[
+            { k:'ordered',   label:'발주 미완료',     n:stats.notOrdered,   ring:'border-blue-500 ring-blue-200',     iconColor:'text-blue-500' },
+            { k:'paid',      label:'입금 미완료',     n:stats.notPaid,      ring:'border-violet-500 ring-violet-200', iconColor:'text-violet-500' },
+            { k:'tax',       label:'세금계산서 미수령', n:stats.notTax,       ring:'border-amber-500 ring-amber-200',   iconColor:'text-amber-500' },
+            { k:'delivered', label:'납품 미완료',     n:stats.notDelivered, ring:'border-emerald-500 ring-emerald-200', iconColor:'text-emerald-500' },
+          ].map(c => (
+            <button key={c.k} onClick={()=>setFilter(c.k)}
+              className={`text-left bg-white rounded-xl border p-4 transition-colors ${filter===c.k ? c.ring + ' ring-2' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="text-xs text-slate-500 mb-1">{c.label}</div>
+              <div className={`text-2xl font-bold ${c.iconColor}`}>{c.n}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
+            </button>
+          ))}
         </div>
 
         {/* 필터 바 */}
         <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
           <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
-            {[{k:'active',l:'진행 중'},{k:'done',l:'완료'},{k:'issues',l:'이슈만'},{k:'all',l:'전체'}].map(t => (
+            {[{k:'all',l:'전체'},{k:'ordered',l:'발주'},{k:'paid',l:'입금'},{k:'tax',l:'세금계산서'},{k:'delivered',l:'납품'},{k:'done',l:'완료'}].map(t => (
               <button key={t.k} onClick={()=>setFilter(t.k)}
                 className={`px-3 py-1.5 text-sm rounded transition-colors ${filter===t.k?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
             ))}
