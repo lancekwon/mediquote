@@ -5543,9 +5543,10 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     const base = items.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
     return vatIncluded ? Math.round(base * 1.1) : base;
   };
-  // 거래처별 펼침/접힘 상태 (기본: 펼침)
-  const [collapsedVendors, setCollapsedVendors] = React.useState({});
-  const toggleVendor = (v) => setCollapsedVendors(p => ({ ...p, [v]: !p[v] }));
+  // 거래처별 펼침/접힘 상태 (기본: 접힘 — false면 펼침)
+  const [expandedVendors, setExpandedVendors] = React.useState({});
+  const toggleVendor = (v) => setExpandedVendors(p => ({ ...p, [v]: !p[v] }));
+  const [itemMemoModal, setItemMemoModal] = React.useState(null); // { key, item }
 
   // 저장: 거래처별로 PO upsert (장비 매입가도 갱신 + 이력 기록)
   const handleSave = async () => {
@@ -6099,7 +6100,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             {/* 거래처별 그룹 — 엑셀시트 컴팩트 디자인 */}
             {Object.entries(vendorGroups).map(([vendor, vItems]) => {
               const vendorPo = pos.find(p => p.manufacturer_name === vendor);
-              const isCollapsed = !!collapsedVendors[vendor];
+              const isExpanded = !!expandedVendors[vendor]; // 기본: 접힘
               const totalQty = vItems.reduce((s, it) => s + (Number(it.quantity)||0), 0);
               const firstModel = vItems[0]?.modelName || vItems[0]?.itemName || '';
               const moreCount = vItems.length - 1;
@@ -6107,6 +6108,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
               const paid = vItems.filter(i => i.paid).length;
               const tax  = vItems.filter(i => i.taxInvoiced).length;
               const del  = vItems.filter(i => i.delivered).length;
+              const headBadge = (n, label, on, off) => <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${n === vItems.length ? on : n > 0 ? off : 'bg-slate-100 text-slate-400'}`}>{label} {n}/{vItems.length}</span>;
               const sendKakao = () => {
                 const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
                 const companyName = company.name || '대원메디칼';
@@ -6119,44 +6121,35 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
               };
               return (
                 <div key={vendor} className="bg-white border border-slate-200 overflow-hidden">
-                  {/* 한 줄 헤더 — 발주번호 / 거래처 / 모델 / 수량 / 매출 / 매입 / 카톡 */}
+                  {/* 한 줄 헤더 — 발주번호 / 거래처 / 모델 / 수량 / 매출 / 매입 / 4단계배지 / 카톡 */}
                   <div className="px-2 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-xs">
-                    <button onClick={() => toggleVendor(vendor)} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-200 rounded select-none">{isCollapsed ? '▶' : '▼'}</button>
-                    <span className="font-mono text-slate-500 w-32 shrink-0">{vendorPo ? `${vendorPo.po_no}${vendorPo.revision ? '-R'+vendorPo.revision : ''}` : '신규'}</span>
-                    <span className="font-semibold text-slate-800 w-32 shrink-0 truncate" title={vendor}>{vendor}</span>
-                    <span className="flex-1 text-slate-600 truncate" title={firstModel}>
+                    <button onClick={() => toggleVendor(vendor)} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-200 rounded select-none">{isExpanded ? '▼' : '▶'}</button>
+                    <span className="font-mono text-slate-500 w-28 shrink-0">{vendorPo ? `${vendorPo.po_no}${vendorPo.revision ? '-R'+vendorPo.revision : ''}` : '신규'}</span>
+                    <span className="font-semibold text-slate-800 w-28 shrink-0 truncate" title={vendor}>{vendor}</span>
+                    <span className="flex-1 text-slate-600 truncate min-w-0" title={firstModel}>
                       {firstModel}{moreCount > 0 && <span className="text-slate-400"> 외 {moreCount}건</span>}
                     </span>
-                    <span className="w-12 text-center text-slate-600">{totalQty}개</span>
-                    <span className="w-32 text-right font-mono text-slate-700">매출 <span className="tnum">{vendorSaleTotal(vItems).toLocaleString('ko-KR')}</span></span>
-                    <span className="w-32 text-right font-mono text-slate-700">매입 <span className="tnum">{vendorTotal(vItems).toLocaleString('ko-KR')}</span></span>
-                    <button onClick={sendKakao} className="px-2.5 py-1 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300">카톡</button>
+                    <span className="w-10 text-center text-slate-600">{totalQty}개</span>
+                    <span className="w-28 text-right font-mono text-slate-700"><span className="text-slate-400 mr-1">매출</span><span className="tnum">{vendorSaleTotal(vItems).toLocaleString('ko-KR')}</span></span>
+                    <span className="w-28 text-right font-mono text-slate-700"><span className="text-slate-400 mr-1">매입</span><span className="tnum">{vendorTotal(vItems).toLocaleString('ko-KR')}</span></span>
+                    <span className="flex items-center gap-1 shrink-0">
+                      {headBadge(ord,  '발주', 'bg-blue-500 text-white',    'bg-blue-100 text-blue-700')}
+                      {headBadge(paid, '입금', 'bg-violet-500 text-white',  'bg-violet-100 text-violet-700')}
+                      {headBadge(tax,  '세금', 'bg-amber-500 text-white',   'bg-amber-100 text-amber-700')}
+                      {headBadge(del,  '납품', 'bg-emerald-500 text-white', 'bg-emerald-100 text-emerald-700')}
+                    </span>
+                    <button onClick={sendKakao} className="px-2.5 py-1 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300 shrink-0">카톡</button>
                   </div>
 
-                  {/* 펼친 영역 — 4단계 배지 + 액션 + 표 */}
-                  {!isCollapsed && (
+                  {/* 펼친 영역 — 발주취소(조건부) + 표 */}
+                  {isExpanded && (
                     <>
-                      <div className="px-2 py-1.5 bg-slate-50/70 border-b border-slate-200 flex items-center gap-2 text-xs">
-                        {(() => {
-                          const badge = (n, label, on, off) => <span className={`px-2 py-0.5 rounded font-semibold ${n === vItems.length ? on : n > 0 ? off : 'bg-slate-100 text-slate-500'}`}>{label} {n}/{vItems.length}</span>;
-                          return (
-                            <span className="flex items-center gap-1.5">
-                              {badge(ord,  '발주',      'bg-blue-500 text-white',    'bg-blue-100 text-blue-700')}
-                              {badge(paid, '입금',      'bg-violet-500 text-white',  'bg-violet-100 text-violet-700')}
-                              {badge(tax,  '세금계산서','bg-amber-500 text-white',  'bg-amber-100 text-amber-700')}
-                              {badge(del,  '납품완료',  'bg-emerald-500 text-white', 'bg-emerald-100 text-emerald-700')}
-                            </span>
-                          );
-                        })()}
-                        <span className="ml-auto flex items-center gap-1.5">
-                          {vendorPo && (vendorPo.status === '발주완료' || vendorPo.status === '납품완료') && (
-                            <button onClick={() => handleCancelVendor(vendor, vItems)}
-                              className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded hover:bg-rose-100">발주 취소</button>
-                          )}
-                          <button onClick={() => handleGeneratePdf(vendor, vItems)}
-                            className="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-500">발주서 PDF</button>
-                        </span>
-                      </div>
+                      {vendorPo && (vendorPo.status === '발주완료' || vendorPo.status === '납품완료') && (
+                        <div className="px-2 py-1.5 bg-slate-50/70 border-b border-slate-200 flex items-center justify-end gap-1.5 text-xs">
+                          <button onClick={() => handleCancelVendor(vendor, vItems)}
+                            className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded hover:bg-rose-100">발주 취소</button>
+                        </div>
+                      )}
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-100 text-slate-600">
@@ -6165,8 +6158,6 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           <th className="px-2 py-2 text-center w-12">입금</th>
                           <th className="px-2 py-2 text-center w-16">세금<br/>계산서</th>
                           <th className="px-2 py-2 text-center w-16">납품<br/>완료</th>
-                          <th className="px-2 py-2 text-left">품목</th>
-                          <th className="px-2 py-2 text-left">모델명</th>
                           <th className="px-2 py-2 text-left w-28">제조사</th>
                           <th className="px-2 py-2 text-left w-28">거래처</th>
                           <th className="px-2 py-2 text-center w-14">수량</th>
@@ -6174,7 +6165,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           <th className="px-2 py-2 text-right w-28">매입가</th>
                           <th className="px-2 py-2 text-left w-24">담당자</th>
                           <th className="px-2 py-2 text-left w-28">연락처</th>
-                          <th className="px-2 py-2 text-left w-40">메모</th>
+                          <th className="px-2 py-2 text-center w-16">메모</th>
                           <th className="px-2 py-2 text-center w-10"></th>
                         </tr>
                       </thead>
@@ -6205,14 +6196,6 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                   title={it.delivered_at ? `납품일: ${it.delivered_at}` : '납품 완료되면 체크'}
                                   onChange={e => setItem(it.key, { delivered: e.target.checked, delivered_at: e.target.checked ? (it.delivered_at || new Date().toISOString().split('T')[0]) : null })}
                                   className="w-4 h-4 rounded cursor-pointer accent-emerald-600"/>
-                              </td>
-                              <td className="px-2 py-1">
-                                <input value={it.itemName} onChange={e => setItem(it.key, { itemName: e.target.value })}
-                                  placeholder="품목명" className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
-                              </td>
-                              <td className="px-2 py-1">
-                                <input value={it.modelName} onChange={e => setItem(it.key, { modelName: e.target.value })}
-                                  placeholder="모델명" className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs font-medium"/>
                               </td>
                               <td className="px-2 py-1">
                                 {it.manufacturer ? (
@@ -6264,10 +6247,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                 <input value={it.vendorContactPhone} onChange={e => setItem(it.key, { vendorContactPhone: e.target.value })}
                                   placeholder="010-..." className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
                               </td>
-                              <td className="px-2 py-1">
-                                <input value={it.memo || ''} onChange={e => setItem(it.key, { memo: e.target.value })}
-                                  placeholder="이슈/변경 메모"
-                                  className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
+                              <td className="px-2 py-1 text-center">
+                                <button onClick={() => setItemMemoModal({ key: it.key, item: it })}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-medium ${it.memo ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                  title={it.memo || '메모 작성'}>
+                                  {it.memo ? '메모 ●' : '메모'}
+                                </button>
                               </td>
                               <td className="px-2 py-1 text-center">
                                 <button onClick={() => removePlanItem(it.key)} title="이 품목 제거"
@@ -6326,7 +6311,40 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           onClose={() => setKakaoModal(null)}
         />
       )}
+      {itemMemoModal && (
+        <ItemMemoModal
+          item={itemMemoModal.item}
+          onSave={(text) => { setItem(itemMemoModal.key, { memo: text }); setItemMemoModal(null); }}
+          onClose={() => setItemMemoModal(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function ItemMemoModal({ item, onSave, onClose }) {
+  const [text, setText] = React.useState(item?.memo || '');
+  return (
+    <ModalShell
+      title={`품목 메모`}
+      subtitle={`${item?.itemName || ''}${item?.modelName ? ' · ' + item.modelName : ''}${item?.vendor ? ' · ' + item.vendor : ''}`}
+      onClose={onClose}>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={10}
+        autoFocus
+        placeholder="이 품목의 특이사항·이슈·변경 내역을 자유롭게 기록하세요.
+
+예)
+- 5/15 원장이 모델 X로 변경 요청
+- 5/20 매입가 1,000,000 → 1,200,000 협상 완료
+- 5/25 도착 예정 (영남베드 → 카톡 확인)"
+        className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400 leading-relaxed"
+        style={{minHeight:'240px', resize:'vertical'}} />
+      <div className="flex items-center justify-end gap-2 mt-3">
+        <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">취소</button>
+        <button onClick={() => onSave(text)}
+          className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold">저장 후 닫기</button>
+      </div>
+    </ModalShell>
   );
 }
 
