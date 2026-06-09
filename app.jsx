@@ -6127,10 +6127,18 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       const today = () => new Date().toISOString().slice(0,10);
                       const saleAmt = (Number(it.salePrice)||0) * (Number(it.quantity)||0);
                       const purAmt  = (Number(it.purchasePrice)||0) * (Number(it.quantity)||0);
-                      const Pill = ({ on, color, label, onClick }) => (
-                        <button onClick={onClick}
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${on ? color : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>{label}</button>
+                      const IconPill = ({ on, icon, title, onClick }) => (
+                        <button onClick={onClick} title={title}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded transition-colors ${on ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                          {icon}
+                        </button>
                       );
+                      const ICON = {
+                        send: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>,
+                        cash: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>,
+                        doc:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
+                        box:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>,
+                      };
                       const sendKakaoOne = () => {
                         const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
                         const cleanName = (company.name || '대원메디칼').replace(/^(주식회사|㈜|\(주\))\s*/, '').trim();
@@ -6211,13 +6219,13 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                               setItem(it.key, { purchasePrice: Math.round((v||0) / qty) });
                             }} />
                           </td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.ordered} color="bg-emerald-500 text-white" label="발주"
+                          <td className="px-2 py-1.5 text-center"><IconPill on={it.ordered} icon={ICON.send} title={it.ordered ? `발주: ${it.ordered_at||''}` : '발주'}
                             onClick={() => setItem(it.key, { ordered: !it.ordered, ordered_at: !it.ordered ? (it.ordered_at||today()) : null })}/></td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.paid} color="bg-emerald-500 text-white" label="입금"
+                          <td className="px-2 py-1.5 text-center"><IconPill on={it.paid} icon={ICON.cash} title={it.paid ? `입금: ${it.paid_at||''}` : '입금'}
                             onClick={() => setItem(it.key, { paid: !it.paid, paid_at: !it.paid ? (it.paid_at||today()) : null })}/></td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.taxInvoiced} color="bg-emerald-500 text-white" label="세금계산서"
+                          <td className="px-2 py-1.5 text-center"><IconPill on={it.taxInvoiced} icon={ICON.doc} title={it.taxInvoiced ? `세금계산서: ${it.tax_invoiced_at||''}` : '세금계산서'}
                             onClick={() => setItem(it.key, { taxInvoiced: !it.taxInvoiced, tax_invoiced_at: !it.taxInvoiced ? (it.tax_invoiced_at||today()) : null })}/></td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.delivered} color="bg-emerald-500 text-white" label="납품"
+                          <td className="px-2 py-1.5 text-center"><IconPill on={it.delivered} icon={ICON.box} title={it.delivered ? `납품: ${it.delivered_at||''}` : '납품'}
                             onClick={() => setItem(it.key, { delivered: !it.delivered, delivered_at: !it.delivered ? (it.delivered_at||today()) : null })}/></td>
                           <td className="px-2 py-1.5">
                             <button onClick={() => setItemMemoModal({ key: it.key, item: it })}
