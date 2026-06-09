@@ -12645,14 +12645,17 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
     const items = p.purchase_order_items || [];
     const total = items.length;
     const orderedN = items.filter(it => it.ordered).length;
-    const deliveredN = items.filter(it => it.delivered).length;
+    const paidN = items.filter(it => it.paid).length;
     const taxN = items.filter(it => it.tax_invoiced).length;
+    const deliveredN = items.filter(it => it.delivered).length;
     const ns = notesByPo.get(p.id) || [];
     const issues = ns.filter(n => n.category === 'issue' && !n.resolved).length;
     const allDone = total > 0 && deliveredN === total && taxN === total;
     const ctr = contracts.find(c => c.id === p.contract_id);
     const hospName = ctr?.hospital_name || p.hospital_name || '(병원 미지정)';
-    return { ...p, items, total, orderedN, deliveredN, taxN, issues, allDone, ctr, hospName, notes: ns };
+    const firstModel = items[0]?.model_name || items[0]?.item_name || '';
+    const totalQty = items.reduce((s, it) => s + (Number(it.quantity)||0), 0);
+    return { ...p, items, total, orderedN, paidN, taxN, deliveredN, issues, allDone, ctr, hospName, firstModel, totalQty, notes: ns };
   }), [pos, contracts, notesByPo]);
 
   const filtered = useMemo(() => {
@@ -12795,109 +12798,52 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
                     <tr>
-                      <th className="px-3 py-2 text-left w-32">발주번호</th>
-                      <th className="px-3 py-2 text-left">거래처</th>
-                      <th className="px-3 py-2 text-right w-28">금액</th>
-                      <th className="px-3 py-2 text-center w-24">발주</th>
-                      <th className="px-3 py-2 text-center w-24">도착</th>
-                      <th className="px-3 py-2 text-center w-28">세금계산서</th>
-                      <th className="px-3 py-2 text-center w-20">메모</th>
-                      <th className="px-3 py-2 text-center w-32">액션</th>
-                      <th className="px-3 py-2 text-center w-10"></th>
+                      <th className="px-3 py-2 text-left w-28">발주번호</th>
+                      <th className="px-3 py-2 text-left w-40">거래처</th>
+                      <th className="px-3 py-2 text-left">모델 / 수량</th>
+                      <th className="px-3 py-2 text-right w-32">금액</th>
+                      <th className="px-3 py-2 text-center w-20">발주</th>
+                      <th className="px-3 py-2 text-center w-20">입금</th>
+                      <th className="px-3 py-2 text-center w-24">세금계산서</th>
+                      <th className="px-3 py-2 text-center w-20">납품</th>
                     </tr>
                   </thead>
                   <tbody>
                     {g.list.map(p => {
-                      const isOpen = !!expanded[p.id];
-                      const progress = (n, total) => total === 0 ? '—' : `${n}/${total}`;
-                      const color = (n, total) => total === 0 ? 'text-slate-300' : n === total ? 'text-emerald-600' : n > 0 ? 'text-amber-600' : 'text-slate-400';
+                      const Step = ({ n, total, icon }) => {
+                        const cls = total === 0
+                          ? 'bg-slate-100 text-slate-300'
+                          : n === total ? 'bg-emerald-500 text-white'
+                          : n > 0 ? 'bg-amber-400 text-white'
+                          : 'bg-slate-100 text-slate-400';
+                        return (
+                          <span className={`inline-flex items-center justify-center w-8 h-7 rounded ${cls}`}>
+                            {icon}
+                            {total > 1 && <span className="ml-1 text-[10px] font-semibold">{n}/{total}</span>}
+                          </span>
+                        );
+                      };
+                      const ICONS = {
+                        send: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>,
+                        cash: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>,
+                        doc:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
+                        box:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>,
+                      };
                       return (
-                        <React.Fragment key={p.id}>
-                          <tr className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
-                            onClick={()=>setExpanded(e => ({...e, [p.id]: !e[p.id]}))}>
-                            <td className="px-3 py-2 text-xs font-mono text-slate-600">{p.po_no || '—'}</td>
-                            <td className="px-3 py-2 text-slate-800">{p.manufacturer_name || p.vendor_name || '—'}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>
-                            <td className={`px-3 py-2 text-center text-xs font-semibold ${color(p.orderedN, p.total)}`}>{progress(p.orderedN, p.total)}</td>
-                            <td className={`px-3 py-2 text-center text-xs font-semibold ${color(p.deliveredN, p.total)}`}>{progress(p.deliveredN, p.total)}</td>
-                            <td className={`px-3 py-2 text-center text-xs font-semibold ${color(p.taxN, p.total)}`}>{progress(p.taxN, p.total)}</td>
-                            <td className="px-3 py-2 text-center text-xs">
-                              {p.notes.length > 0 && <span className={`mr-1 font-semibold ${p.issues>0?'text-rose-600':'text-slate-500'}`}>{p.notes.length}</span>}
-                              <button onClick={e => { e.stopPropagation(); setNoteModal({po:p}); }} className="text-blue-500 hover:text-blue-700">메모</button>
-                            </td>
-                            <td className="px-3 py-2 text-center text-xs whitespace-nowrap">
-                              <button onClick={e => { e.stopPropagation(); setEditModal({po:p}); }} className="text-slate-500 hover:text-slate-700 mr-1" title="매입가·수량 수정">수정</button>
-                              <button onClick={e => { e.stopPropagation(); handleResend(p); }} className="text-emerald-500 hover:text-emerald-700 mr-1" title="변경 발주서 카카오톡 메시지">재발송</button>
-                              <button onClick={e => { e.stopPropagation(); handleCancel(p); }} className="text-rose-400 hover:text-rose-600" title="발주 취소">취소</button>
-                            </td>
-                            <td className="px-3 py-2 text-center text-slate-400 text-xs">{isOpen ? '▼' : '▶'}</td>
-                          </tr>
-                          {isOpen && (
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={9} className="px-3 py-3">
-                                <table className="w-full text-xs">
-                                  <thead className="text-slate-500">
-                                    <tr>
-                                      <th className="px-2 py-1 text-left">품명/모델</th>
-                                      <th className="px-2 py-1 text-center w-16">수량</th>
-                                      <th className="px-2 py-1 text-right w-24">매입가</th>
-                                      <th className="px-2 py-1 text-center w-20">발주</th>
-                                      <th className="px-2 py-1 text-center w-20">도착</th>
-                                      <th className="px-2 py-1 text-center w-24">세금계산서</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {p.items.map(it => (
-                                      <tr key={it.id} className="border-t border-slate-200">
-                                        <td className="px-2 py-1.5">
-                                          <div className="font-medium text-slate-800">{it.item_name || '—'}</div>
-                                          <div className="text-[11px] text-slate-500">{it.model_name || ''}</div>
-                                        </td>
-                                        <td className="px-2 py-1.5 text-center">{it.quantity || 1}</td>
-                                        <td className="px-2 py-1.5 text-right font-mono">{(it.unit_price||0).toLocaleString()}</td>
-                                        <td className="px-2 py-1.5 text-center">
-                                          <button onClick={()=>toggleItem(it,'ordered')} className={`text-sm ${it.ordered?'text-emerald-600':'text-slate-300 hover:text-slate-500'}`}
-                                            title={it.ordered ? `발주: ${it.ordered_at||''}` : '발주로 표시'}>
-                                            {it.ordered ? '✅' : '⬜'}
-                                          </button>
-                                        </td>
-                                        <td className="px-2 py-1.5 text-center">
-                                          <button onClick={()=>toggleItem(it,'delivered')} className={`text-sm ${it.delivered?'text-emerald-600':'text-slate-300 hover:text-slate-500'}`}
-                                            title={it.delivered ? `도착: ${it.delivered_at||''}` : '도착으로 표시'}>
-                                            {it.delivered ? '✅' : '⬜'}
-                                          </button>
-                                        </td>
-                                        <td className="px-2 py-1.5 text-center">
-                                          <button onClick={()=>toggleItem(it,'tax_invoiced')} className={`text-sm ${it.tax_invoiced?'text-emerald-600':'text-slate-300 hover:text-slate-500'}`}
-                                            title={it.tax_invoiced ? `발행: ${it.tax_invoiced_at||''}` : '세금계산서 수령으로 표시'}>
-                                            {it.tax_invoiced ? '✅' : '⬜'}
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                                {p.notes.length > 0 && (
-                                  <div className="mt-3 pt-3 border-t border-slate-200">
-                                    <div className="text-[11px] text-slate-500 font-semibold mb-1.5">메모 / 이슈 로그</div>
-                                    <div className="space-y-1.5">
-                                      {p.notes.slice(0,5).map(n => (
-                                        <div key={n.id} className="text-xs flex items-start gap-2">
-                                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${n.category==='issue'?(n.resolved?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'):n.category==='change'?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600'}`}>
-                                            {n.category==='issue' ? (n.resolved?'해결됨':'이슈') : n.category==='change' ? '변경' : '메모'}
-                                          </span>
-                                          <span className="text-slate-700">{n.body}</span>
-                                          <span className="ml-auto text-slate-400 text-[10px]">{n.created_at?.slice(0,10)}</span>
-                                        </div>
-                                      ))}
-                                      {p.notes.length > 5 && <button onClick={()=>setNoteModal({po:p})} className="text-[11px] text-blue-500">+ {p.notes.length-5}개 더보기</button>}
-                                    </div>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
+                        <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2 text-xs font-mono text-slate-600">{p.po_no || '—'}</td>
+                          <td className="px-3 py-2 text-slate-800">{p.manufacturer_name || p.vendor_name || '—'}</td>
+                          <td className="px-3 py-2 text-slate-700">
+                            <span className="font-medium">{p.firstModel || '—'}</span>
+                            {p.total > 1 && <span className="text-slate-400 text-xs"> 외 {p.total - 1}건</span>}
+                            <span className="text-slate-400 text-xs ml-2">({p.totalQty}개)</span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>
+                          <td className="px-3 py-2 text-center"><Step n={p.orderedN} total={p.total} icon={ICONS.send}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.paidN} total={p.total} icon={ICONS.cash}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.taxN} total={p.total} icon={ICONS.doc}/></td>
+                          <td className="px-3 py-2 text-center"><Step n={p.deliveredN} total={p.total} icon={ICONS.box}/></td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -12908,19 +12854,6 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
         )}
       </div>
 
-      {noteModal && (
-        <PoNoteModal po={noteModal.po} user={user} notes={notesByPo.get(noteModal.po.id) || []}
-          onClose={()=>setNoteModal(null)}
-          onChanged={()=>{ reload(); }} />
-      )}
-      {editModal && (
-        <PoQuickEditModal po={editModal.po} user={user}
-          onClose={()=>setEditModal(null)}
-          onSaved={()=>{ reload(); showToast('수정 저장됨'); }} />
-      )}
-      {kakaoModal && (
-        <KakaoMessageModal vendor={kakaoModal.vendor} text={kakaoModal.text} onClose={()=>setKakaoModal(null)} />
-      )}
     </div>
   );
 }
