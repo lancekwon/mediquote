@@ -5387,6 +5387,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                 vendorContactPhone: vInfo?.contact_phone || '',
                 ordered:    !!pi.ordered,
                 ordered_at: pi.ordered_at || null,
+                paid:        !!pi.paid,
+                paid_at:     pi.paid_at || null,
                 taxInvoiced: !!pi.tax_invoiced,
                 tax_invoiced_at: pi.tax_invoiced_at || null,
                 delivered:  !!pi.delivered,
@@ -5573,6 +5575,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           sale_price: Number(it.salePrice) || 0,
           ordered: !!it.ordered,
           ordered_at: it.ordered ? (it.ordered_at || today) : null,
+          paid: !!it.paid,
+          paid_at: it.paid ? (it.paid_at || today) : null,
           tax_invoiced: !!it.taxInvoiced,
           tax_invoiced_at: it.taxInvoiced ? (it.tax_invoiced_at || today) : null,
           delivered: !!it.delivered,
@@ -6090,29 +6094,32 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
               const vendorPo = pos.find(p => p.manufacturer_name === vendor);
               return (
                 <div key={vendor} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3 bg-amber-50 flex-wrap">
-                    <div className="font-bold text-slate-900">📦 {vendor}</div>
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3 bg-slate-50 flex-wrap">
+                    <div className="font-bold text-slate-900">{vendor}</div>
                     {vendorPo && <span className="font-mono text-xs text-slate-500">{vendorPo.po_no}{vendorPo.revision ? `-R${vendorPo.revision}` : ''}</span>}
                     {(() => {
-                      const ord = vItems.filter(i => i.ordered).length;
-                      const del = vItems.filter(i => i.delivered).length;
+                      const ord  = vItems.filter(i => i.ordered).length;
+                      const paid = vItems.filter(i => i.paid).length;
+                      const tax  = vItems.filter(i => i.taxInvoiced).length;
+                      const del  = vItems.filter(i => i.delivered).length;
+                      const badge = (n, label, on, off) => <span className={`px-2 py-0.5 rounded font-semibold ${n === vItems.length ? on : n > 0 ? off : 'bg-slate-100 text-slate-500'}`}>{label} {n}/{vItems.length}</span>;
                       return (
-                        <span className="flex items-center gap-2 text-xs">
-                          <span className={`px-2 py-0.5 rounded font-semibold ${ord === vItems.length ? 'bg-blue-500 text-white' : ord > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>발주 {ord}/{vItems.length}</span>
-                          <span className={`px-2 py-0.5 rounded font-semibold ${del === vItems.length ? 'bg-emerald-500 text-white' : del > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>납품 {del}/{vItems.length}</span>
+                        <span className="flex items-center gap-1.5 text-xs">
+                          {badge(ord,  '발주',     'bg-blue-500 text-white',    'bg-blue-100 text-blue-700')}
+                          {badge(paid, '입금',     'bg-violet-500 text-white',  'bg-violet-100 text-violet-700')}
+                          {badge(tax,  '세금계산서','bg-amber-500 text-white',  'bg-amber-100 text-amber-700')}
+                          {badge(del,  '납품완료', 'bg-emerald-500 text-white', 'bg-emerald-100 text-emerald-700')}
                         </span>
                       );
                     })()}
                     <span className="ml-auto font-semibold text-slate-700 text-sm">매입 합계 <span className="tnum">{vendorTotal(vItems).toLocaleString('ko-KR')}</span>원</span>
                     {vendorPo && (vendorPo.status === '발주완료' || vendorPo.status === '납품완료') && (
                       <button onClick={() => handleCancelVendor(vendor, vItems)}
-                        className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 text-xs font-semibold rounded hover:bg-red-100"
-                        title="이 거래처의 발주를 취소합니다 (히스토리 보존)">
-                        🚫 발주 취소
-                      </button>
+                        className="px-3 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded hover:bg-rose-100"
+                        title="이 거래처의 발주를 취소합니다 (히스토리 보존)">발주 취소</button>
                     )}
                     <button onClick={() => handleGeneratePdf(vendor, vItems)}
-                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-500">📄 발주서 PDF</button>
+                      className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded hover:bg-blue-500">발주서 PDF</button>
                     <button onClick={() => {
                       const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
                       const companyName = company.name || '대원메디칼';
@@ -6129,15 +6136,16 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       if (lead.contact_name) lines.push(`담당: ${lead.contact_name}${lead.contact_phone ? ' (' + lead.contact_phone + ')' : ''}`);
                       setKakaoModal({ vendor, text: lines.join('\n') });
                     }}
-                      className="px-3 py-1.5 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300">💬 발주서 카톡</button>
+                      className="px-3 py-1.5 bg-yellow-400 text-slate-900 text-xs font-semibold rounded hover:bg-yellow-300">카톡 발송</button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-600">
                         <tr>
                           <th className="px-2 py-2 text-center w-12">발주</th>
+                          <th className="px-2 py-2 text-center w-12">입금</th>
                           <th className="px-2 py-2 text-center w-16">세금<br/>계산서</th>
-                          <th className="px-2 py-2 text-center w-12">납품</th>
+                          <th className="px-2 py-2 text-center w-16">납품<br/>완료</th>
                           <th className="px-2 py-2 text-left">품목</th>
                           <th className="px-2 py-2 text-left">모델명</th>
                           <th className="px-2 py-2 text-left w-28">제조사</th>
@@ -6147,6 +6155,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           <th className="px-2 py-2 text-right w-28">매입가</th>
                           <th className="px-2 py-2 text-left w-24">담당자</th>
                           <th className="px-2 py-2 text-left w-28">연락처</th>
+                          <th className="px-2 py-2 text-left w-40">메모</th>
                           <th className="px-2 py-2 text-center w-10"></th>
                         </tr>
                       </thead>
@@ -6156,19 +6165,27 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                             <tr key={it.key} className={`border-t border-slate-100 ${it.delivered ? 'bg-emerald-50/30' : it.ordered ? 'bg-blue-50/30' : ''}`}>
                               <td className="px-2 py-1.5 text-center">
                                 <input type="checkbox" checked={!!it.ordered}
+                                  title={it.ordered_at ? `발주일: ${it.ordered_at}` : '거래처에 발주 보냄'}
                                   onChange={e => setItem(it.key, { ordered: e.target.checked, ordered_at: e.target.checked ? (it.ordered_at || new Date().toISOString().split('T')[0]) : null })}
-                                  className="w-4 h-4 rounded cursor-pointer"/>
+                                  className="w-4 h-4 rounded cursor-pointer accent-blue-600"/>
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                <input type="checkbox" checked={!!it.paid}
+                                  title={it.paid_at ? `입금일: ${it.paid_at}` : '거래처에 입금(송금) 완료'}
+                                  onChange={e => setItem(it.key, { paid: e.target.checked, paid_at: e.target.checked ? (it.paid_at || new Date().toISOString().split('T')[0]) : null })}
+                                  className="w-4 h-4 rounded cursor-pointer accent-violet-600"/>
                               </td>
                               <td className="px-2 py-1.5 text-center">
                                 <input type="checkbox" checked={!!it.taxInvoiced}
-                                  title="세금계산서를 받으면 체크하세요. 저장 시 외상매입금에 반영됩니다."
+                                  title={it.tax_invoiced_at ? `발행일: ${it.tax_invoiced_at}` : '세금계산서 받으면 체크 — 저장 시 외상매입금에 반영'}
                                   onChange={e => setItem(it.key, { taxInvoiced: e.target.checked, tax_invoiced_at: e.target.checked ? (it.tax_invoiced_at || new Date().toISOString().split('T')[0]) : null })}
                                   className="w-4 h-4 rounded cursor-pointer accent-amber-500"/>
                               </td>
                               <td className="px-2 py-1.5 text-center">
                                 <input type="checkbox" checked={!!it.delivered}
+                                  title={it.delivered_at ? `납품일: ${it.delivered_at}` : '납품 완료되면 체크'}
                                   onChange={e => setItem(it.key, { delivered: e.target.checked, delivered_at: e.target.checked ? (it.delivered_at || new Date().toISOString().split('T')[0]) : null })}
-                                  className="w-4 h-4 rounded cursor-pointer"/>
+                                  className="w-4 h-4 rounded cursor-pointer accent-emerald-600"/>
                               </td>
                               <td className="px-2 py-1">
                                 <input value={it.itemName} onChange={e => setItem(it.key, { itemName: e.target.value })}
@@ -6228,6 +6245,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                                 <input value={it.vendorContactPhone} onChange={e => setItem(it.key, { vendorContactPhone: e.target.value })}
                                   placeholder="010-..." className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
                               </td>
+                              <td className="px-2 py-1">
+                                <input value={it.memo || ''} onChange={e => setItem(it.key, { memo: e.target.value })}
+                                  placeholder="이슈/변경 메모"
+                                  className="w-full px-1.5 py-1 border border-slate-200 rounded text-xs"/>
+                              </td>
                               <td className="px-2 py-1 text-center">
                                 <button onClick={() => removePlanItem(it.key)} title="이 품목 제거"
                                   className="text-slate-300 hover:text-red-500 text-sm leading-none">✕</button>
@@ -6271,7 +6293,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           </div>
           <button onClick={handleSave} disabled={saving || !contract}
             className="px-7 py-2.5 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50 transition-colors shadow-sm">
-            {saving ? '저장 중...' : '💾 발주 계획 저장'}
+            {saving ? '저장 중...' : '발주 계획 저장'}
           </button>
         </div>
       )}
