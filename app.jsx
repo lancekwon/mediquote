@@ -6106,13 +6106,13 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                     <tr>
                       <th className="px-2 py-2 text-left w-24">PO번호</th>
                       <th className="px-2 py-2 text-left w-32">거래처</th>
-                      <th className="px-2 py-2 text-left">모델명</th>
+                      <th className="px-2 py-2 text-left">모델명/제조사</th>
                       <th className="px-2 py-2 text-center w-14">수량</th>
                       <th className="px-2 py-2 text-right w-28">매출</th>
                       <th className="px-2 py-2 text-right w-28">매입</th>
                       <th className="px-2 py-2 text-center w-14">발주</th>
                       <th className="px-2 py-2 text-center w-14">입금</th>
-                      <th className="px-2 py-2 text-center w-14">세금</th>
+                      <th className="px-2 py-2 text-center w-20">세금계산서</th>
                       <th className="px-2 py-2 text-center w-14">납품</th>
                       <th className="px-2 py-2 text-left w-40">메모</th>
                       <th className="px-2 py-2 text-center w-16">담당자</th>
@@ -6193,11 +6193,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                               setItem(it.key, { purchasePrice: Math.round((v||0) / qty) });
                             }} />
                           </td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.ordered} color="bg-blue-500 text-white" label="발주"
+                          <td className="px-2 py-1.5 text-center"><Pill on={it.ordered} color="bg-emerald-500 text-white" label="발주"
                             onClick={() => setItem(it.key, { ordered: !it.ordered, ordered_at: !it.ordered ? (it.ordered_at||today()) : null })}/></td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.paid} color="bg-violet-500 text-white" label="입금"
+                          <td className="px-2 py-1.5 text-center"><Pill on={it.paid} color="bg-emerald-500 text-white" label="입금"
                             onClick={() => setItem(it.key, { paid: !it.paid, paid_at: !it.paid ? (it.paid_at||today()) : null })}/></td>
-                          <td className="px-2 py-1.5 text-center"><Pill on={it.taxInvoiced} color="bg-amber-500 text-white" label="세금"
+                          <td className="px-2 py-1.5 text-center"><Pill on={it.taxInvoiced} color="bg-emerald-500 text-white" label="세금계산서"
                             onClick={() => setItem(it.key, { taxInvoiced: !it.taxInvoiced, tax_invoiced_at: !it.taxInvoiced ? (it.tax_invoiced_at||today()) : null })}/></td>
                           <td className="px-2 py-1.5 text-center"><Pill on={it.delivered} color="bg-emerald-500 text-white" label="납품"
                             onClick={() => setItem(it.key, { delivered: !it.delivered, delivered_at: !it.delivered ? (it.delivered_at||today()) : null })}/></td>
@@ -6210,11 +6210,21 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <button onClick={() => setContactModal({ vendor: it.vendor, items: [it] })}
-                              className="px-2 py-0.5 rounded text-[11px] bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200">담당자</button>
+                              title="담당자 / 연락처"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                              </svg>
+                            </button>
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <button onClick={sendKakaoOne}
-                              className="px-2 py-0.5 rounded text-[11px] bg-yellow-400 text-slate-900 hover:bg-yellow-300 font-semibold">카톡</button>
+                              title="카카오톡 발주서 메시지"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded bg-yellow-400 text-slate-900 hover:bg-yellow-300">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                              </svg>
+                            </button>
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <button onClick={() => removePlanItem(it.key)} title="이 발주 제거"
