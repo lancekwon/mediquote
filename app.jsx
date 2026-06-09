@@ -537,6 +537,32 @@ async function dbDeletePurchaseOrder(id) {
   const { error } = await sb.from('purchase_orders').delete().eq('id', id);
   if (error) throw error;
 }
+async function dbUpdatePoItem(id, patch) {
+  const { error } = await sb.from('purchase_order_items').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+/* ---------- PO Notes (발주별 메모·이슈 로그) ---------- */
+async function dbLoadPoNotes(poIds = null) {
+  let q = sb.from('po_notes').select('*').order('created_at', { ascending: false });
+  if (poIds && poIds.length > 0) q = q.in('po_id', poIds);
+  const { data, error } = await q;
+  if (error) { console.error('dbLoadPoNotes:', error); return []; }
+  return data || [];
+}
+async function dbInsertPoNote(row) {
+  const { data, error } = await sb.from('po_notes').insert(row).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbUpdatePoNote(id, patch) {
+  const { error } = await sb.from('po_notes').update(patch).eq('id', id);
+  if (error) throw error;
+}
+async function dbDeletePoNote(id) {
+  const { error } = await sb.from('po_notes').delete().eq('id', id);
+  if (error) throw error;
+}
 async function dbGeneratePoNo() {
   const year = new Date().getFullYear();
   const prefix = `PO-${year}-`;
@@ -1370,7 +1396,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1383,6 +1409,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
 
   const menuItems = [
     { label:'영업 관리',         onClick: onLeads,    icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
+    { label:'발주 진행',         onClick: onPoTracking, icon:'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1' },
     { label:'견적 작성',         onClick: onHome,     icon:'M12 4v16m8-8H4' },
     { label:'견적 관리',         onClick: onLoad,     icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
     { label:'병원 관리',         onClick: onHospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
@@ -1484,6 +1511,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
   }, []);
   const menuItems = [
     { label:'영업 관리',         onClick: nav?.leads,     icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
+    { label:'발주 진행',         onClick: nav?.poTracking, icon:'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1' },
     { label:'견적 작성',         onClick: nav?.editor,    icon:'M12 4v16m8-8H4' },
     { label:'견적 관리',         onClick: nav?.list,      icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
     { label:'병원 관리',         onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
@@ -12454,6 +12482,371 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
 }
 
 /* ============================================================
+   PURCHASE ORDER TRACKING — 발주 진행 (메인 메뉴 항목)
+   병원별 카드 + 상태 매트릭스 + 품목 도착 체크 + 메모/이슈 로그
+   ============================================================ */
+function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
+  const [pos, setPos] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [hospitals, setHospitals] = useState([]);
+  const [contracts, setContracts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('active'); // active | done | issues | all
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState({}); // poId → bool
+  const [toast, setToast] = useState(null);
+  const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),2500); };
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [allPos, hosps, ctr] = await Promise.all([
+        sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
+        dbLoadHospitals(),
+        dbLoadAllContracts(),
+      ]);
+      const poIds = allPos.map(p => p.id);
+      const ns = poIds.length > 0 ? await dbLoadPoNotes(poIds) : [];
+      setPos(allPos);
+      setHospitals(hosps);
+      setContracts(ctr);
+      setNotes(ns);
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  // PO별 그룹된 메모
+  const notesByPo = useMemo(() => {
+    const m = new Map();
+    notes.forEach(n => { if (!m.has(n.po_id)) m.set(n.po_id, []); m.get(n.po_id).push(n); });
+    return m;
+  }, [notes]);
+
+  // PO별 진행도 계산
+  const enriched = useMemo(() => pos.map(p => {
+    const items = p.purchase_order_items || [];
+    const total = items.length;
+    const orderedN = items.filter(it => it.ordered).length;
+    const deliveredN = items.filter(it => it.delivered).length;
+    const taxN = items.filter(it => it.tax_invoiced).length;
+    const ns = notesByPo.get(p.id) || [];
+    const issues = ns.filter(n => n.category === 'issue' && !n.resolved).length;
+    const allDone = total > 0 && deliveredN === total && taxN === total;
+    const ctr = contracts.find(c => c.id === p.contract_id);
+    const hospName = ctr?.hospital_name || p.hospital_name || '(병원 미지정)';
+    return { ...p, items, total, orderedN, deliveredN, taxN, issues, allDone, ctr, hospName, notes: ns };
+  }), [pos, contracts, notesByPo]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return enriched.filter(p => {
+      if (filter === 'active' && p.allDone) return false;
+      if (filter === 'done' && !p.allDone) return false;
+      if (filter === 'issues' && p.issues === 0) return false;
+      if (q) {
+        const hay = `${p.po_no} ${p.hospName} ${p.manufacturer_name || ''} ${p.vendor_name || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [enriched, filter, search]);
+
+  // 병원별 그룹화
+  const groupedByHosp = useMemo(() => {
+    const m = new Map();
+    filtered.forEach(p => {
+      if (!m.has(p.hospName)) m.set(p.hospName, []);
+      m.get(p.hospName).push(p);
+    });
+    // 병원 안에서 po_no 최신순
+    return Array.from(m.entries()).map(([hosp, list]) => ({
+      hospName: hosp,
+      list: list.sort((a,b) => (b.po_no || '').localeCompare(a.po_no || '')),
+      total: list.length,
+      issues: list.reduce((s,p)=>s+p.issues, 0),
+    })).sort((a,b) => (b.issues - a.issues) || a.hospName.localeCompare(b.hospName));
+  }, [filtered]);
+
+  // 통계
+  const stats = useMemo(() => {
+    return {
+      active: enriched.filter(p => !p.allDone).length,
+      pendingDelivery: enriched.reduce((s,p) => s + (p.total - p.deliveredN), 0),
+      pendingTax: enriched.reduce((s,p) => s + (p.total - p.taxN), 0),
+      issues: enriched.reduce((s,p) => s + p.issues, 0),
+    };
+  }, [enriched]);
+
+  // 액션
+  const toggleItem = async (item, field) => {
+    const today = new Date().toISOString().slice(0,10);
+    const patch = { [field]: !item[field] };
+    if (field === 'delivered') patch.delivered_at = !item.delivered ? today : null;
+    if (field === 'tax_invoiced') patch.tax_invoiced_at = !item.tax_invoiced ? today : null;
+    if (field === 'ordered') patch.ordered_at = !item.ordered ? today : null;
+    try { await dbUpdatePoItem(item.id, patch); reload(); }
+    catch (e) { alert('업데이트 실패: ' + (e.message||e)); }
+  };
+
+  const [noteModal, setNoteModal] = useState(null); // { po }
+  return (
+    <div style={{minHeight:'100vh', background:'#f1f5f9'}}>
+      <AppHeader title="발주 진행" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
+      {toast && <div className={`fixed top-6 right-6 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white ${toast.type==='error'?'bg-red-500':'bg-emerald-500'}`}>{toast.msg}</div>}
+
+      <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%'}}>
+        {/* 통계 카드 4개 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <button onClick={()=>setFilter('active')} className={`text-left bg-white rounded-xl border p-4 ${filter==='active'?'border-blue-500 ring-2 ring-blue-200':'border-slate-200'}`}>
+            <div className="text-xs text-slate-500 mb-1">진행 중 발주</div>
+            <div className="text-2xl font-bold text-slate-900">{stats.active}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
+          </button>
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="text-xs text-slate-500 mb-1">도착 대기 품목</div>
+            <div className="text-2xl font-bold text-amber-700">{stats.pendingDelivery}<span className="text-sm font-normal text-slate-500 ml-1">개</span></div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="text-xs text-slate-500 mb-1">세금계산서 미수령</div>
+            <div className="text-2xl font-bold text-rose-700">{stats.pendingTax}<span className="text-sm font-normal text-slate-500 ml-1">개</span></div>
+          </div>
+          <button onClick={()=>setFilter('issues')} className={`text-left bg-white rounded-xl border p-4 ${filter==='issues'?'border-rose-500 ring-2 ring-rose-200':'border-slate-200'}`}>
+            <div className="text-xs text-slate-500 mb-1">미해결 이슈</div>
+            <div className="text-2xl font-bold text-rose-700">{stats.issues}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
+          </button>
+        </div>
+
+        {/* 필터 바 */}
+        <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
+          <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
+            {[{k:'active',l:'진행 중'},{k:'done',l:'완료'},{k:'issues',l:'이슈만'},{k:'all',l:'전체'}].map(t => (
+              <button key={t.k} onClick={()=>setFilter(t.k)}
+                className={`px-3 py-1.5 text-sm rounded transition-colors ${filter===t.k?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
+            ))}
+          </div>
+          <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="발주번호·병원·거래처 검색"
+            className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+          <span className="text-xs text-slate-500 ml-auto">{filtered.length}건 / 전체 {enriched.length}</span>
+        </div>
+
+        {/* 병원별 그룹 */}
+        {loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">불러오는 중...</div>
+        ) : groupedByHosp.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400 text-sm">표시할 발주가 없습니다.</div>
+        ) : (
+          <div className="space-y-4">
+            {groupedByHosp.map(g => (
+              <div key={g.hospName} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                  <span className="font-semibold text-slate-800">🏥 {g.hospName}</span>
+                  <span className="text-xs text-slate-500">{g.total}개 발주</span>
+                  {g.issues > 0 && <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold">⚠ 이슈 {g.issues}</span>}
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
+                    <tr>
+                      <th className="px-3 py-2 text-left w-32">발주번호</th>
+                      <th className="px-3 py-2 text-left">거래처</th>
+                      <th className="px-3 py-2 text-right w-28">금액</th>
+                      <th className="px-3 py-2 text-center w-24">발주</th>
+                      <th className="px-3 py-2 text-center w-24">도착</th>
+                      <th className="px-3 py-2 text-center w-28">세금계산서</th>
+                      <th className="px-3 py-2 text-center w-20">메모</th>
+                      <th className="px-3 py-2 text-center w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.list.map(p => {
+                      const isOpen = !!expanded[p.id];
+                      const progress = (n, total) => total === 0 ? '—' : `${n}/${total}`;
+                      const color = (n, total) => total === 0 ? 'text-slate-300' : n === total ? 'text-emerald-600' : n > 0 ? 'text-amber-600' : 'text-slate-400';
+                      return (
+                        <React.Fragment key={p.id}>
+                          <tr className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                            onClick={()=>setExpanded(e => ({...e, [p.id]: !e[p.id]}))}>
+                            <td className="px-3 py-2 text-xs font-mono text-slate-600">{p.po_no || '—'}</td>
+                            <td className="px-3 py-2 text-slate-800">{p.manufacturer_name || p.vendor_name || '—'}</td>
+                            <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>
+                            <td className={`px-3 py-2 text-center text-xs font-semibold ${color(p.orderedN, p.total)}`}>{progress(p.orderedN, p.total)}</td>
+                            <td className={`px-3 py-2 text-center text-xs font-semibold ${color(p.deliveredN, p.total)}`}>{progress(p.deliveredN, p.total)}</td>
+                            <td className={`px-3 py-2 text-center text-xs font-semibold ${color(p.taxN, p.total)}`}>{progress(p.taxN, p.total)}</td>
+                            <td className="px-3 py-2 text-center text-xs">
+                              {p.notes.length > 0 && <span className={`mr-1 font-semibold ${p.issues>0?'text-rose-600':'text-slate-500'}`}>{p.notes.length}</span>}
+                              <button onClick={e => { e.stopPropagation(); setNoteModal({po:p}); }} className="text-blue-500 hover:text-blue-700">메모</button>
+                            </td>
+                            <td className="px-3 py-2 text-center text-slate-400 text-xs">{isOpen ? '▼' : '▶'}</td>
+                          </tr>
+                          {isOpen && (
+                            <tr className="bg-slate-50/50">
+                              <td colSpan={8} className="px-3 py-3">
+                                <table className="w-full text-xs">
+                                  <thead className="text-slate-500">
+                                    <tr>
+                                      <th className="px-2 py-1 text-left">품명/모델</th>
+                                      <th className="px-2 py-1 text-center w-16">수량</th>
+                                      <th className="px-2 py-1 text-right w-24">매입가</th>
+                                      <th className="px-2 py-1 text-center w-20">발주</th>
+                                      <th className="px-2 py-1 text-center w-20">도착</th>
+                                      <th className="px-2 py-1 text-center w-24">세금계산서</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {p.items.map(it => (
+                                      <tr key={it.id} className="border-t border-slate-200">
+                                        <td className="px-2 py-1.5">
+                                          <div className="font-medium text-slate-800">{it.item_name || '—'}</div>
+                                          <div className="text-[11px] text-slate-500">{it.model_name || ''}</div>
+                                        </td>
+                                        <td className="px-2 py-1.5 text-center">{it.quantity || 1}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{(it.unit_price||0).toLocaleString()}</td>
+                                        <td className="px-2 py-1.5 text-center">
+                                          <button onClick={()=>toggleItem(it,'ordered')} className={`text-sm ${it.ordered?'text-emerald-600':'text-slate-300 hover:text-slate-500'}`}
+                                            title={it.ordered ? `발주: ${it.ordered_at||''}` : '발주로 표시'}>
+                                            {it.ordered ? '✅' : '⬜'}
+                                          </button>
+                                        </td>
+                                        <td className="px-2 py-1.5 text-center">
+                                          <button onClick={()=>toggleItem(it,'delivered')} className={`text-sm ${it.delivered?'text-emerald-600':'text-slate-300 hover:text-slate-500'}`}
+                                            title={it.delivered ? `도착: ${it.delivered_at||''}` : '도착으로 표시'}>
+                                            {it.delivered ? '✅' : '⬜'}
+                                          </button>
+                                        </td>
+                                        <td className="px-2 py-1.5 text-center">
+                                          <button onClick={()=>toggleItem(it,'tax_invoiced')} className={`text-sm ${it.tax_invoiced?'text-emerald-600':'text-slate-300 hover:text-slate-500'}`}
+                                            title={it.tax_invoiced ? `발행: ${it.tax_invoiced_at||''}` : '세금계산서 수령으로 표시'}>
+                                            {it.tax_invoiced ? '✅' : '⬜'}
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {p.notes.length > 0 && (
+                                  <div className="mt-3 pt-3 border-t border-slate-200">
+                                    <div className="text-[11px] text-slate-500 font-semibold mb-1.5">메모 / 이슈 로그</div>
+                                    <div className="space-y-1.5">
+                                      {p.notes.slice(0,5).map(n => (
+                                        <div key={n.id} className="text-xs flex items-start gap-2">
+                                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${n.category==='issue'?(n.resolved?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'):n.category==='change'?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600'}`}>
+                                            {n.category==='issue' ? (n.resolved?'해결됨':'이슈') : n.category==='change' ? '변경' : '메모'}
+                                          </span>
+                                          <span className="text-slate-700">{n.body}</span>
+                                          <span className="ml-auto text-slate-400 text-[10px]">{n.created_at?.slice(0,10)}</span>
+                                        </div>
+                                      ))}
+                                      {p.notes.length > 5 && <button onClick={()=>setNoteModal({po:p})} className="text-[11px] text-blue-500">+ {p.notes.length-5}개 더보기</button>}
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {noteModal && (
+        <PoNoteModal po={noteModal.po} user={user} notes={notesByPo.get(noteModal.po.id) || []}
+          onClose={()=>setNoteModal(null)}
+          onChanged={()=>{ reload(); }} />
+      )}
+    </div>
+  );
+}
+
+function PoNoteModal({ po, user, notes = [], onClose, onChanged }) {
+  const [body, setBody] = useState('');
+  const [category, setCategory] = useState('general');
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async () => {
+    if (!body.trim()) return;
+    setSaving(true);
+    try {
+      await dbInsertPoNote({
+        po_id: po.id,
+        category,
+        body: body.trim(),
+        author: user?.email || user?.name || null,
+      });
+      setBody(''); setCategory('general');
+      onChanged && onChanged();
+    } catch (e) { alert('추가 실패: '+(e.message||e)); }
+    setSaving(false);
+  };
+  const toggleResolved = async (n) => {
+    try {
+      await dbUpdatePoNote(n.id, { resolved: !n.resolved, resolved_at: !n.resolved ? new Date().toISOString() : null });
+      onChanged && onChanged();
+    } catch (e) { alert('업데이트 실패: '+(e.message||e)); }
+  };
+  const handleDelete = async (n) => {
+    if (!confirm('이 메모를 삭제할까요?')) return;
+    try { await dbDeletePoNote(n.id); onChanged && onChanged(); }
+    catch (e) { alert('삭제 실패: '+(e.message||e)); }
+  };
+
+  return (
+    <ModalShell title={`메모 / 이슈 — ${po.po_no || '발주'}`} subtitle={`${po.manufacturer_name || ''} · ${po.hospital_name || ''}`} onClose={onClose} wide>
+      {/* 신규 추가 */}
+      <div className="bg-slate-50 border border-slate-200 rounded p-3 mb-4">
+        <div className="flex gap-2 mb-2">
+          {[{k:'general',l:'메모'},{k:'issue',l:'이슈'},{k:'change',l:'변경'}].map(t => (
+            <button key={t.k} onClick={()=>setCategory(t.k)}
+              className={`px-3 py-1 text-xs rounded border-2 ${category===t.k?(t.k==='issue'?'border-rose-500 bg-rose-50':t.k==='change'?'border-amber-500 bg-amber-50':'border-blue-500 bg-blue-50')+' font-semibold':'border-slate-200'}`}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+        <textarea value={body} onChange={e=>setBody(e.target.value)} rows={2}
+          placeholder="예: 원장이 모델 X로 변경 요청 / 거래처에서 5/10 도착 약속 / 세금계산서 5/15 발행 예정"
+          className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400 mb-2" />
+        <div className="flex justify-end">
+          <button onClick={handleAdd} disabled={saving || !body.trim()}
+            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-semibold disabled:opacity-40">
+            {saving ? '저장 중...' : '+ 추가'}
+          </button>
+        </div>
+      </div>
+
+      {/* 기존 메모 리스트 */}
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {notes.length === 0 && <div className="text-center text-slate-400 text-sm py-8">메모가 없습니다.</div>}
+        {notes.map(n => (
+          <div key={n.id} className="flex items-start gap-2 p-2.5 border border-slate-100 rounded hover:bg-slate-50">
+            <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold ${n.category==='issue'?(n.resolved?'bg-emerald-100 text-emerald-700':'bg-rose-100 text-rose-700'):n.category==='change'?'bg-amber-100 text-amber-700':'bg-slate-100 text-slate-600'}`}>
+              {n.category==='issue' ? (n.resolved?'해결됨':'이슈') : n.category==='change' ? '변경' : '메모'}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-slate-800 whitespace-pre-wrap">{n.body}</div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                {n.author || '익명'} · {n.created_at?.slice(0,16).replace('T',' ')}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 shrink-0">
+              {n.category==='issue' && (
+                <button onClick={()=>toggleResolved(n)} className={`text-[11px] px-2 py-0.5 rounded ${n.resolved?'bg-slate-100 text-slate-600':'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}>
+                  {n.resolved ? '다시 열기' : '해결'}
+                </button>
+              )}
+              <button onClick={()=>handleDelete(n)} className="text-[11px] text-rose-400 hover:text-rose-600">삭제</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ============================================================
    MAIN APP
    ============================================================ */
 function App() {
@@ -12716,8 +13109,18 @@ function App() {
     service:   () => { setListInitialTab('saved'); setListInitialDept(null); setView('service'); },
     manage:    () => setView('manage'),
     payables:  () => setView('payables'),
+    poTracking: () => setView('po-tracking'),
     poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
   };
+
+  if (view === 'po-tracking') {
+    return <PurchaseOrderTrackingPage
+      onBack={() => setView('editor')}
+      user={user}
+      onLogout={handleLogout}
+      nav={nav}
+    />;
+  }
 
   if (view === 'payables') {
     return <PayablesPage
@@ -12850,7 +13253,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
