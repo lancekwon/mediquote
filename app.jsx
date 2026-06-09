@@ -12612,6 +12612,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all | ordered | paid | tax | delivered | done
+  const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState({}); // poId → bool
   const [toast, setToast] = useState(null);
@@ -12676,21 +12677,25 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
     });
   }, [enriched, filter, search]);
 
-  // 병원별 그룹화
+  // 그룹화 (병원 또는 거래처)
   const groupedByHosp = useMemo(() => {
+    const keyFn = groupBy === 'vendor'
+      ? p => p.manufacturer_name || p.vendor_name || '(거래처 미정)'
+      : p => p.hospName;
     const m = new Map();
     filtered.forEach(p => {
-      if (!m.has(p.hospName)) m.set(p.hospName, []);
-      m.get(p.hospName).push(p);
+      const k = keyFn(p);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(p);
     });
-    // 병원 안에서 po_no 최신순
-    return Array.from(m.entries()).map(([hosp, list]) => ({
-      hospName: hosp,
+    // 그룹 안에서 po_no 최신순
+    return Array.from(m.entries()).map(([name, list]) => ({
+      hospName: name,
       list: list.sort((a,b) => (b.po_no || '').localeCompare(a.po_no || '')),
       total: list.length,
       issues: list.reduce((s,p)=>s+p.issues, 0),
     })).sort((a,b) => (b.issues - a.issues) || a.hospName.localeCompare(b.hospName));
-  }, [filtered]);
+  }, [filtered, groupBy]);
 
   // 통계
   const stats = useMemo(() => ({
@@ -12776,7 +12781,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
           <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="발주번호·병원·거래처 검색"
             className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
-          <span className="text-xs text-slate-500 ml-auto">{filtered.length}건 / 전체 {enriched.length}</span>
+          <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
+            <button onClick={()=>setGroupBy('hospital')}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${groupBy==='hospital'?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>🏥 병원별</button>
+            <button onClick={()=>setGroupBy('vendor')}
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${groupBy==='vendor'?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>🏭 거래처별</button>
+          </div>
+          <span className="text-xs text-slate-500">{filtered.length}건 / 전체 {enriched.length}</span>
         </div>
 
         {/* 병원별 그룹 */}
@@ -12789,7 +12800,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
             {groupedByHosp.map(g => (
               <div key={g.hospName} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
-                  <span className="font-semibold text-slate-800">🏥 {g.hospName}</span>
+                  <span className="font-semibold text-slate-800">{groupBy === 'vendor' ? '🏭' : '🏥'} {g.hospName}</span>
                   <span className="text-xs text-slate-500">{g.total}개 발주</span>
                   {g.issues > 0 && <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold">⚠ 이슈 {g.issues}</span>}
                 </div>
@@ -12797,7 +12808,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
                     <tr>
                       <th className="px-3 py-2 text-left w-28">발주번호</th>
-                      <th className="px-3 py-2 text-left w-40">거래처</th>
+                      <th className="px-3 py-2 text-left w-40">{groupBy === 'vendor' ? '병원' : '거래처'}</th>
                       <th className="px-3 py-2 text-left">모델 / 수량</th>
                       <th className="px-3 py-2 text-right w-32">금액</th>
                       <th className="px-3 py-2 text-center w-20">발주</th>
@@ -12841,7 +12852,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                       return (
                         <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2 text-xs font-mono text-slate-600">{p.po_no || '—'}</td>
-                          <td className="px-3 py-2 text-slate-800">{p.manufacturer_name || p.vendor_name || '—'}</td>
+                          <td className="px-3 py-2 text-slate-800">{groupBy === 'vendor' ? p.hospName : (p.manufacturer_name || p.vendor_name || '—')}</td>
                           <td className="px-3 py-2 text-slate-700">
                             <span className="font-medium">{p.firstModel || '—'}</span>
                             {p.total > 1 && <span className="text-slate-400 text-xs"> 외 {p.total - 1}건</span>}
