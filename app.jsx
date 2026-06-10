@@ -12643,8 +12643,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [checklistModal, setChecklistModal] = useState(null); // po object
   const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),2500); };
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [allPos, hosps, ctr] = await Promise.all([
         sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
@@ -12661,9 +12661,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       setContracts(ctr);
       setNotes(ns);
       setChecklists(cks);
-    } finally { setLoading(false); }
+    } finally { if (!silent) setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
+  const silentReload = useCallback(() => reload(true), [reload]);
 
   // PO별 그룹된 메모/체크리스트
   const notesByPo = useMemo(() => {
@@ -12895,11 +12896,25 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                         const items = p.items || [];
                         const allOn = items.length > 0 && items.every(it => !!it[field]);
                         const newVal = !allOn;
-                        await Promise.all(items.map(it => dbUpdatePoItem(it.id, {
-                          [field]: newVal,
-                          [atField]: newVal ? (it[atField] || today) : null,
-                        })));
-                        reload();
+                        // 1) 낙관적 UI 업데이트 — 즉시 색상 반영
+                        setPos(prev => prev.map(po => po.id === p.id ? {
+                          ...po,
+                          purchase_order_items: (po.purchase_order_items || []).map(it => ({
+                            ...it,
+                            [field]: newVal,
+                            [atField]: newVal ? (it[atField] || today) : null,
+                          })),
+                        } : po));
+                        // 2) 백그라운드 저장 (실패 시 풀 reload로 복구)
+                        try {
+                          await Promise.all(items.map(it => dbUpdatePoItem(it.id, {
+                            [field]: newVal,
+                            [atField]: newVal ? (it[atField] || today) : null,
+                          })));
+                        } catch (e) {
+                          showToast('저장 실패: '+(e.message||e), 'error');
+                          reload();
+                        }
                       };
                       const Step = ({ n, total, icon, onClick, title }) => {
                         const cls = total === 0
@@ -12965,7 +12980,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           author={user?.email || null}
           readOnly={viewer}
           onClose={() => setChecklistModal(null)}
-          onChanged={reload}
+          onChanged={silentReload}
         />
       )}
     </div>
