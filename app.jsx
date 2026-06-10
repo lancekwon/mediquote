@@ -3692,7 +3692,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
   );
 }
 
-function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsChange, onItemsChange, user, onLogout, nav, manufacturers = [], setManufacturers }) {
+function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsChange, onItemsChange, user, onLogout, nav, manufacturers = [], setManufacturers, customEquips = [] }) {
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'register' | 'catmgr'
   const emptySpec = () => ({ l:'', v:'' });
   const inputCls = "w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400";
@@ -3864,6 +3864,9 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
 
   const handleDeleteCat = async (cat) => {
     try {
+      // DB cat_items도 같이 정리 (orphan 방지)
+      const itemsToDelete = dynItems.filter(it => it.catId === cat.id);
+      await Promise.all(itemsToDelete.map(it => dbDeleteDynItem(it.id).catch(()=>{})));
       await dbDeleteDynCat(cat.dbId);
       onCatsChange?.(dynCats.filter(c=>c.dbId!==cat.dbId));
       onItemsChange?.(dynItems.filter(it=>it.catId!==cat.id));
@@ -4349,37 +4352,62 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       )}
 
       {/* Delete category confirm */}
-      {confirmDelCat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDelCat(null)}/>
-          <div className="relative bg-white rounded-xl p-6 shadow-2xl w-80 animate-fs text-center">
-            <div className="text-3xl mb-3">⚠️</div>
-            <div className="font-bold text-slate-800 mb-1">카테고리를 삭제할까요?</div>
-            <div className="text-xs text-slate-500 mb-1">「{confirmDelCat.name}」 카테고리와</div>
-            <div className="text-xs text-slate-500 mb-5">소속 품목 목록도 함께 삭제됩니다.</div>
-            <div className="flex gap-2">
-              <button onClick={()=>setConfirmDelCat(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
-              <button onClick={()=>handleDeleteCat(confirmDelCat)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+      {confirmDelCat && (() => {
+        const itemCount = dynItems.filter(it => it.catId === confirmDelCat.id).length;
+        const equipCount = customEquips.filter(e => e.catId === confirmDelCat.id).length;
+        const hasEquip = equipCount > 0;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDelCat(null)}/>
+            <div className="relative bg-white rounded-xl p-6 shadow-2xl w-96 animate-fs text-center">
+              <div className="text-3xl mb-3">{hasEquip ? '⚠️' : '🗑️'}</div>
+              <div className="font-bold text-slate-800 mb-2">카테고리를 삭제할까요?</div>
+              <div className="text-sm text-slate-700 mb-3">「<span className="font-semibold">{confirmDelCat.name}</span>」</div>
+              <div className="bg-slate-50 rounded-lg px-3 py-2.5 mb-3 text-xs text-slate-600 space-y-1">
+                <div>소속 품목: <span className="font-semibold text-slate-800">{itemCount}개</span> (함께 삭제됨)</div>
+                <div>연결된 장비: <span className={`font-semibold ${hasEquip ? 'text-rose-600' : 'text-slate-800'}`}>{equipCount}개</span></div>
+              </div>
+              {hasEquip && (
+                <div className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mb-4 text-left">
+                  ⚠️ 장비는 DB에 그대로 남지만, 견적 화면의 카테고리 트리에서 <b>분류되지 않아 안 보이게</b> 됩니다.
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={()=>setConfirmDelCat(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
+                <button onClick={()=>handleDeleteCat(confirmDelCat)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Delete item confirm */}
-      {confirmDelItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDelItem(null)}/>
-          <div className="relative bg-white rounded-xl p-6 shadow-2xl w-72 animate-fs text-center">
-            <div className="text-3xl mb-3">🗑️</div>
-            <div className="font-bold text-slate-800 mb-1">품목을 삭제할까요?</div>
-            <div className="text-xs text-slate-500 mb-5">「{confirmDelItem.name}」</div>
-            <div className="flex gap-2">
-              <button onClick={()=>setConfirmDelItem(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
-              <button onClick={()=>handleDeleteItem(confirmDelItem.id)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+      {confirmDelItem && (() => {
+        const equipCount = customEquips.filter(e => e.itemName === confirmDelItem.name && e.catId === confirmDelItem.catId).length;
+        const hasEquip = equipCount > 0;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40" onClick={()=>setConfirmDelItem(null)}/>
+            <div className="relative bg-white rounded-xl p-6 shadow-2xl w-96 animate-fs text-center">
+              <div className="text-3xl mb-3">{hasEquip ? '⚠️' : '🗑️'}</div>
+              <div className="font-bold text-slate-800 mb-2">품목을 삭제할까요?</div>
+              <div className="text-sm text-slate-700 mb-3">「<span className="font-semibold">{confirmDelItem.name}</span>」</div>
+              <div className="bg-slate-50 rounded-lg px-3 py-2.5 mb-3 text-xs text-slate-600">
+                연결된 장비: <span className={`font-semibold ${hasEquip ? 'text-rose-600' : 'text-slate-800'}`}>{equipCount}개</span>
+              </div>
+              {hasEquip && (
+                <div className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mb-4 text-left">
+                  ⚠️ 장비는 DB에 그대로 남지만, 견적 화면의 품목 그룹에서 <b>분류되지 않아 안 보이게</b> 됩니다.
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={()=>setConfirmDelItem(null)} className="flex-1 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">취소</button>
+                <button onClick={()=>handleDeleteItem(confirmDelItem.id)} className="flex-1 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold">삭제</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Edit Modal */}
       {editTarget && editForm && (
@@ -13798,6 +13826,7 @@ function App() {
       nav={nav}
       manufacturers={appManufacturers}
       setManufacturers={setAppManufacturers}
+      customEquips={customEquips}
     />;
   }
 
