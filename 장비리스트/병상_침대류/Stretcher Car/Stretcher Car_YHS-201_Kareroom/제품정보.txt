@@ -1,0 +1,22 @@
+제품 정보 요약
+==================================================
+품목명: Stretcher Car
+모델명: YHS-201
+제조사: Kareroom
+원산지: Japan
+인증: 
+
+제품소개:
+High-definition video processor for endoscopy with advanced imaging technology
+
+스펙:
+  - Imaging: HD with i-scan technology
+  - Recording: Integrated HD recording
+  - Processing: Fully digital signal processing
+  - Interface: Touch screen interface
+  - Technology: Twin mode for simultaneous viewing
+
+특이사항:
+First endoscopy processor with integrated HD recording capability
+
+출처: 웹 검색 (검색일: 2026-03-17)

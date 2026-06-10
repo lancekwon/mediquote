@@ -1,0 +1,18 @@
+제품 정보 요약
+==================================================
+품목명: Syringe Pump
+모델명: DS-3000
+제조사: 대회기기
+원산지: 
+인증: 
+
+제품소개:
+Non-invasive and invasive ventilator for adult and pediatric patients
+
+스펙:
+  - Modes: ST, PAC, CPAP, S, T  - Pressure Range: IPAP 40 cm H2O, EPAP 25 cm H2O  - Respiratory Rate: 5-60 bpm  - Dimensions: 230x170x120 mm, 2.1 kg  - Battery: Up to 2 hours runtime
+
+특이사항:
+Optional oxygen integration up to 30 L/min
+
+출처: 웹 검색 (검색일: 2026-03-17)

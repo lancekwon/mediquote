@@ -1,0 +1,21 @@
+제품 정보 요약
+==================================================
+품목명: Insight
+모델명: 
+제조사: 인사이트
+원산지: 
+인증: 
+
+제품소개:
+Cassette type flat panel digital X-ray detector for radiography
+
+스펙:
+  - Type: Flat panel detector
+  - Size: 22" cassette
+  - Image Quality: Large X-ray images
+  - Components: Detector, control box, charger, battery
+
+특이사항:
+Maximizes anatomical view with minimal X-ray exposures
+
+출처: 웹 검색 (검색일: 2026-03-17)

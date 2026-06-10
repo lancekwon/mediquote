@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 피부 냉동치료기
+모델명: Cryoderm
+제조사: 
+행번호: 444
+
+원산지: USA/Korea
+인증: Medical device
+
+제품소개:
+Cryotherapy device for skin treatment
+
+제품 사양:
+==========================================
+Temperature: -110 to -130°C
+Nozzles: Multiple interchangeable
+Touchscreen: LCD control panel
+Features: Temperature sensor control
+Applications: Skin lesion removal
+
+특이사항:
+CO2-based or liquid nitrogen systems

@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Smoke Suction
+모델명: SSB Eva
+제조사: 제이비에스인터내셔널
+행번호: 431
+
+원산지: Korea
+인증: Medical-grade
+
+제품소개:
+Smoke evacuator for laser treatment procedures
+
+제품 사양:
+==========================================
+Suction Power: Max 840W
+ULPA Filter: 99.9975% efficiency
+HEPA Filter: DOP 99.97%
+Carbon Filter: Air Purification 97%
+Application: Laser procedures, fine particulate removal
+
+특이사항:
+U16 grade ULPA filtration system

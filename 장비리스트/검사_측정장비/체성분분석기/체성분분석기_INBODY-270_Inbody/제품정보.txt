@@ -1,0 +1,22 @@
+제품 정보 요약
+==================================================
+품목명: 체성분분석기
+모델명: INBODY-270
+제조사: Inbody
+원산지: Republic of Korea
+인증: 
+
+제품소개:
+Body composition analyzer using bioimpedance analysis (BIA) technology to measure weight, body water, muscle mass, and body fat.
+
+스펙:
+  - Test Duration: 15 seconds
+  - Weight Range: 22-551 lbs
+  - Frequencies: 20/100 kHz
+  - Display: 7" color TFT touchscreen
+  - Database Capacity: 100,000 results
+
+특이사항:
+10 impedance measurements across 5 body segments; voice guidance
+
+출처: 웹 검색 (검색일: 2026-03-17)

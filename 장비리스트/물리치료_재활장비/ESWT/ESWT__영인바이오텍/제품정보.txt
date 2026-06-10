@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: ESWT
+모델명: 
+제조사: 영인바이오텍
+행번호: 441
+
+원산지: Korea
+인증: KFDA/CE
+
+제품소개:
+Extracorporeal Shock Wave Therapy device
+
+제품 사양:
+==========================================
+Type: Focused or Radial ESWT
+Application: Orthopedic, pain management
+Models: Multiple therapy types
+Technology: Shock wave energy
+Treatment: Post-traumatic, post-surgical
+
+특이사항:
+Young-In Biotech manufacturer

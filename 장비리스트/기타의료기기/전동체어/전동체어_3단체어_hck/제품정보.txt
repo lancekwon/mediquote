@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 전동체어
+모델명: 3단체어
+제조사: hck
+행번호: 445
+
+원산지: Korea
+인증: Medical device
+
+제품소개:
+Three-section powered/motorized chair
+
+제품 사양:
+==========================================
+Sections: 3 adjustable sections
+Control: Electric/motorized
+Speed: Variable speed
+Power: Battery-powered
+Application: Patient positioning
+
+특이사항:
+Multi-section motorized adjustment

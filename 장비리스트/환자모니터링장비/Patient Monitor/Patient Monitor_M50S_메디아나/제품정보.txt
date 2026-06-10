@@ -1,0 +1,18 @@
+제품 정보 요약
+==================================================
+품목명: Patient Monitor
+모델명: M50S
+제조사: 메디아나
+원산지: 
+인증: 
+
+제품소개:
+Multi-parameter patient monitor with modular design for ICU and clinical use
+
+스펙:
+  - Display: 15-inch LCD touch screen  - Parameters: ECG, SpO2, NIBP, RR, Temp, IBP, EtCO2  - Connectivity: LAN/wireless, HL7 EMR output  - Features: EWS, barcode scanner, 2-min data freeze  - Technology: AND, Nellcor, Respironics, Oridion
+
+특이사항:
+Multi-vendor technology integration for comprehensive monitoring
+
+출처: 웹 검색 (검색일: 2026-03-17)

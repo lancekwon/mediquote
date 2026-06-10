@@ -1,0 +1,18 @@
+제품 정보 요약
+==================================================
+품목명: A/S Charge
+모델명: (정보 없음)
+제조사: 
+원산지: 
+인증: 
+
+제품소개:
+Ophthalmic ultrasound system for eye imaging and IOL calculations
+
+스펙:
+  - Display: 8.4" tiltable color LCD  - Transducer: 10 MHz, 60 degree scan angle  - Functions: B-scan, Biometry, Pachymetry  - Accuracy: Biometry ±0.1mm, Pachymetry 5 microns  - Storage: USB, LAN
+
+특이사항:
+6 embedded IOL calculation formulas
+
+출처: 웹 검색 (검색일: 2026-03-17)

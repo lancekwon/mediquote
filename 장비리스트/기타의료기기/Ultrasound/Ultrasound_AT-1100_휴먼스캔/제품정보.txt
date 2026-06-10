@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Ultrasound
+모델명: AT-1100
+제조사: 휴먼스캔
+행번호: 424
+
+원산지: Korea
+인증: KFDA
+
+제품소개:
+Portable ultrasound scanner system
+
+제품 사양:
+==========================================
+Type: Handheld ultrasound
+Application: Diagnostic imaging
+Portability: Compact design
+Features: Real-time imaging
+Probe: Multipurpose probes
+
+특이사항:
+Portable design for point-of-care testing

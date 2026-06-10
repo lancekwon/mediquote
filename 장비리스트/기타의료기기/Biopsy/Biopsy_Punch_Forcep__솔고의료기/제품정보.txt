@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Biopsy Punch Forcep
+모델명: 
+제조사: 솔고의료기
+행번호: 438
+
+원산지: Korea
+인증: Medical device
+
+제품소개:
+Biopsy punch forceps for tissue sampling
+
+제품 사양:
+==========================================
+Type: Punch forceps
+Application: Tissue biopsy
+Material: Stainless steel
+Sterilization: Autoclavable
+Size: Standard biopsy sizes
+
+특이사항:
+GYN and general tissue sampling

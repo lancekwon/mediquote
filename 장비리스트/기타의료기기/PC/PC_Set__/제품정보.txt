@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: PC Set
+모델명: 
+제조사: 
+행번호: 425
+
+원산지: Various
+인증: UL60601-1/CE/IEC60601-1
+
+제품소개:
+Medical-grade computer system
+
+제품 사양:
+==========================================
+Type: Desktop or Laptop
+Processor: Intel Core 5th Gen+
+Display: Monitor or Integrated touchscreen
+Design: Fanless or passive cooling
+OS: Windows/Linux
+
+특이사항:
+Medical-grade certifications UL60601

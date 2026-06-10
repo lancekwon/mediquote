@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Therapy Laser
+모델명: Chungwoo
+제조사: 청우메디칼
+행번호: 430
+
+원산지: Korea
+인증: KFDA/CE
+
+제품소개:
+Therapeutic laser for pain relief and rehabilitation
+
+제품 사양:
+==========================================
+Wavelength: 650nm (visible) + IR
+Power: 50mA laser beam
+Type: Diode laser
+Applications: Pain therapy, physiotherapy
+Treatment Modes: Multiple treatment programs
+
+특이사항:
+Adjustable beam angle control

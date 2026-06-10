@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Audiometer
+모델명: DB23000
+제조사: 대합성
+행번호: 429
+
+원산지: Korea
+인증: KFDA
+
+제품소개:
+Clinical audiometer for hearing assessment
+
+제품 사양:
+==========================================
+Type: Pure tone audiometer
+Frequency Range: 125Hz-8000Hz
+Application: Hearing testing
+Calibration: Annual calibration required
+Display: Digital display
+
+특이사항:
+Clinical and diagnostic use

@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 초음파치료기
+모델명: ST-10A
+제조사: 스트라텍
+행번호: 447
+
+원산지: Korea
+인증: KFDA
+
+제품소개:
+Digital ultrasound therapy device
+
+제품 사양:
+==========================================
+Frequency: 1MHz ±20%
+Output Power: 10W
+Dimensions: 265 × 235 × 90mm
+Weight: 3.08 kg
+Stimulation Time: 5, 10, 15 minutes
+
+특이사항:
+HEAD Vibration function patented, multiple output modes

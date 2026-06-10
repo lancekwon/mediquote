@@ -1,0 +1,19 @@
+제품 정보 요약
+==================================================
+품목명: C-Arm Table
+모델명: X3-B
+제조사: 01M
+원산지: 
+인증: 
+
+제품소개:
+Endoscope CO2 automatic insufflator for endoscopic procedures
+
+스펙:
+  - Type: CO2 insufflator
+  - Application: Endoscopic procedures
+
+특이사항:
+Limited manufacturer-specific information available
+
+출처: 웹 검색 (검색일: 2026-03-17)

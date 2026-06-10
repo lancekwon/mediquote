@@ -1,0 +1,19 @@
+제품 정보 요약
+==================================================
+품목명: 카이로프랙틱
+모델명: CWM-300
+제조사: Chiro medi
+원산지: Republic of Korea
+인증: 
+
+제품소개:
+Hospital electric bed
+
+스펙:
+  - Type: Hospital bed
+  - Manufacturer: Kareroom Medical Equipment
+
+특이사항:
+Model-specific detailed specifications not available
+
+출처: 웹 검색 (검색일: 2026-03-17)

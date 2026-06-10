@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Cast Cutter
+모델명: HCC-114
+제조사: 한신메디칼
+행번호: 422
+
+원산지: Korea
+인증: KFDA/MD
+
+제품소개:
+Electric cast saw for orthopedic departments
+
+제품 사양:
+==========================================
+Oscillating Frequency: 11,400 cpm
+Rotation Angle: 6°
+Dimensions: Ø80 × L295 mm
+Power: AC 220V, 50/60Hz, 80W
+Weight: 1.5 kg
+
+특이사항:
+Blade sizes: Ø51.0mm, Ø63.5mm

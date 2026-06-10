@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 무수은혈압계
+모델명: 
+제조사: 인바디
+행번호: 439
+
+원산지: Korea
+인증: KFDA
+
+제품소개:
+Professional mercury-free blood pressure monitor
+
+제품 사양:
+==========================================
+Display: Large LCD with backlighting
+Models: BPBIO210, BPBIO220
+Measurement Method: Korotkoff sound method
+Control System: Variable wheel switch controller
+Lighting: Automatic backlighting
+
+특이사항:
+Replaces traditional mercury BP monitors

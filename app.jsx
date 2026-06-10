@@ -563,6 +563,29 @@ async function dbDeletePoNote(id) {
   const { error } = await sb.from('po_notes').delete().eq('id', id);
   if (error) throw error;
 }
+
+/* ---------- PO Checklist (발주별 체크리스트) ---------- */
+async function dbLoadChecklists(poIds = null) {
+  let q = sb.from('po_checklist_items').select('*').order('created_at', { ascending: true });
+  if (poIds && poIds.length > 0) q = q.in('po_id', poIds);
+  const { data, error } = await q;
+  if (error) { console.error('dbLoadChecklists:', error); return []; }
+  return data || [];
+}
+async function dbInsertChecklist(row) {
+  const { data, error } = await sb.from('po_checklist_items').insert(row).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+async function dbUpdateChecklist(id, patch) {
+  const { error } = await sb.from('po_checklist_items').update(patch).eq('id', id);
+  if (error) throw error;
+}
+async function dbDeleteChecklist(id) {
+  const { error } = await sb.from('po_checklist_items').delete().eq('id', id);
+  if (error) throw error;
+}
+
 async function dbGeneratePoNo() {
   const year = new Date().getFullYear();
   const prefix = `PO-${year}-`;
@@ -12608,6 +12631,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
 function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false }) {
   const [pos, setPos] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [checklists, setChecklists] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12616,6 +12640,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState({}); // poId → bool
   const [toast, setToast] = useState(null);
+  const [checklistModal, setChecklistModal] = useState(null); // po object
   const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),2500); };
 
   const reload = useCallback(async () => {
@@ -12627,21 +12652,30 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         dbLoadAllContracts(),
       ]);
       const poIds = allPos.map(p => p.id);
-      const ns = poIds.length > 0 ? await dbLoadPoNotes(poIds) : [];
+      const [ns, cks] = await Promise.all([
+        poIds.length > 0 ? dbLoadPoNotes(poIds) : Promise.resolve([]),
+        poIds.length > 0 ? dbLoadChecklists(poIds) : Promise.resolve([]),
+      ]);
       setPos(allPos);
       setHospitals(hosps);
       setContracts(ctr);
       setNotes(ns);
+      setChecklists(cks);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
 
-  // PO별 그룹된 메모
+  // PO별 그룹된 메모/체크리스트
   const notesByPo = useMemo(() => {
     const m = new Map();
     notes.forEach(n => { if (!m.has(n.po_id)) m.set(n.po_id, []); m.get(n.po_id).push(n); });
     return m;
   }, [notes]);
+  const checklistByPo = useMemo(() => {
+    const m = new Map();
+    checklists.forEach(c => { if (!m.has(c.po_id)) m.set(c.po_id, []); m.get(c.po_id).push(c); });
+    return m;
+  }, [checklists]);
 
   // PO별 진행도 계산
   const enriched = useMemo(() => pos.map(p => {
@@ -12653,13 +12687,16 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     const deliveredN = items.filter(it => it.delivered).length;
     const ns = notesByPo.get(p.id) || [];
     const issues = ns.filter(n => n.category === 'issue' && !n.resolved).length;
+    const chks = checklistByPo.get(p.id) || [];
+    const chkTotal = chks.length;
+    const chkOpen = chks.filter(c => !c.done).length;
     const allDone = total > 0 && orderedN === total && paidN === total && taxN === total && deliveredN === total;
     const ctr = contracts.find(c => c.id === p.contract_id);
     const hospName = ctr?.hospital_name || p.hospital_name || '(병원 미지정)';
     const firstModel = items[0]?.model_name || items[0]?.item_name || '';
     const totalQty = items.reduce((s, it) => s + (Number(it.quantity)||0), 0);
-    return { ...p, items, total, orderedN, paidN, taxN, deliveredN, issues, allDone, ctr, hospName, firstModel, totalQty, notes: ns };
-  }), [pos, contracts, notesByPo]);
+    return { ...p, items, total, orderedN, paidN, taxN, deliveredN, issues, chkTotal, chkOpen, allDone, ctr, hospName, firstModel, totalQty, notes: ns, checklist: chks };
+  }), [pos, contracts, notesByPo, checklistByPo]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -12704,6 +12741,21 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     notTax:       enriched.filter(p => !p.allDone && p.taxN       < p.total).length,
     notDelivered: enriched.filter(p => !p.allDone && p.deliveredN < p.total).length,
   }), [enriched]);
+
+  // 진행중 PO 요약 (병원/거래처 unique 카운트)
+  const activeSummary = useMemo(() => {
+    const active = enriched.filter(p => !p.allDone);
+    const hosps = new Set(active.map(p => p.hospName).filter(Boolean));
+    const vends = new Set(active.map(p => p.manufacturer_name || p.vendor_name).filter(Boolean));
+    return { hospCount: hosps.size, vendCount: vends.size, poCount: active.length };
+  }, [enriched]);
+
+  // 오늘 날짜 (예: 2026년 6월 11일 목요일)
+  const todayLabel = useMemo(() => {
+    const d = new Date();
+    const dow = ['일','월','화','수','목','금','토'][d.getDay()];
+    return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 ${dow}요일`;
+  }, []);
 
   // 액션
   const toggleItem = async (item, field) => {
@@ -12760,6 +12812,17 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       {toast && <div className={`fixed top-6 right-6 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white ${toast.type==='error'?'bg-red-500':'bg-emerald-500'}`}>{toast.msg}</div>}
 
       <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%', flex:1, overflowY:'auto'}}>
+        {/* 상단 요약 strip — 오늘 날짜 + 진행중 요약 */}
+        <div className="flex items-center justify-between mb-3 px-1">
+          <div className="text-sm text-slate-600">📅 <span className="font-medium text-slate-800">{todayLabel}</span></div>
+          <div className="text-sm text-slate-600 flex items-center gap-3">
+            <span>진행중 <span className="font-semibold text-slate-900">{activeSummary.poCount}</span>건</span>
+            <span className="text-slate-300">·</span>
+            <span>🏥 병원 <span className="font-semibold text-slate-900">{activeSummary.hospCount}</span></span>
+            <span className="text-slate-300">·</span>
+            <span>🏭 거래처 <span className="font-semibold text-slate-900">{activeSummary.vendCount}</span></span>
+          </div>
+        </div>
         {/* 통계 카드 4개 — 클릭하면 그 단계 미완료 필터 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           {[
@@ -12816,17 +12879,17 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                       <th className="px-3 py-2 text-left w-28">발주번호</th>
                       <th className="px-3 py-2 text-left w-40">{groupBy === 'vendor' ? '병원' : '거래처'}</th>
                       <th className="px-3 py-2 text-left">모델 / 수량</th>
-                      <th className="px-3 py-2 text-right w-32">금액</th>
+                      {!viewer && <th className="px-3 py-2 text-right w-32">금액</th>}
                       <th className="px-3 py-2 text-center w-20">발주</th>
                       <th className="px-3 py-2 text-center w-20">입금</th>
                       <th className="px-3 py-2 text-center w-24">세금계산서</th>
                       <th className="px-3 py-2 text-center w-20">납품</th>
+                      <th className="px-3 py-2 text-center w-16">메모</th>
                     </tr>
                   </thead>
                   <tbody>
                     {g.list.map(p => {
                       const toggleAll = async (field, atField) => {
-                        if (viewer) return;
                         const today = new Date().toISOString().slice(0,10);
                         const items = p.items || [];
                         const allOn = items.length > 0 && items.every(it => !!it[field]);
@@ -12865,11 +12928,24 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             {p.total > 1 && <span className="text-slate-400 text-xs"> 외 {p.total - 1}건</span>}
                             <span className="text-slate-400 text-xs ml-2">({p.totalQty}개)</span>
                           </td>
-                          <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>
+                          {!viewer && <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>}
                           <td className="px-3 py-2 text-center"><Step n={p.orderedN} total={p.total} icon={ICONS.send} title="발주" onClick={()=>toggleAll('ordered','ordered_at')}/></td>
                           <td className="px-3 py-2 text-center"><Step n={p.paidN} total={p.total} icon={ICONS.cash} title="입금" onClick={()=>toggleAll('paid','paid_at')}/></td>
                           <td className="px-3 py-2 text-center"><Step n={p.taxN} total={p.total} icon={ICONS.doc} title="세금계산서" onClick={()=>toggleAll('tax_invoiced','tax_invoiced_at')}/></td>
                           <td className="px-3 py-2 text-center"><Step n={p.deliveredN} total={p.total} icon={ICONS.box} title="납품" onClick={()=>toggleAll('delivered','delivered_at')}/></td>
+                          <td className="px-3 py-2 text-center">
+                            <button onClick={()=>setChecklistModal(p)} title="체크리스트"
+                              className={`relative inline-flex items-center justify-center w-8 h-7 rounded transition-colors ${
+                                p.chkOpen > 0 ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 ring-1 ring-amber-300'
+                                : p.chkTotal > 0 ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                              }`}>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                              {p.chkOpen > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">{p.chkOpen}</span>
+                              )}
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -12881,7 +12957,99 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         )}
       </div>
 
+      {checklistModal && (
+        <PoChecklistModal
+          po={checklistModal}
+          items={checklistByPo.get(checklistModal.id) || []}
+          author={user?.email || (viewer ? 'shared' : null)}
+          onClose={() => setChecklistModal(null)}
+          onChanged={reload}
+        />
+      )}
     </div>
+  );
+}
+
+function PoChecklistModal({ po, items = [], author, onClose, onChanged }) {
+  const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleAdd = async () => {
+    const content = text.trim();
+    if (!content) return;
+    setSaving(true);
+    try {
+      await dbInsertChecklist({ po_id: po.id, content, author });
+      setText('');
+      onChanged?.();
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (e) { alert('추가 실패: '+(e.message||e)); }
+    finally { setSaving(false); }
+  };
+
+  const handleToggle = async (it) => {
+    try {
+      await dbUpdateChecklist(it.id, {
+        done: !it.done,
+        done_at: !it.done ? new Date().toISOString() : null,
+      });
+      onChanged?.();
+    } catch (e) { alert('변경 실패: '+(e.message||e)); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('이 항목을 삭제할까요?')) return;
+    try {
+      await dbDeleteChecklist(id);
+      onChanged?.();
+    } catch (e) { alert('삭제 실패: '+(e.message||e)); }
+  };
+
+  const openCount = items.filter(i => !i.done).length;
+  const doneCount = items.length - openCount;
+
+  return (
+    <ModalShell onClose={onClose} title={`체크리스트 — ${po.po_no || ''}`}>
+      <div className="flex items-center gap-3 text-sm pb-3 border-b border-slate-100">
+        <span className="text-slate-600">{po.manufacturer_name || po.vendor_name || ''}</span>
+        <span className="ml-auto text-xs text-slate-500">
+          미완료 <span className="font-semibold text-rose-600">{openCount}</span> · 완료 <span className="font-semibold text-emerald-600">{doneCount}</span>
+        </span>
+      </div>
+      <div className="py-3 max-h-[50vh] overflow-y-auto">
+        {items.length === 0 ? (
+          <div className="text-center text-sm text-slate-400 py-8">아직 등록된 체크리스트가 없습니다.</div>
+        ) : (
+          <ul className="space-y-1.5">
+            {items.map(it => (
+              <li key={it.id} className={`flex items-start gap-2 px-2 py-1.5 rounded hover:bg-slate-50 ${it.done ? 'opacity-60' : ''}`}>
+                <input type="checkbox" checked={!!it.done} onChange={()=>handleToggle(it)}
+                  className="mt-1 w-4 h-4 rounded border-slate-300 cursor-pointer"/>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm ${it.done ? 'line-through text-slate-500' : 'text-slate-800'}`}>{it.content}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    {it.author && <span>by {it.author} · </span>}
+                    {new Date(it.created_at).toLocaleDateString('ko-KR')}
+                    {it.done && it.done_at && <span> · 완료 {new Date(it.done_at).toLocaleDateString('ko-KR')}</span>}
+                  </div>
+                </div>
+                <button onClick={()=>handleDelete(it.id)} title="삭제"
+                  className="text-slate-400 hover:text-rose-500 text-xs px-1 shrink-0">✕</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="pt-3 border-t border-slate-100 flex gap-2">
+        <input ref={inputRef} type="text" value={text} onChange={e=>setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !saving) handleAdd(); }}
+          placeholder="새 체크리스트 항목 (Enter로 추가)"
+          className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400" autoFocus/>
+        <button onClick={handleAdd} disabled={saving || !text.trim()}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded font-semibold">추가</button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -13272,6 +13440,9 @@ const SHARE_TOKEN = 'dwm-2026-team-tracking';
 
 function detectShareMode() {
   try {
+    // tracking.* 서브도메인 → 토큰 없이 자동 viewer 진입
+    if (window.location.hostname.startsWith('tracking.')) return true;
+    // ?share=tracking&token=XXX
     const p = new URLSearchParams(window.location.search);
     if (p.get('share') === 'tracking' && p.get('token') === SHARE_TOKEN) return true;
   } catch (_) {}

@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Operating Light
+모델명: JS-011(L)/5LED
+제조사: 진솔의료기
+행번호: 432
+
+원산지: Korea
+인증: KFDA
+
+제품소개:
+Surgical operating light with halogen or LED
+
+제품 사양:
+==========================================
+Type: JS-011 series
+Light Source: 5 LED bulbs
+Application: Operating room lighting
+Features: Adjustable brightness
+Design: Suspended or wall-mounted
+
+특이사항:
+Halogen or LED cold light option

@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Ambu Bag
+모델명: Adult
+제조사: 대석양행
+행번호: 419
+
+원산지: Denmark
+인증: FDA/CE
+
+제품소개:
+Manual resuscitator bag for adult patients
+
+제품 사양:
+==========================================
+Type: Bag-Valve-Mask (BVM)
+Size: Adult
+Material: SEBS/PVC
+Valve System: Pressure-limiting valve
+Feature: Single-use or Reusable models
+
+특이사항:
+SafeGrip surface for better handling

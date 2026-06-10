@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Bovie
+모델명: ITC150P
+제조사: 아이티시
+행번호: 418
+
+원산지: Korea
+인증: CE/KFDA
+
+제품소개:
+Electrosurgical generator - Monopolar and Bipolar
+
+제품 사양:
+==========================================
+Manufacturer: ITC
+Type: Monopolar, Bipolar
+Application: General surgery, Electrosurgery
+Certifications: CE certification
+Material: Medical-grade
+
+특이사항:
+Domestic Korean manufacturer since 1995

@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 전동테이블
+모델명: 온열매트
+제조사: 장미
+행번호: 427
+
+원산지: Korea
+인증: Medical device
+
+제품소개:
+Heated mat with motorized table
+
+제품 사양:
+==========================================
+Temperature Range: 50-60°C
+Treatment Duration: 15-20 minutes
+Type: Hot pack/Heating pad
+Application: Physical therapy, pain relief
+Filling: Water-filled
+
+특이사항:
+Used for surface heat therapy

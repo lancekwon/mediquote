@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Ultrasound
+모델명: GP-200
+제조사: 굿플
+행번호: 434
+
+원산지: Korea
+인증: KFDA
+
+제품소개:
+Portable ultrasound diagnostic system
+
+제품 사양:
+==========================================
+Type: Digital portable ultrasound
+Imaging Modes: B, 2B, M-Mode
+Image Storage: 1800 images on MOD
+Applications: Vascular, Abdominal, Small Parts, OB
+Display Quality: 256 shades of gray
+
+특이사항:
+Legacy model, still in use

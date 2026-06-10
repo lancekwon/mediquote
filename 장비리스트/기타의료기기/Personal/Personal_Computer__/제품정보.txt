@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Personal Computer
+모델명: 
+제조사: 
+행번호: 440
+
+원산지: Various
+인증: Industrial standard
+
+제품소개:
+Personal computer system
+
+제품 사양:
+==========================================
+Type: Desktop PC
+Processor: Standard CPU
+RAM: 4GB+
+Storage: HDD/SSD
+OS: Windows/Linux
+
+특이사항:
+Hospital IT system component

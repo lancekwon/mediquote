@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Hospital Bed
+모델명: 1-Crank
+제조사: 영남베드
+행번호: 420
+
+원산지: China/Korea
+인증: Medical device
+
+제품소개:
+Single-crank manual hospital bed
+
+제품 사양:
+==========================================
+Function: Height adjustment via crank
+Frame: Strip steel with powder coating
+Dimensions: 2080x960x470mm
+Weight Capacity: 200 kg
+Guardrails: 5-bar aluminum guardrail
+
+특이사항:
+8cm mattress, noiseless casters with locks

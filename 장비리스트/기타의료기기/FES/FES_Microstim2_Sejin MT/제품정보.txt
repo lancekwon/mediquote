@@ -1,0 +1,21 @@
+제품 정보 요약
+==================================================
+품목명: FES
+모델명: Microstim2
+제조사: Sejin MT
+원산지: 
+인증: 
+
+제품소개:
+Neuromuscular electrical stimulator for exercise and re-education of weak or paralyzed muscle
+
+스펙:
+  - Application: Muscle training and movement re-education
+  - Modes: Reciprocal and synergistic muscle pairs
+  - Output Control: Ramped pulse width modulation
+  - Design: Minimalist interface
+
+특이사항:
+Designed for comfort with ramped output at cycle start/end
+
+출처: 웹 검색 (검색일: 2026-03-17)

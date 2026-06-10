@@ -1,0 +1,22 @@
+제품 정보 요약
+==================================================
+품목명: X-Ray
+모델명: AccuRay-D5
+제조사: DK Medical (동강)
+원산지: Republic of Korea
+인증: 
+
+제품소개:
+General diagnosis X-ray system with high-frequency control and inverter technology for low-ripple output
+
+스펙:
+  - Control System: High Frequency Multi Processor
+  - Generator: Inverter system with low ripple
+  - APR Steps: 216 steps
+  - Receptors: Up to two
+  - Safety: Self-protection functions
+
+특이사항:
+Suitable for various diagnostic conditions; efficient image quality
+
+출처: 웹 검색 (검색일: 2026-03-17)

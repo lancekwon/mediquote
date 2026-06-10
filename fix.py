@@ -1,0 +1,6 @@
+content = open('index.html', 'r', encoding='utf-8').read()
+content = content.replace('const colors = COLOR_MAP[cat.colorKey];', 'const colors = COLOR_MAP[cat.colorKey] || COLOR_MAP["blue"];')
+content = content.replace('const colors = COLOR_MAP[catColorKey];', 'const colors = COLOR_MAP[catColorKey] || COLOR_MAP["blue"];')
+content = content.replace('const colors = COLOR_MAP[category.colorKey];', 'const colors = COLOR_MAP[category.colorKey] || COLOR_MAP["blue"];')
+open('index.html', 'w', encoding='utf-8').write(content)
+print('done')

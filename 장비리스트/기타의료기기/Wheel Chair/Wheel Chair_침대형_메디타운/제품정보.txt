@@ -1,0 +1,30 @@
+제품정보
+================================================================================
+
+기본정보
+--------
+품목명: Wheel Chair
+모델명: 침대형
+제조사: 메디타운
+
+제품사양
+--------
+원산지: Korea
+인증: CE, FDA, ISO
+
+제품소개
+--------
+Multi-parameter patient monitor for vital signs
+
+상세사양
+--------
+Display: 10.4 inch touchscreen
+Parameters: ECG, SpO2, BP, Temp
+Applications: ICU, OR, general wards
+
+특이사항
+--------
+Hospital monitoring device
+
+생성일자: 2026-03-17
+================================================================================

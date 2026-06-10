@@ -1,0 +1,18 @@
+제품 정보 요약
+==================================================
+품목명: Hospital Bed
+모델명: YN-701A
+제조사: Kareroom
+원산지: 
+인증: 
+
+제품소개:
+C-arm imaging table
+
+스펙:
+  - Type: C-arm table
+
+특이사항:
+Model-specific information not found in available sources
+
+출처: 웹 검색 (검색일: 2026-03-17)

@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: PACS Server
+모델명: 
+제조사: 후지
+행번호: 435
+
+원산지: Japan
+인증: DICOM
+
+제품소개:
+Picture Archiving Communication System
+
+제품 사양:
+==========================================
+System: PACS Server
+Function: Medical image storage and retrieval
+Standard: DICOM standard
+Compatibility: Hospital IT systems
+Capacity: High volume storage
+
+특이사항:
+Enterprise-level imaging solution

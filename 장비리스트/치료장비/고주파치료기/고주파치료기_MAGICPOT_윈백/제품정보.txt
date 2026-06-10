@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 고주파치료기
+모델명: MAGICPOT
+제조사: 윈백
+행번호: 446
+
+원산지: Korea
+인증: FDA/CE/KFDA
+
+제품소개:
+High-frequency TECAR therapy device
+
+제품 사양:
+==========================================
+Frequency: 300KHz-1MHz
+Mode 1: TECAR mode for deep heat
+Mode 2: Pulse mode 2-25Hz
+Applicator Types: Multipolar, Bracelet, Focus ceramics
+Clinical Use: Pain treatment, rehabilitation
+
+특이사항:
+Fibrotic tissue breakdown, rapid muscle relaxation

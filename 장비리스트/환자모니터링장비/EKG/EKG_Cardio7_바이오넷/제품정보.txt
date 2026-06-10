@@ -1,0 +1,18 @@
+제품 정보 요약
+==================================================
+품목명: EKG
+모델명: Cardio7
+제조사: 바이오넷
+원산지: 
+인증: 
+
+제품소개:
+7" TFT LCD touch screen interpretive ECG machine for diagnostic ECG analysis
+
+스펙:
+  - Display: 7" TFT LCD touch screen  - Lead Acquisition: 10 full seconds simultaneously  - Analysis Time: Less than 60 seconds  - Storage: Up to 200 ECGs  - Connectivity: WiFi, USB, DICOM 3.0
+
+특이사항:
+Supports BMS-Plus PC software and PACS integration
+
+출처: 웹 검색 (검색일: 2026-03-17)

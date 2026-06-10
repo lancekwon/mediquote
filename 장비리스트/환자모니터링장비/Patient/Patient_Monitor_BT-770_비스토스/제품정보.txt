@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: Patient Monitor
+모델명: BT-770
+제조사: 비스토스
+행번호: 426
+
+원산지: Korea
+인증: CE/FDA/KFDA
+
+제품소개:
+12.1 inch touchscreen patient monitor
+
+제품 사양:
+==========================================
+Display Size: 12.1 inch touchscreen
+Battery Life: 5+ hours continuous
+Measurement Parameters: ECG, SpO2, NIBP, Temperature, Respiration
+Pacemaker Detection: Yes, with ST segment analysis
+Temperature Range: 0-50°C
+
+특이사항:
+16 types of arrhythmia analysis

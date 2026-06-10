@@ -1,0 +1,24 @@
+의료기기 제품정보
+==========================================
+
+품목명: 시력표
+모델명: Acryl,Slim성인용
+제조사: 한천석
+행번호: 437
+
+원산지: Korea
+인증: Medical device
+
+제품소개:
+Adult acrylic slim vision chart
+
+제품 사양:
+==========================================
+Type: Acryl Slim format
+Target: Adult patients
+Material: Acrylic, Aluminum, Plywood
+Application: Vision measurement testing
+Standard: Korean vision chart standard
+
+특이사항:
+Professional medical-grade chart

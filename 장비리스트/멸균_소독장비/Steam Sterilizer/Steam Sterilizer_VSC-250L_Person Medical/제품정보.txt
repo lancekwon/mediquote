@@ -1,0 +1,21 @@
+제품 정보 요약
+==================================================
+품목명: Steam Sterilizer
+모델명: VSC-250L
+제조사: Person Medical
+원산지: Republic of Korea
+인증: 
+
+제품소개:
+Fully automatic non-pressure herbal and medicinal material extractor
+
+스펙:
+  - Type: Non-pressure extractor
+  - Capacity: 25L, 50L, or 80L
+  - Features: Automatic water supply
+  - Application: Herb and raw material extraction
+
+특이사항:
+Multiple capacity options available
+
+출처: 웹 검색 (검색일: 2026-03-17)

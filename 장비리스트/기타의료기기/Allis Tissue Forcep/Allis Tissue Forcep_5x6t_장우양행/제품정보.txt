@@ -1,0 +1,31 @@
+제품정보
+================================================================================
+
+기본정보
+--------
+품목명: Allis Tissue Forcep
+모델명: 5x6t
+제조사: 장우양행
+
+제품사양
+--------
+원산지: USA
+인증: CE, FDA
+
+제품소개
+--------
+Surgical forceps for grabbing/holding body tissue during surgery
+
+상세사양
+--------
+Material: Stainless Steel
+Length: 6 inch
+Teeth Pattern: 5x6 teeth
+Handle: Ratchet ring-handle
+
+특이사항
+--------
+Medical surgical instrument
+
+생성일자: 2026-03-17
+================================================================================
