@@ -1533,7 +1533,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
       {badge && <span className="ml-1 px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded-full shrink-0">{badge}</span>}
       <div className="ml-auto flex items-center gap-2">
         {children}
-        <div className="relative shrink-0" ref={menuRef}>
+        {user && <div className="relative shrink-0" ref={menuRef}>
           <button onClick={() => setMenuOpen(p => !p)}
             className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center text-white text-sm font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400">
             {user?.email?.[0]?.toUpperCase() || '?'}
@@ -1564,7 +1564,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
               </button>
             </div>
           )}
-        </div>
+        </div>}
         {showCompanySettings && <CompanySettingsModal onClose={() => setShowCompanySettings(false)}/>}
       </div>
     </header>
@@ -12605,7 +12605,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
    PURCHASE ORDER TRACKING — 발주 진행 (메인 메뉴 항목)
    병원별 카드 + 상태 매트릭스 + 품목 도착 체크 + 메모/이슈 로그
    ============================================================ */
-function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
+function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false }) {
   const [pos, setPos] = useState([]);
   const [notes, setNotes] = useState([]);
   const [hospitals, setHospitals] = useState([]);
@@ -12750,7 +12750,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
   };
   return (
     <div style={{height:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <AppHeader title="발주 진행" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
+      <AppHeader
+        title={viewer ? "발주 진행 (공유 보기)" : "발주 진행"}
+        onLogoClick={viewer ? undefined : onBack}
+        user={viewer ? null : user}
+        onLogout={viewer ? null : onLogout}
+        nav={viewer ? null : nav}
+      />
       {toast && <div className={`fixed top-6 right-6 z-50 px-4 py-2 rounded-lg shadow-lg text-sm text-white ${toast.type==='error'?'bg-red-500':'bg-emerald-500'}`}>{toast.msg}</div>}
 
       <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%', flex:1, overflowY:'auto'}}>
@@ -12820,6 +12826,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav }) {
                   <tbody>
                     {g.list.map(p => {
                       const toggleAll = async (field, atField) => {
+                        if (viewer) return;
                         const today = new Date().toISOString().slice(0,10);
                         const items = p.items || [];
                         const allOn = items.length > 0 && items.every(it => !!it[field]);
@@ -13259,7 +13266,20 @@ function HomePage({ user, onLogout, nav }) {
 /* ============================================================
    MAIN APP
    ============================================================ */
+// 발주 진행 공유 모드 — URL ?share=tracking&token=XXX 로 진입 시 viewer 활성화
+// 토큰 변경/회전: 아래 상수만 바꾸고 재배포 → 기존 링크 무효화
+const SHARE_TOKEN = 'dwm-2026-team-tracking';
+
+function detectShareMode() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('share') === 'tracking' && p.get('token') === SHARE_TOKEN) return true;
+  } catch (_) {}
+  return false;
+}
+
 function App() {
+  const [shareMode] = useState(() => detectShareMode());
   const [quoteInfo, setQuoteInfo] = useState({
     hospital: '',
     doctor: '',
@@ -13494,6 +13514,11 @@ function App() {
     });
     return offsets;
   }, [categories]);
+
+  // 공유 viewer 모드 — 로그인 우회, 발주 진행 페이지만 노출
+  if (shareMode) {
+    return <PurchaseOrderTrackingPage viewer={true} />;
+  }
 
   // 인증 로딩 중
   if (authLoading) {
