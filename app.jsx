@@ -4261,6 +4261,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                 <div className="divide-y divide-slate-100">
                   {dynCats.map(cat => {
                     const catItemList = dynItems.filter(it=>it.catId===cat.id);
+                    const catEquipCount = customEquips.filter(e => e.catId === cat.id).length;
                     const isExpanded = expandedCat === cat.id;
                     return (
                       <div key={cat.id}>
@@ -4268,6 +4269,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                         <div className="px-5 py-3 flex items-center gap-3">
                           <span className="font-semibold text-slate-800 text-sm flex-1">{cat.name}</span>
                           <span className="text-xs text-slate-400">{catItemList.length}개 품목</span>
+                          <span className="text-xs text-slate-400">·</span>
+                          <span className="text-xs text-slate-500">장비 <span className="font-semibold text-slate-700">{catEquipCount}</span>대</span>
                           <button onClick={()=>setExpandedCat(isExpanded?null:cat.id)}
                             className="px-3 py-1 text-xs rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
                             {isExpanded ? '닫기' : '품목 관리'}
@@ -4285,14 +4288,18 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                               <div className="text-xs text-slate-400 mb-3">등록된 품목이 없습니다</div>
                             ) : (
                               <div className="flex flex-wrap gap-2 mb-3">
-                                {catItemList.map(it=>(
-                                  <div key={it.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-full text-xs text-slate-700 shadow-sm">
-                                    <span>{it.name}</span>
-                                    <button onClick={()=>setConfirmDelItem(it)} className="text-slate-300 hover:text-red-500 transition-colors">
-                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg>
-                                    </button>
-                                  </div>
-                                ))}
+                                {catItemList.map(it=>{
+                                  const itEquipCount = customEquips.filter(e => e.itemName === it.name && e.catId === cat.id).length;
+                                  return (
+                                    <div key={it.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-full text-xs text-slate-700 shadow-sm">
+                                      <span>{it.name}</span>
+                                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${itEquipCount > 0 ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>{itEquipCount}</span>
+                                      <button onClick={()=>setConfirmDelItem(it)} className="text-slate-300 hover:text-red-500 transition-colors">
+                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/></svg>
+                                      </button>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                             {/* Add new item */}
