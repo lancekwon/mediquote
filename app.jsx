@@ -12890,6 +12890,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   <tbody>
                     {g.list.map(p => {
                       const toggleAll = async (field, atField) => {
+                        if (viewer) return;
                         const today = new Date().toISOString().slice(0,10);
                         const items = p.items || [];
                         const allOn = items.length > 0 && items.every(it => !!it[field]);
@@ -12961,7 +12962,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         <PoChecklistModal
           po={checklistModal}
           items={checklistByPo.get(checklistModal.id) || []}
-          author={user?.email || (viewer ? 'shared' : null)}
+          author={user?.email || null}
+          readOnly={viewer}
           onClose={() => setChecklistModal(null)}
           onChanged={reload}
         />
@@ -12970,12 +12972,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   );
 }
 
-function PoChecklistModal({ po, items = [], author, onClose, onChanged }) {
+function PoChecklistModal({ po, items = [], author, readOnly = false, onClose, onChanged }) {
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
 
   const handleAdd = async () => {
+    if (readOnly) return;
     const content = text.trim();
     if (!content) return;
     setSaving(true);
@@ -12989,6 +12992,7 @@ function PoChecklistModal({ po, items = [], author, onClose, onChanged }) {
   };
 
   const handleToggle = async (it) => {
+    if (readOnly) return;
     try {
       await dbUpdateChecklist(it.id, {
         done: !it.done,
@@ -12999,6 +13003,7 @@ function PoChecklistModal({ po, items = [], author, onClose, onChanged }) {
   };
 
   const handleDelete = async (id) => {
+    if (readOnly) return;
     if (!confirm('이 항목을 삭제할까요?')) return;
     try {
       await dbDeleteChecklist(id);
@@ -13025,7 +13030,8 @@ function PoChecklistModal({ po, items = [], author, onClose, onChanged }) {
             {items.map(it => (
               <li key={it.id} className={`flex items-start gap-2 px-2 py-1.5 rounded hover:bg-slate-50 ${it.done ? 'opacity-60' : ''}`}>
                 <input type="checkbox" checked={!!it.done} onChange={()=>handleToggle(it)}
-                  className="mt-1 w-4 h-4 rounded border-slate-300 cursor-pointer"/>
+                  disabled={readOnly}
+                  className={`mt-1 w-4 h-4 rounded border-slate-300 ${readOnly ? 'cursor-default' : 'cursor-pointer'}`}/>
                 <div className="flex-1 min-w-0">
                   <div className={`text-sm ${it.done ? 'line-through text-slate-500' : 'text-slate-800'}`}>{it.content}</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
@@ -13034,21 +13040,27 @@ function PoChecklistModal({ po, items = [], author, onClose, onChanged }) {
                     {it.done && it.done_at && <span> · 완료 {new Date(it.done_at).toLocaleDateString('ko-KR')}</span>}
                   </div>
                 </div>
-                <button onClick={()=>handleDelete(it.id)} title="삭제"
-                  className="text-slate-400 hover:text-rose-500 text-xs px-1 shrink-0">✕</button>
+                {!readOnly && (
+                  <button onClick={()=>handleDelete(it.id)} title="삭제"
+                    className="text-slate-400 hover:text-rose-500 text-xs px-1 shrink-0">✕</button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
-      <div className="pt-3 border-t border-slate-100 flex gap-2">
-        <input ref={inputRef} type="text" value={text} onChange={e=>setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !saving) handleAdd(); }}
-          placeholder="새 체크리스트 항목 (Enter로 추가)"
-          className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400" autoFocus/>
-        <button onClick={handleAdd} disabled={saving || !text.trim()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded font-semibold">추가</button>
-      </div>
+      {readOnly ? (
+        <div className="pt-3 border-t border-slate-100 text-xs text-slate-400 text-center">읽기 전용 모드 — 편집은 관리자만 가능합니다.</div>
+      ) : (
+        <div className="pt-3 border-t border-slate-100 flex gap-2">
+          <input ref={inputRef} type="text" value={text} onChange={e=>setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !saving) handleAdd(); }}
+            placeholder="새 체크리스트 항목 (Enter로 추가)"
+            className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400" autoFocus/>
+          <button onClick={handleAdd} disabled={saving || !text.trim()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded font-semibold">추가</button>
+        </div>
+      )}
     </ModalShell>
   );
 }
