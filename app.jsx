@@ -3766,6 +3766,30 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     const r = new FileReader(); r.onload = (e) => setEF('image', e.target.result); r.readAsDataURL(file);
   };
 
+  // 장비의 거래처/담당자 → manufacturers 자동 동기화 (비어있는 필드만 채움)
+  const syncContactToVendor = async (vendor, contactName, contactPhone) => {
+    if (!vendor) return;
+    if (!contactName && !contactPhone) return;
+    try {
+      const existing = manufacturers.find(m => m.name === vendor);
+      if (existing) {
+        const patch = {};
+        if (contactName && !existing.contact_name) patch.contact_name = contactName;
+        if (contactPhone && !existing.contact_phone) patch.contact_phone = contactPhone;
+        if (Object.keys(patch).length === 0) return;
+        await dbUpdateManufacturer(existing.id, patch);
+        setManufacturers?.(p => p.map(m => m.id === existing.id ? { ...m, ...patch } : m));
+      } else {
+        const id = await dbSaveManufacturer({
+          name: vendor,
+          contact_name: contactName || '',
+          contact_phone: contactPhone || '',
+        });
+        setManufacturers?.(p => [...p, { id, name: vendor, contact_name: contactName || '', contact_phone: contactPhone || '', created_at: new Date().toISOString() }]);
+      }
+    } catch (e) { console.warn('거래처 담당자 동기화 실패:', e); }
+  };
+
   const handleSave = async () => {
     if (!editForm.itemName.trim() || !editForm.modelName.trim()) return;
     setSaving(true);
@@ -3789,6 +3813,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     try {
       await dbSaveEquip(entry);
       setEquips(p => p.map(e => e.id===editTarget.id ? entry : e));
+      // 거래처 담당자 자동 동기화 (manufacturers의 contact가 비어있을 때만)
+      await syncContactToVendor(entry.vendor, entry.contactName, entry.contactPhone);
       closeEdit(); onEquipChange?.();
     } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); } finally { setSaving(false); }
   };
@@ -3846,6 +3872,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     try {
       const savedId = await dbSaveEquip(entry); entry.id = savedId;
       setEquips(p => [entry, ...p]);
+      // 거래처 담당자 자동 동기화 (manufacturers의 contact가 비어있을 때만)
+      await syncContactToVendor(entry.vendor, entry.contactName, entry.contactPhone);
       setRegForm(emptyRegForm()); setRegSaved(true); setTimeout(()=>setRegSaved(false),2000);
       onEquipChange?.();
     } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); } finally { setRegSaving(false); }
