@@ -5311,7 +5311,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   const [pos, setPos] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
-  const [vatIncluded, setVatIncluded] = React.useState(true); // 디폴트: 부가세 포함
+  // 정책: 모든 입력 단가는 부가세 포함 기준. 표시도 그대로. (vatIncluded=false 고정)
+  const [vatIncluded] = React.useState(false);
   const [planItems, setPlanItems] = React.useState([]); // 편집 가능한 발주 계획 항목
   const [hospitalAddress, setHospitalAddress] = React.useState('');
   const [hospitalRow, setHospitalRow] = React.useState(null);
@@ -6139,11 +6140,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                   <input type="date" value={deliveryDate} onChange={e => { setDeliveryDate(e.target.value); setDirty(true); }}
                     className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
                 </div>
-                <div className="col-span-4 flex items-end justify-end">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="checkbox" checked={vatIncluded} onChange={e => { setVatIncluded(e.target.checked); setDirty(true); }} className="w-4 h-4 rounded"/>
-                    <span className="font-semibold text-slate-700">부가세 포함 표시</span>
-                  </label>
+                <div className="col-span-4 flex items-end justify-end text-xs text-slate-400">
+                  모든 단가는 부가세 포함 기준
                 </div>
               </div>
               <div>
@@ -6158,11 +6156,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             <div className="bg-white rounded-xl border border-slate-200 p-5">
               <div className="grid grid-cols-4 gap-4">
                 <div>
-                  <div className="text-xs text-slate-500">매출 합계 ({vatIncluded?'VAT 포함':'VAT 별도'})</div>
+                  <div className="text-xs text-slate-500">매출 합계</div>
                   <div className="text-lg font-bold text-slate-800 tnum">{totals.sale.toLocaleString('ko-KR')}원</div>
                 </div>
                 <div>
-                  <div className="text-xs text-slate-500">매입 합계 ({vatIncluded?'VAT 포함':'VAT 별도'})</div>
+                  <div className="text-xs text-slate-500">매입 합계</div>
                   <div className="text-lg font-bold text-slate-800 tnum">{totals.purchase.toLocaleString('ko-KR')}원</div>
                 </div>
                 <div>
