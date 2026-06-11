@@ -5625,10 +5625,17 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         catch (_) {}
         setContract(p => ({ ...p, delivery_target_date: deliveryDate }));
       }
+      // 정책: 1 PO = 1 model. 같은 거래처라도 모델이 다르면 별도 PO 발급.
       const groups = {};
-      sortedItems.forEach(it => { const v = it.vendor || '(미지정)'; if (!groups[v]) groups[v] = []; groups[v].push(it); });
+      sortedItems.forEach(it => {
+        const v = it.vendor || '(미지정)';
+        const m = it.modelName || it.itemName || '(미정)';
+        const key = `${v} ${m}`;
+        if (!groups[key]) groups[key] = { vendor: v, model: m, items: [] };
+        groups[key].items.push(it);
+      });
 
-      for (const [vendor, items] of Object.entries(groups)) {
+      for (const { vendor, model, items } of Object.values(groups)) {
         const totalPurchaseBase = items.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
         const totalAmount = vatIncluded ? Math.round(totalPurchaseBase * 1.1) : totalPurchaseBase;
         const totalSaleBase = items.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
@@ -5671,7 +5678,10 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
             if (typeof setManufacturers === 'function') setManufacturers(fresh);
           } catch (mfrErr) { console.warn('거래처 정보 동기화 실패:', mfrErr); }
         }
-        const existingPo = pos.find(p => p.manufacturer_name === vendor);
+        const existingPo = pos.find(p =>
+          p.manufacturer_name === vendor &&
+          (p.purchase_order_items || []).some(it => (it.model_name || it.item_name) === model)
+        );
         if (!existingPo) {
           const poNo = await dbGeneratePoNo();
           await dbSavePurchaseOrder({
