@@ -12745,14 +12745,17 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
    PURCHASE ORDER TRACKING — 발주 진행 (메인 메뉴 항목)
    병원별 카드 + 상태 매트릭스 + 품목 도착 체크 + 메모/이슈 로그
    ============================================================ */
-function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false }) {
+function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false, appHospitals = null, appManufacturers = null }) {
   const [pos, setPos] = useState([]);
   const [notes, setNotes] = useState([]);
   const [checklists, setChecklists] = useState([]);
-  const [hospitals, setHospitals] = useState([]);
+  const [hospitals, setHospitals] = useState(appHospitals || []);
   const [contracts, setContracts] = useState([]);
-  const [vendors, setVendors] = useState([]);
+  const [vendors, setVendors] = useState(appManufacturers || []);
   const [loading, setLoading] = useState(true);
+  // App 캐시 변동 시 동기화
+  useEffect(() => { if (appHospitals) setHospitals(appHospitals); }, [appHospitals]);
+  useEffect(() => { if (appManufacturers) setVendors(appManufacturers); }, [appManufacturers]);
   const [filter, setFilter] = useState('all'); // all | ongoing | done
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
@@ -12765,12 +12768,19 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [allPos, hosps, ctr, mfrs] = await Promise.all([
+      // App 캐시 있으면 hospitals/manufacturers fetch 생략 (네트워크 절감)
+      const fetches = [
         sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
-        dbLoadHospitals(),
         dbLoadAllContracts(),
-        dbLoadManufacturers(),
-      ]);
+      ];
+      if (!appHospitals) fetches.push(dbLoadHospitals());
+      if (!appManufacturers) fetches.push(dbLoadManufacturers());
+      const out = await Promise.all(fetches);
+      const allPos = out[0];
+      const ctr = out[1];
+      let idx = 2;
+      const hosps = appHospitals || out[idx++];
+      const mfrs = appManufacturers || out[idx++];
       const poIds = allPos.map(p => p.id);
       const [ns, cks] = await Promise.all([
         poIds.length > 0 ? dbLoadPoNotes(poIds) : Promise.resolve([]),
@@ -12783,7 +12793,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       setNotes(ns);
       setChecklists(cks);
     } finally { if (!silent) setLoading(false); }
-  }, []);
+  }, [appHospitals, appManufacturers]);
   useEffect(() => { reload(); }, [reload]);
   const silentReload = useCallback(() => reload(true), [reload]);
 
@@ -13944,6 +13954,8 @@ function App() {
       user={user}
       onLogout={handleLogout}
       nav={nav}
+      appHospitals={appHospitals}
+      appManufacturers={appManufacturers}
     />;
   }
 
