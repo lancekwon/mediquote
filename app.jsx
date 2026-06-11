@@ -6189,8 +6189,10 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       <th className="px-2 py-2 text-left w-32">거래처</th>
                       <th className="px-2 py-2 text-left">모델명/제조사</th>
                       <th className="px-2 py-2 text-center w-14">수량</th>
-                      <th className="px-2 py-2 text-right w-28">매출</th>
-                      <th className="px-2 py-2 text-right w-28">매입</th>
+                      <th className="px-2 py-2 text-right w-24">매출단가</th>
+                      <th className="px-2 py-2 text-right w-28">매출공급가액</th>
+                      <th className="px-2 py-2 text-right w-24">매입단가</th>
+                      <th className="px-2 py-2 text-right w-28">매입공급가액</th>
                       <th className="px-2 py-2 text-center w-14">발주</th>
                       <th className="px-2 py-2 text-center w-14">입금</th>
                       <th className="px-2 py-2 text-center w-20">세금계산서</th>
@@ -6294,22 +6296,16 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                             <EditableNumber value={it.quantity} onSave={v => setItem(it.key, { quantity: Math.max(1, v||1) })} />
                           </td>
                           <td className="px-2 py-1.5 text-right text-slate-700">
-                            <EditableNumber value={saleAmt} onSave={v => {
-                              const qty = Math.max(1, Number(it.quantity)||1);
-                              setItem(it.key, { salePrice: Math.round((v||0) / qty) });
-                            }} />
-                            {(Number(it.quantity)||0) > 1 && (
-                              <div className="text-[10px] text-slate-400 font-mono">@ {(Number(it.salePrice)||0).toLocaleString()}</div>
-                            )}
+                            <EditableNumber value={Number(it.salePrice)||0} onSave={v => setItem(it.key, { salePrice: Math.max(0, v||0) })} />
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-medium text-slate-800 tabular-nums">
+                            {saleAmt.toLocaleString()}
                           </td>
                           <td className="px-2 py-1.5 text-right text-slate-700">
-                            <EditableNumber value={purAmt} onSave={v => {
-                              const qty = Math.max(1, Number(it.quantity)||1);
-                              setItem(it.key, { purchasePrice: Math.round((v||0) / qty) });
-                            }} />
-                            {(Number(it.quantity)||0) > 1 && (
-                              <div className="text-[10px] text-slate-400 font-mono">@ {(Number(it.purchasePrice)||0).toLocaleString()}</div>
-                            )}
+                            <EditableNumber value={Number(it.purchasePrice)||0} onSave={v => setItem(it.key, { purchasePrice: Math.max(0, v||0) })} />
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-medium text-slate-800 tabular-nums">
+                            {purAmt.toLocaleString()}
                           </td>
                           <td className="px-2 py-1.5 text-center"><IconPill on={it.ordered} icon={ICON.send} title={it.ordered ? `발주: ${it.ordered_at||''}` : '발주'}
                             onClick={() => setItem(it.key, { ordered: !it.ordered, ordered_at: !it.ordered ? (it.ordered_at||today()) : null })}/></td>
