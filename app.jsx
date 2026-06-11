@@ -5575,10 +5575,10 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     onBack();
   };
 
-  // 합계 (부가세 포함/별도 반영)
+  // 합계 (부가세 포함/별도 반영) — Number() 캐스팅으로 NaN 방지
   const totals = React.useMemo(() => {
-    const baseSale = sortedItems.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
-    const basePurchase = sortedItems.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
+    const baseSale = sortedItems.reduce((s, it) => s + ((Number(it.salePrice)||0) * (Number(it.quantity)||0)), 0);
+    const basePurchase = sortedItems.reduce((s, it) => s + ((Number(it.purchasePrice)||0) * (Number(it.quantity)||0)), 0);
     const sale = vatIncluded ? Math.round(baseSale * 1.1) : baseSale;
     const purchase = vatIncluded ? Math.round(basePurchase * 1.1) : basePurchase;
     const margin = sale - purchase;
@@ -5588,11 +5588,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
 
   // 거래처별 합계
   const vendorTotal = (items) => {
-    const base = items.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
+    const base = items.reduce((s, it) => s + ((Number(it.purchasePrice)||0) * (Number(it.quantity)||0)), 0);
     return vatIncluded ? Math.round(base * 1.1) : base;
   };
   const vendorSaleTotal = (items) => {
-    const base = items.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
+    const base = items.reduce((s, it) => s + ((Number(it.salePrice)||0) * (Number(it.quantity)||0)), 0);
     return vatIncluded ? Math.round(base * 1.1) : base;
   };
   // 거래처별 펼침/접힘 상태 (기본: 접힘 — false면 펼침)
@@ -5628,9 +5628,9 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
       });
 
       for (const { vendor, model, items } of Object.values(groups)) {
-        const totalPurchaseBase = items.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
+        const totalPurchaseBase = items.reduce((s, it) => s + ((Number(it.purchasePrice)||0) * (Number(it.quantity)||0)), 0);
         const totalAmount = vatIncluded ? Math.round(totalPurchaseBase * 1.1) : totalPurchaseBase;
-        const totalSaleBase = items.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
+        const totalSaleBase = items.reduce((s, it) => s + ((Number(it.salePrice)||0) * (Number(it.quantity)||0)), 0);
         const saleAmount = vatIncluded ? Math.round(totalSaleBase * 1.1) : totalSaleBase;
         const mfr = manufacturers.find(m => m.name === vendor);
         const itemContact = items.find(i => i.vendorContactName || i.vendorContactPhone);
@@ -5638,8 +5638,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         const poItems = items.map(it => ({
           item_name: it.itemName, model_name: it.modelName,
           manufacturer: it.manufacturer || vendor,
-          quantity: it.quantity, unit_price: it.purchasePrice,
-          amount: it.purchasePrice * it.quantity,
+          quantity: Number(it.quantity)||1, unit_price: Number(it.purchasePrice)||0,
+          amount: (Number(it.purchasePrice)||0) * (Number(it.quantity)||0),
           sale_price: Number(it.salePrice) || 0,
           ordered: !!it.ordered,
           ordered_at: it.ordered ? (it.ordered_at || today) : null,
@@ -5874,7 +5874,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     // 발주 완료된 품목만 (또는 전체?) — 발주 완료된 것만 표시
     const items = sortedItems.filter(it => it.ordered || it.delivered);
     if (items.length === 0) { alert('발주 완료된 품목이 없습니다. 체크박스를 먼저 표시해주세요.'); return; }
-    const totalBase = items.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
+    const totalBase = items.reduce((s, it) => s + ((Number(it.salePrice)||0) * (Number(it.quantity)||0)), 0);
     const total = vatIncluded ? Math.round(totalBase * 1.1) : totalBase;
     const vatLabel = vatIncluded ? 'VAT 포함' : 'VAT 별도';
 
@@ -5954,8 +5954,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
 
     // 거래처별 그룹
     const groupedHtml = Object.entries(vendorGroups).map(([vendor, vItems]) => {
-      const vendorSaleBase = vItems.reduce((s, it) => s + (it.salePrice * it.quantity), 0);
-      const vendorPurchaseBase = vItems.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
+      const vendorSaleBase = vItems.reduce((s, it) => s + ((Number(it.salePrice)||0) * (Number(it.quantity)||0)), 0);
+      const vendorPurchaseBase = vItems.reduce((s, it) => s + ((Number(it.purchasePrice)||0) * (Number(it.quantity)||0)), 0);
       const vendorSale = vatIncluded ? Math.round(vendorSaleBase * 1.1) : vendorSaleBase;
       const vendorPurchase = vatIncluded ? Math.round(vendorPurchaseBase * 1.1) : vendorPurchaseBase;
       const vendorMargin = vendorSale - vendorPurchase;
@@ -6049,7 +6049,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     const existingPo = pos.find(p => p.manufacturer_name === vendor);
     const poNo = existingPo?.po_no || `PO-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-    const totalBase = items.reduce((s, it) => s + (it.purchasePrice * it.quantity), 0);
+    const totalBase = items.reduce((s, it) => s + ((Number(it.purchasePrice)||0) * (Number(it.quantity)||0)), 0);
     const total = vatIncluded ? Math.round(totalBase * 1.1) : totalBase;
     const vatLabel = vatIncluded ? 'VAT 포함' : 'VAT 별도';
     const rowSlots = 15;
