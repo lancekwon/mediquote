@@ -12679,8 +12679,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [checklists, setChecklists] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all'); // all | ordered | paid | tax | delivered | done
+  const [filter, setFilter] = useState('all'); // all | ongoing | done
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState({}); // poId → bool
@@ -12691,10 +12692,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [allPos, hosps, ctr] = await Promise.all([
+      const [allPos, hosps, ctr, mfrs] = await Promise.all([
         sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
         dbLoadHospitals(),
         dbLoadAllContracts(),
+        dbLoadManufacturers(),
       ]);
       const poIds = allPos.map(p => p.id);
       const [ns, cks] = await Promise.all([
@@ -12704,6 +12706,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       setPos(allPos);
       setHospitals(hosps);
       setContracts(ctr);
+      setVendors(mfrs);
       setNotes(ns);
       setChecklists(cks);
     } finally { if (!silent) setLoading(false); }
@@ -12723,6 +12726,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     return m;
   }, [checklists]);
 
+  // 거래처 lookup
+  const vendorByName = useMemo(() => {
+    const m = new Map();
+    vendors.forEach(v => m.set(v.name, v));
+    return m;
+  }, [vendors]);
+
   // PO별 진행도 계산
   const enriched = useMemo(() => pos.map(p => {
     const items = p.purchase_order_items || [];
@@ -12736,22 +12746,27 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     const chks = checklistByPo.get(p.id) || [];
     const chkTotal = chks.length;
     const chkOpen = chks.filter(c => !c.done).length;
-    const allDone = total > 0 && orderedN === total && paidN === total && taxN === total && deliveredN === total;
+    const trackingDone = !!p.tracking_delivered;
+    const allDone = trackingDone; // 발주 진행 = 별도 납품 체크 단일 기준
     const ctr = contracts.find(c => c.id === p.contract_id);
     const hospName = ctr?.hospital_name || p.hospital_name || '(병원 미지정)';
     const firstModel = items[0]?.model_name || items[0]?.item_name || '';
     const totalQty = items.reduce((s, it) => s + (Number(it.quantity)||0), 0);
-    return { ...p, items, total, orderedN, paidN, taxN, deliveredN, issues, chkTotal, chkOpen, allDone, ctr, hospName, firstModel, totalQty, notes: ns, checklist: chks };
-  }), [pos, contracts, notesByPo, checklistByPo]);
+    // 발주일자 = items 중 가장 이른 ordered_at
+    const orderedDates = items.map(it => it.ordered_at).filter(Boolean).sort();
+    const orderedDate = orderedDates[0] || null;
+    // 예상납품일 = po.delivery_date
+    const deliveryDate = p.delivery_date || null;
+    // 거래처 정보
+    const vendorInfo = vendorByName.get(p.manufacturer_name) || vendorByName.get(p.vendor_name) || null;
+    return { ...p, items, total, orderedN, paidN, taxN, deliveredN, issues, chkTotal, chkOpen, trackingDone, allDone, ctr, hospName, firstModel, totalQty, orderedDate, deliveryDate, vendorInfo, notes: ns, checklist: chks };
+  }), [pos, contracts, notesByPo, checklistByPo, vendorByName]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return enriched.filter(p => {
       if (filter === 'done' && !p.allDone) return false;
-      if (filter === 'ordered'   && (p.allDone || p.orderedN   === p.total)) return false;
-      if (filter === 'paid'      && (p.allDone || p.paidN      === p.total)) return false;
-      if (filter === 'tax'       && (p.allDone || p.taxN       === p.total)) return false;
-      if (filter === 'delivered' && (p.allDone || p.deliveredN === p.total)) return false;
+      if (filter === 'ongoing' && p.allDone) return false;
       if (q) {
         const hay = `${p.po_no} ${p.hospName} ${p.manufacturer_name || ''} ${p.vendor_name || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -12782,10 +12797,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
 
   // 통계
   const stats = useMemo(() => ({
-    notOrdered:   enriched.filter(p => !p.allDone && p.orderedN   < p.total).length,
-    notPaid:      enriched.filter(p => !p.allDone && p.paidN      < p.total).length,
-    notTax:       enriched.filter(p => !p.allDone && p.taxN       < p.total).length,
-    notDelivered: enriched.filter(p => !p.allDone && p.deliveredN < p.total).length,
+    ongoing:  enriched.filter(p => !p.allDone).length,
+    done:     enriched.filter(p => p.allDone).length,
   }), [enriched]);
 
   // 진행중 PO 요약 (병원/거래처 unique 카운트)
@@ -12869,13 +12882,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
             <span>🏭 거래처 <span className="font-semibold text-slate-900">{activeSummary.vendCount}</span></span>
           </div>
         </div>
-        {/* 통계 카드 4개 — 클릭하면 그 단계 미완료 필터 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        {/* 통계 카드 — 진행중 / 납품완료 */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
           {[
-            { k:'ordered',   label:'발주 미완료',     n:stats.notOrdered,   ring:'border-blue-500 ring-blue-200',     iconColor:'text-blue-500' },
-            { k:'paid',      label:'입금 미완료',     n:stats.notPaid,      ring:'border-violet-500 ring-violet-200', iconColor:'text-violet-500' },
-            { k:'tax',       label:'세금계산서 미수령', n:stats.notTax,       ring:'border-amber-500 ring-amber-200',   iconColor:'text-amber-500' },
-            { k:'delivered', label:'납품 미완료',     n:stats.notDelivered, ring:'border-emerald-500 ring-emerald-200', iconColor:'text-emerald-500' },
+            { k:'ongoing', label:'진행중',     n:stats.ongoing, ring:'border-blue-500 ring-blue-200',       iconColor:'text-blue-600' },
+            { k:'done',    label:'납품완료',   n:stats.done,    ring:'border-emerald-500 ring-emerald-200', iconColor:'text-emerald-600' },
           ].map(c => (
             <button key={c.k} onClick={()=>setFilter(c.k)}
               className={`text-left bg-white rounded-xl border p-4 transition-colors ${filter===c.k ? c.ring + ' ring-2' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -12888,7 +12899,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         {/* 필터 바 */}
         <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
           <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
-            {[{k:'all',l:'전체'},{k:'ordered',l:'발주'},{k:'paid',l:'입금'},{k:'tax',l:'세금계산서'},{k:'delivered',l:'납품'},{k:'done',l:'완료'}].map(t => (
+            {[{k:'all',l:'전체'},{k:'ongoing',l:'진행중'},{k:'done',l:'납품완료'}].map(t => (
               <button key={t.k} onClick={()=>setFilter(t.k)}
                 className={`px-3 py-1.5 text-sm rounded transition-colors ${filter===t.k?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
             ))}
@@ -12923,79 +12934,65 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
                     <tr>
                       <th className="px-3 py-2 text-left w-28">발주번호</th>
-                      <th className="px-3 py-2 text-left w-40">{groupBy === 'vendor' ? '병원' : '거래처'}</th>
+                      <th className="px-3 py-2 text-left w-48">{groupBy === 'vendor' ? '병원' : '거래처 / 담당자'}</th>
                       <th className="px-3 py-2 text-left">모델 / 수량</th>
-                      {!viewer && <th className="px-3 py-2 text-right w-32">금액</th>}
-                      <th className="px-3 py-2 text-center w-20">발주</th>
-                      <th className="px-3 py-2 text-center w-20">입금</th>
-                      <th className="px-3 py-2 text-center w-24">세금계산서</th>
-                      <th className="px-3 py-2 text-center w-20">납품</th>
+                      <th className="px-3 py-2 text-center w-24">발주일자</th>
+                      <th className="px-3 py-2 text-center w-24">예상납품일</th>
                       <th className="px-3 py-2 text-center w-16">메모</th>
+                      <th className="px-3 py-2 text-center w-20">납품</th>
                     </tr>
                   </thead>
                   <tbody>
                     {g.list.map(p => {
-                      const toggleAll = async (field, atField) => {
-                        if (viewer) return;
+                      const toggleTrackingDelivered = async () => {
+                        const newVal = !p.trackingDone;
                         const today = new Date().toISOString().slice(0,10);
-                        const items = p.items || [];
-                        const allOn = items.length > 0 && items.every(it => !!it[field]);
-                        const newVal = !allOn;
-                        // 1) 낙관적 UI 업데이트 — 즉시 색상 반영
+                        // 낙관적 UI
                         setPos(prev => prev.map(po => po.id === p.id ? {
                           ...po,
-                          purchase_order_items: (po.purchase_order_items || []).map(it => ({
-                            ...it,
-                            [field]: newVal,
-                            [atField]: newVal ? (it[atField] || today) : null,
-                          })),
+                          tracking_delivered: newVal,
+                          tracking_delivered_at: newVal ? (po.tracking_delivered_at || today) : null,
                         } : po));
-                        // 2) 백그라운드 저장 (실패 시 풀 reload로 복구)
                         try {
-                          await Promise.all(items.map(it => dbUpdatePoItem(it.id, {
-                            [field]: newVal,
-                            [atField]: newVal ? (it[atField] || today) : null,
-                          })));
+                          await dbUpdatePurchaseOrder(p.id, {
+                            tracking_delivered: newVal,
+                            tracking_delivered_at: newVal ? today : null,
+                          });
                         } catch (e) {
                           showToast('저장 실패: '+(e.message||e), 'error');
                           reload();
                         }
                       };
-                      const Step = ({ n, total, icon, onClick, title }) => {
-                        const cls = total === 0
-                          ? 'bg-slate-100 text-slate-300'
-                          : n === total ? 'bg-emerald-500 text-white'
-                          : n > 0 ? 'bg-amber-400 text-white'
-                          : 'bg-slate-100 text-slate-400 hover:bg-slate-200';
-                        return (
-                          <button onClick={onClick} title={title}
-                            className={`inline-flex items-center justify-center w-8 h-7 rounded transition-colors ${cls}`}>
-                            {icon}
-                          </button>
-                        );
-                      };
-                      const ICONS = {
-                        send: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>,
-                        cash: <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>,
-                        doc:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
-                        box:  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>,
-                      };
+                      const vi = p.vendorInfo;
+                      const fmtDate = (s) => s ? s.slice(5).replace('-','/') : '—';
                       return (
                         <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50">
-                          <td className="px-3 py-2 text-xs font-mono text-slate-600">{p.po_no || '—'}</td>
-                          <td className="px-3 py-2 text-slate-800">{groupBy === 'vendor' ? p.hospName : (p.manufacturer_name || p.vendor_name || '—')}</td>
-                          <td className="px-3 py-2 text-slate-700">
+                          <td className="px-3 py-2 text-xs font-mono text-slate-600 align-top">{p.po_no || '—'}</td>
+                          <td className="px-3 py-2 align-top">
+                            {groupBy === 'vendor' ? (
+                              <span className="text-slate-800">{p.hospName}</span>
+                            ) : (
+                              <div>
+                                <div className="text-slate-800">{p.manufacturer_name || p.vendor_name || '—'}</div>
+                                {vi && (vi.contact_name || vi.contact_phone) && (
+                                  <div className="text-[11px] text-slate-500 mt-0.5">
+                                    {vi.contact_name && <span>{vi.contact_name}</span>}
+                                    {vi.contact_name && vi.contact_phone && <span className="mx-1 text-slate-300">·</span>}
+                                    {vi.contact_phone && <span className="font-mono">{vi.contact_phone}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700 align-top">
                             <span className="font-medium">{p.firstModel || '—'}</span>
                             {p.total > 1 && <span className="text-slate-400 text-xs"> 외 {p.total - 1}건</span>}
                             <span className="text-slate-400 text-xs ml-2">({p.totalQty}개)</span>
                           </td>
-                          {!viewer && <td className="px-3 py-2 text-right font-mono text-slate-700">{(p.total_amount||0).toLocaleString()}</td>}
-                          <td className="px-3 py-2 text-center"><Step n={p.orderedN} total={p.total} icon={ICONS.send} title="발주" onClick={()=>toggleAll('ordered','ordered_at')}/></td>
-                          <td className="px-3 py-2 text-center"><Step n={p.paidN} total={p.total} icon={ICONS.cash} title="입금" onClick={()=>toggleAll('paid','paid_at')}/></td>
-                          <td className="px-3 py-2 text-center"><Step n={p.taxN} total={p.total} icon={ICONS.doc} title="세금계산서" onClick={()=>toggleAll('tax_invoiced','tax_invoiced_at')}/></td>
-                          <td className="px-3 py-2 text-center"><Step n={p.deliveredN} total={p.total} icon={ICONS.box} title="납품" onClick={()=>toggleAll('delivered','delivered_at')}/></td>
-                          <td className="px-3 py-2 text-center">
-                            <button onClick={()=>setChecklistModal(p)} title="체크리스트"
+                          <td className="px-3 py-2 text-center text-xs text-slate-600 font-mono align-top">{fmtDate(p.orderedDate)}</td>
+                          <td className="px-3 py-2 text-center text-xs text-slate-600 font-mono align-top">{fmtDate(p.deliveryDate)}</td>
+                          <td className="px-3 py-2 text-center align-top">
+                            <button onClick={()=>setChecklistModal(p)} title="메모/체크리스트"
                               className={`relative inline-flex items-center justify-center w-8 h-7 rounded transition-colors ${
                                 p.chkOpen > 0 ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 ring-1 ring-amber-300'
                                 : p.chkTotal > 0 ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
@@ -13005,6 +13002,14 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                               {p.chkOpen > 0 && (
                                 <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">{p.chkOpen}</span>
                               )}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 text-center align-top">
+                            <button onClick={toggleTrackingDelivered} title={p.trackingDone ? '납품완료 (클릭=해제)' : '납품 체크'}
+                              className={`inline-flex items-center justify-center w-8 h-7 rounded transition-colors ${
+                                p.trackingDone ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                              }`}>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
                             </button>
                           </td>
                         </tr>
@@ -13022,8 +13027,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         <PoChecklistModal
           po={checklistModal}
           items={checklistByPo.get(checklistModal.id) || []}
-          author={user?.email || null}
-          readOnly={viewer}
+          author={user?.email || (viewer ? 'shared' : null)}
+          readOnly={false}
           onClose={() => setChecklistModal(null)}
           onChanged={silentReload}
         />
