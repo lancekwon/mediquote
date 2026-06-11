@@ -10226,6 +10226,212 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
 }
 
 /* ============================================================
+   CASHFLOW TAB — 활성 발주 기반 자금 흐름 (병원/계약별)
+   ============================================================ */
+function CashflowTab({ contracts = [], hospitals = [] }) {
+  const [pos, setPos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [openHosps, setOpenHosps] = useState({}); // hospName → bool
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      const { data } = await sb.from('purchase_orders').select('id, po_no, contract_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)').eq('is_active', true);
+      if (alive) { setPos(data || []); setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // contract.id → hospital_name 매핑
+  const hospByContract = useMemo(() => {
+    const m = new Map();
+    contracts.forEach(c => m.set(c.id, c.hospital_name));
+    return m;
+  }, [contracts]);
+
+  // 병원별 그룹
+  const byHosp = useMemo(() => {
+    const m = new Map();
+    pos.forEach(p => {
+      const hospName = hospByContract.get(p.contract_id) || p.hospital_name || '(병원 미지정)';
+      if (!m.has(hospName)) m.set(hospName, []);
+      m.get(hospName).push(p);
+    });
+    return m;
+  }, [pos, hospByContract]);
+
+  // 한 PO 또는 한 contract의 자금 집계
+  const tally = (poList) => {
+    const r = { incomeOrdered:0, incomeInvoiced:0, incomeDelivered:0, outflowOrdered:0, outflowInvoiced:0, outflowDelivered:0, outflowPaid:0, totalSale:0, totalPurchase:0 };
+    poList.forEach(p => {
+      (p.purchase_order_items || []).forEach(it => {
+        const sale  = (Number(it.sale_price)||0) * (Number(it.quantity)||0);
+        const purch = (Number(it.unit_price)||0) * (Number(it.quantity)||0);
+        r.totalSale += sale;
+        r.totalPurchase += purch;
+        if (it.paid)              r.outflowPaid     += purch;
+        else if (it.delivered)    r.outflowDelivered+= purch;
+        else if (it.tax_invoiced) r.outflowInvoiced += purch;
+        else if (it.ordered)      r.outflowOrdered  += purch;
+        else                       r.outflowOrdered += purch; // 아직 발주도 안 한 건 발주만 칸으로
+        if (it.delivered)         r.incomeDelivered += sale;
+        else if (it.tax_invoiced) r.incomeInvoiced  += sale;
+        else                       r.incomeOrdered  += sale;
+      });
+    });
+    r.incomeTotal = r.incomeOrdered + r.incomeInvoiced + r.incomeDelivered;
+    r.outflowRemaining = r.outflowOrdered + r.outflowInvoiced + r.outflowDelivered;
+    r.net = r.incomeTotal - r.outflowRemaining;
+    return r;
+  };
+
+  // 전체 합산
+  const grand = useMemo(() => tally(pos), [pos]);
+  // 병원별 합산 + 거래처별 분할
+  const hospEntries = useMemo(() => {
+    return Array.from(byHosp.entries()).map(([hosp, poList]) => {
+      const sums = tally(poList);
+      // 거래처별 매입 합
+      const byVendor = new Map();
+      poList.forEach(p => {
+        const v = p.manufacturer_name || p.vendor_name || '(미지정)';
+        if (!byVendor.has(v)) byVendor.set(v, []);
+        byVendor.get(v).push(p);
+      });
+      const vendors = Array.from(byVendor.entries()).map(([v, list]) => {
+        const t = tally(list);
+        return { vendor: v, ...t, poCount: list.length };
+      }).sort((a,b) => (b.outflowOrdered + b.outflowInvoiced + b.outflowDelivered) - (a.outflowOrdered + a.outflowInvoiced + a.outflowDelivered));
+      return { hosp, poCount: poList.length, ...sums, vendors };
+    }).sort((a,b) => b.incomeTotal - a.incomeTotal);
+  }, [byHosp]);
+
+  if (loading) return <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>;
+  if (pos.length === 0) return <div className="p-12 text-center text-slate-400 text-sm">활성 발주가 없습니다.</div>;
+
+  const fmt = (n) => (n || 0).toLocaleString() + '원';
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* 전체 합산 카드 — 페이지 상단 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="bg-white rounded-xl border border-emerald-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-semibold text-emerald-700">📥 들어올 돈 (전체)</div>
+            <div className="text-lg font-bold text-emerald-600 tnum">{fmt(grand.incomeTotal)}</div>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between text-slate-600"><span>✈ 발주만</span><span className="tnum">{fmt(grand.incomeOrdered)}</span></div>
+            <div className="flex justify-between text-amber-600"><span>📄 세금계산서 발행</span><span className="tnum">{fmt(grand.incomeInvoiced)}</span></div>
+            <div className="flex justify-between text-emerald-700 font-medium"><span>📦 납품 완료 (청구 확정)</span><span className="tnum">{fmt(grand.incomeDelivered)}</span></div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-rose-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-semibold text-rose-700">📤 나갈 돈 (전체, 미정산)</div>
+            <div className="text-lg font-bold text-rose-600 tnum">{fmt(grand.outflowRemaining)}</div>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between text-slate-600"><span>✈ 발주만</span><span className="tnum">{fmt(grand.outflowOrdered)}</span></div>
+            <div className="flex justify-between text-amber-600"><span>📄 세금계산서 받음</span><span className="tnum">{fmt(grand.outflowInvoiced)}</span></div>
+            <div className="flex justify-between text-rose-700 font-medium"><span>📦 납품 받음 (지급 확정)</span><span className="tnum">{fmt(grand.outflowDelivered)}</span></div>
+            <div className="flex justify-between text-slate-400"><span>✅ 송금 완료 (정산)</span><span className="tnum">{fmt(grand.outflowPaid)}</span></div>
+          </div>
+        </div>
+        <div className={`bg-gradient-to-br ${grand.net >= 0 ? 'from-blue-50 to-emerald-50 border-blue-200' : 'from-rose-50 to-amber-50 border-rose-200'} rounded-xl border p-4 flex flex-col justify-center`}>
+          <div className="text-xs font-semibold text-slate-600 mb-1">순 자금 포지션</div>
+          <div className="text-xs text-slate-500 mb-2">들어올 − 송금 안 한 매입</div>
+          <div className={`text-2xl font-bold tnum ${grand.net >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
+            {grand.net >= 0 ? '+' : ''}{fmt(grand.net)}
+          </div>
+        </div>
+      </div>
+
+      {/* 병원별 디테일 */}
+      <div className="space-y-3">
+        <div className="text-sm font-semibold text-slate-700 mt-2">🏥 병원별 자금 흐름</div>
+        {hospEntries.map(g => {
+          const isOpen = !!openHosps[g.hosp];
+          return (
+            <div key={g.hosp} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <button onClick={()=>setOpenHosps(p => ({...p, [g.hosp]: !p[g.hosp]}))}
+                className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-3 text-left transition-colors">
+                <span className="font-semibold text-slate-800">🏥 {g.hosp}</span>
+                <span className="text-xs text-slate-500">{g.poCount}개 발주</span>
+                <span className="ml-auto flex items-center gap-4 text-sm tnum">
+                  <span className="text-emerald-600">📥 {fmt(g.incomeTotal)}</span>
+                  <span className="text-rose-600">📤 {fmt(g.outflowRemaining)}</span>
+                  <span className={`font-bold ${g.net >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>= {g.net >= 0 ? '+' : ''}{fmt(g.net)}</span>
+                  <span className="text-slate-400 text-xs">{isOpen ? '▼' : '▶'}</span>
+                </span>
+              </button>
+              {isOpen && (
+                <div className="p-4 space-y-3 bg-slate-50/50">
+                  {/* 단계별 요약 — 컴팩트 */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg border border-emerald-100 p-3">
+                      <div className="text-[11px] font-semibold text-emerald-700 mb-1.5">📥 들어올 돈</div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="text-slate-500">✈ 발주만</span><span className="tnum text-slate-700">{fmt(g.incomeOrdered)}</span></div>
+                        <div className="flex justify-between"><span className="text-amber-600">📄 세금계산서</span><span className="tnum text-amber-700">{fmt(g.incomeInvoiced)}</span></div>
+                        <div className="flex justify-between font-medium"><span className="text-emerald-700">📦 납품완료</span><span className="tnum text-emerald-700">{fmt(g.incomeDelivered)}</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-lg border border-rose-100 p-3">
+                      <div className="text-[11px] font-semibold text-rose-700 mb-1.5">📤 나갈 돈</div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="text-slate-500">✈ 발주만</span><span className="tnum text-slate-700">{fmt(g.outflowOrdered)}</span></div>
+                        <div className="flex justify-between"><span className="text-amber-600">📄 세금계산서</span><span className="tnum text-amber-700">{fmt(g.outflowInvoiced)}</span></div>
+                        <div className="flex justify-between font-medium"><span className="text-rose-700">📦 납품받음</span><span className="tnum text-rose-700">{fmt(g.outflowDelivered)}</span></div>
+                        <div className="flex justify-between"><span className="text-slate-400">✅ 송금완료</span><span className="tnum text-slate-400">{fmt(g.outflowPaid)}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* 거래처별 매입 상세 */}
+                  <div className="bg-white rounded-lg border border-slate-100 overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-100">🏭 거래처별 매입 분포</div>
+                    <table className="w-full text-xs">
+                      <thead className="bg-white text-slate-500 text-[10px] uppercase border-b border-slate-100">
+                        <tr>
+                          <th className="px-3 py-2 text-left">거래처</th>
+                          <th className="px-3 py-2 text-center w-12">발주</th>
+                          <th className="px-3 py-2 text-right w-28">✈ 발주만</th>
+                          <th className="px-3 py-2 text-right w-28">📄 세금계산서</th>
+                          <th className="px-3 py-2 text-right w-28">📦 납품받음</th>
+                          <th className="px-3 py-2 text-right w-28">✅ 송금완료</th>
+                          <th className="px-3 py-2 text-right w-28">미정산</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.vendors.map(v => (
+                          <tr key={v.vendor} className="border-t border-slate-100">
+                            <td className="px-3 py-1.5 text-slate-800">{v.vendor}</td>
+                            <td className="px-3 py-1.5 text-center text-slate-500">{v.poCount}</td>
+                            <td className="px-3 py-1.5 text-right tnum text-slate-600">{v.outflowOrdered ? fmt(v.outflowOrdered) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right tnum text-amber-600">{v.outflowInvoiced ? fmt(v.outflowInvoiced) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right tnum text-rose-600">{v.outflowDelivered ? fmt(v.outflowDelivered) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right tnum text-slate-400">{v.outflowPaid ? fmt(v.outflowPaid) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right tnum font-semibold text-rose-700">{fmt(v.outflowRemaining)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="text-xs text-slate-400 text-center pt-2">
+        ※ 활성 발주(is_active=true)의 매입/매출 단가만 집계합니다. 회계 확정 데이터(외상매입, 예상매출, 통장)와 별개입니다.
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    PAYABLES (외상매입금 관리) PAGE
    ============================================================ */
 function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
@@ -10374,6 +10580,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
               { k: 'expected', l: '예상 매출' },
+              { k: 'cashflow', l: '💰 자금 흐름' },
               { k: 'cash', l: '통장 출납' },
               { k: 'report', l: '리포트' },
             ].map(t => (
@@ -10474,6 +10681,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} expectedRev={expectedRev} onReload={reload} showToast={showToast} />
           ) : tab === 'expected' ? (
             <ExpectedRevenueTab rows={expectedRev} hospitals={hospitals} cashLogs={cashLogs} onReload={reload} showToast={showToast} />
+          ) : tab === 'cashflow' ? (
+            <CashflowTab contracts={contracts} hospitals={hospitals} />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} cashCurrent={cashCurrent} />
           ) : (
@@ -13569,48 +13778,6 @@ function HomePage({ user, onLogout, nav }) {
   const newInquiries = useMemo(() => leads.filter(l => (l.stage || '신규문의') === '신규문의')
     .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||'')), [leads]);
 
-  // 자금 흐름 — 활성 PO의 매출/매입가를 4단계별로 집계
-  const cashflow = useMemo(() => {
-    const r = {
-      // 들어올 돈 (병원 매출 = sale_amount)
-      incomeOrdered: 0,     // 발주만 — 아직 청구 안 함
-      incomeInvoiced: 0,    // 세금계산서 발행됨 — 청구 진행
-      incomeDelivered: 0,   // 납품 완료 — 청구 확정
-      incomeCollected: 0,   // 수금 완료 = paid in this context는 거래처 송금이라 다름
-      // 나갈 돈 (거래처 매입 = total_amount)
-      outflowOrdered: 0,
-      outflowInvoiced: 0,
-      outflowDelivered: 0,
-      outflowPaid: 0,
-      totalSale: 0,
-      totalPurchase: 0,
-    };
-    pos.forEach(p => {
-      const items = p.purchase_order_items || [];
-      items.forEach(it => {
-        const sale = (Number(it.sale_price)||0) * (Number(it.quantity)||0);
-        const purch = (Number(it.unit_price)||0) * (Number(it.quantity)||0);
-        r.totalSale += sale;
-        r.totalPurchase += purch;
-        // 매입 측 (우리 → 거래처)
-        if (it.paid) r.outflowPaid += purch;
-        else if (it.delivered) r.outflowDelivered += purch;
-        else if (it.tax_invoiced) r.outflowInvoiced += purch;
-        else if (it.ordered) r.outflowOrdered += purch;
-        // 매출 측 (병원 → 우리). 발주의 단계는 매입 기준이라 매출은 단순히 ordered 기준으로만 분류
-        // 실제 매출 수금 추적은 expected_revenue에서 별도 관리
-        if (it.delivered) r.incomeDelivered += sale;
-        else if (it.tax_invoiced) r.incomeInvoiced += sale;
-        else if (it.ordered) r.incomeOrdered += sale;
-      });
-    });
-    // 들어올/나갈 미정산 합계
-    r.incomeTotal = r.incomeOrdered + r.incomeInvoiced + r.incomeDelivered;
-    r.outflowTotal = r.outflowOrdered + r.outflowInvoiced + r.outflowDelivered + r.outflowPaid;
-    r.outflowRemaining = r.outflowOrdered + r.outflowInvoiced + r.outflowDelivered; // 아직 송금 안 한 것
-    r.netPosition = r.incomeTotal - r.outflowRemaining;
-    return r;
-  }, [pos]);
 
   const greeting = (() => { const h = new Date().getHours(); return h<11?'좋은 아침이에요':h<14?'점심 잘 챙기세요':h<18?'좋은 오후예요':'고생하셨어요'; })();
 
@@ -13651,52 +13818,6 @@ function HomePage({ user, onLogout, nav }) {
                 <div className={`text-2xl font-bold ${card.c}`}>{card.n}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
               </button>
             ))}
-          </div>
-        </div>
-
-        {/* 💰 자금 흐름 — 활성 발주 기반 즉석 집계 */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-slate-700">💰 자금 흐름 <span className="text-xs font-normal text-slate-400 ml-1">(활성 발주 기준)</span></h3>
-            <button onClick={() => nav?.payables?.()} className="text-xs text-blue-500 hover:text-blue-700">매입매출 관리 →</button>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            {/* 들어올 돈 */}
-            <div className="bg-white rounded-xl border border-emerald-200 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs font-semibold text-emerald-700">📥 들어올 돈 (병원 매출)</div>
-                <div className="text-lg font-bold text-emerald-600 tnum">{cashflow.incomeTotal.toLocaleString()}원</div>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between text-slate-600"><span>✈ 발주만</span><span className="tnum">{cashflow.incomeOrdered.toLocaleString()}원</span></div>
-                <div className="flex justify-between text-amber-600"><span>📄 세금계산서 발행</span><span className="tnum">{cashflow.incomeInvoiced.toLocaleString()}원</span></div>
-                <div className="flex justify-between text-emerald-700 font-medium"><span>📦 납품 완료 (청구 확정)</span><span className="tnum">{cashflow.incomeDelivered.toLocaleString()}원</span></div>
-              </div>
-            </div>
-            {/* 나갈 돈 */}
-            <div className="bg-white rounded-xl border border-rose-200 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs font-semibold text-rose-700">📤 나갈 돈 (거래처 매입)</div>
-                <div className="text-lg font-bold text-rose-600 tnum">{cashflow.outflowRemaining.toLocaleString()}원</div>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between text-slate-600"><span>✈ 발주만</span><span className="tnum">{cashflow.outflowOrdered.toLocaleString()}원</span></div>
-                <div className="flex justify-between text-amber-600"><span>📄 세금계산서 받음</span><span className="tnum">{cashflow.outflowInvoiced.toLocaleString()}원</span></div>
-                <div className="flex justify-between text-rose-700 font-medium"><span>📦 납품 받음 (지급 확정)</span><span className="tnum">{cashflow.outflowDelivered.toLocaleString()}원</span></div>
-                <div className="flex justify-between text-slate-400"><span>✅ 송금 완료 (정산)</span><span className="tnum">{cashflow.outflowPaid.toLocaleString()}원</span></div>
-              </div>
-            </div>
-            {/* 순 자금 포지션 */}
-            <div className={`bg-gradient-to-br ${cashflow.netPosition >= 0 ? 'from-blue-50 to-emerald-50 border-blue-200' : 'from-rose-50 to-amber-50 border-rose-200'} rounded-xl border p-4 flex flex-col justify-center`}>
-              <div className="text-xs font-semibold text-slate-600 mb-2">순 자금 포지션</div>
-              <div className="text-xs text-slate-500 mb-1">들어올 − 나갈</div>
-              <div className={`text-2xl font-bold tnum ${cashflow.netPosition >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
-                {cashflow.netPosition >= 0 ? '+' : ''}{cashflow.netPosition.toLocaleString()}원
-              </div>
-              <div className="text-[10px] text-slate-400 mt-2 leading-tight">
-                활성 발주 매출 합 − 아직 송금 안 한 매입 합. 발주만/세금계산서/납품 단계 모두 포함.
-              </div>
-            </div>
           </div>
         </div>
 
