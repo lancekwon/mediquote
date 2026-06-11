@@ -5724,6 +5724,20 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         }
       }
 
+      // 사라진 PO 무력화 — 이 contract의 기존 PO 중 새 groups에 없는 것은 is_active=false
+      const newKeySet = new Set();
+      for (const { vendor, model } of Object.values(groups)) {
+        newKeySet.add(`${vendor} ${model}`);
+      }
+      for (const op of pos) {
+        const firstItem = (op.purchase_order_items || [])[0];
+        const opModel = firstItem?.model_name || firstItem?.item_name || '';
+        const opVendor = op.manufacturer_name || '(미지정)';
+        if (!newKeySet.has(`${opVendor} ${opModel}`)) {
+          try { await dbUpdatePurchaseOrder(op.id, { is_active: false, status: '취소' }); } catch (_) {}
+        }
+      }
+
       // 새로고침
       const refreshed = await dbLoadPurchaseOrders(contract.id);
       setPos(refreshed.filter(p => p.is_active !== false));
@@ -5733,8 +5747,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
       const syncResults = { firstPurchase: [], adjusted: [], unchanged: [], skipped: [], failed: [] };
       const freshMfrs = await dbLoadManufacturers();
 
-      for (const [vendor, items] of Object.entries(groups)) {
-        const po = refreshed.find(p => p.manufacturer_name === vendor && p.is_active !== false);
+      for (const { vendor, model, items } of Object.values(groups)) {
+        const po = refreshed.find(p =>
+          p.manufacturer_name === vendor &&
+          p.is_active !== false &&
+          (p.purchase_order_items || []).some(it => (it.model_name || it.item_name) === model)
+        );
         if (!po) continue;
 
         let mfrId = po.manufacturer_id;
