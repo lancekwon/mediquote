@@ -5492,10 +5492,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
 
   // 정렬: 매입처(vendor) 알파벳 → 모델명
   const sortedItems = React.useMemo(() => {
+    // 매출 단가(salePrice) 높은 순. 동일하면 모델명 가나다.
     return [...planItems].sort((a, b) => {
-      const va = (a.vendor || 'zzz').toLowerCase();
-      const vb = (b.vendor || 'zzz').toLowerCase();
-      if (va !== vb) return va.localeCompare(vb);
+      const sa = Number(a.salePrice) || 0;
+      const sb = Number(b.salePrice) || 0;
+      if (sa !== sb) return sb - sa;
       return (a.modelName || '').localeCompare(b.modelName || '');
     });
   }, [planItems]);
@@ -6183,6 +6184,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                 <table className="w-full text-xs">
                   <thead className="bg-slate-100 text-slate-600 text-[11px] uppercase">
                     <tr>
+                      <th className="px-2 py-2 text-center w-8">No</th>
                       <th className="px-2 py-2 text-left w-24">PO번호</th>
                       <th className="px-2 py-2 text-left w-32">거래처</th>
                       <th className="px-2 py-2 text-left">모델명/제조사</th>
@@ -6200,7 +6202,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedItems.map(it => {
+                    {sortedItems.map((it, idx) => {
                       const po = pos.find(p => (p.purchase_order_items||[]).some(pi => pi.id === it.poItemId)) || pos.find(p => p.manufacturer_name === it.vendor);
                       const poNo = po ? `${po.po_no}${po.revision ? '-R'+po.revision : ''}` : <span className="text-slate-400">신규</span>;
                       const today = () => new Date().toISOString().slice(0,10);
@@ -6253,6 +6255,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       };
                       return (
                         <tr key={it.key} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-2 py-1.5 text-center font-mono text-xs text-slate-400 font-semibold">{idx + 1}</td>
                           <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{poNo}</td>
                           <td className="px-2 py-1.5 text-slate-800 font-medium">
                             {it.poItemId ? (it.vendor || <span className="text-amber-600">미지정</span>) : (
@@ -6295,12 +6298,18 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                               const qty = Math.max(1, Number(it.quantity)||1);
                               setItem(it.key, { salePrice: Math.round((v||0) / qty) });
                             }} />
+                            {(Number(it.quantity)||0) > 1 && (
+                              <div className="text-[10px] text-slate-400 font-mono">@ {(Number(it.salePrice)||0).toLocaleString()}</div>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 text-right text-slate-700">
                             <EditableNumber value={purAmt} onSave={v => {
                               const qty = Math.max(1, Number(it.quantity)||1);
                               setItem(it.key, { purchasePrice: Math.round((v||0) / qty) });
                             }} />
+                            {(Number(it.quantity)||0) > 1 && (
+                              <div className="text-[10px] text-slate-400 font-mono">@ {(Number(it.purchasePrice)||0).toLocaleString()}</div>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 text-center"><IconPill on={it.ordered} icon={ICON.send} title={it.ordered ? `발주: ${it.ordered_at||''}` : '발주'}
                             onClick={() => setItem(it.key, { ordered: !it.ordered, ordered_at: !it.ordered ? (it.ordered_at||today()) : null })}/></td>
