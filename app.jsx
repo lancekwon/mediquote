@@ -516,7 +516,7 @@ async function dbLoadPurchaseOrders(contractId = null) {
   return data;
 }
 async function dbSavePurchaseOrder(po, items) {
-  const { data, error } = await sb.from('purchase_orders').insert(po).select('id').single();
+  const { data, error } = await sb.from('purchase_orders').insert({ ...po, updated_at: new Date().toISOString() }).select('id').single();
   if (error) throw error;
   const poId = data.id;
   if (items && items.length > 0) {
@@ -527,7 +527,7 @@ async function dbSavePurchaseOrder(po, items) {
   return poId;
 }
 async function dbUpdatePurchaseOrder(id, po) {
-  const { error } = await sb.from('purchase_orders').update(po).eq('id', id);
+  const { error } = await sb.from('purchase_orders').update({ ...po, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
 }
 async function dbDeletePurchaseOrder(id) {
@@ -12848,6 +12848,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       list: list.sort((a,b) => (b.po_no || '').localeCompare(a.po_no || '')),
       total: list.length,
       issues: list.reduce((s,p)=>s+p.issues, 0),
+      lastUpdated: list.map(p => p.updated_at).filter(Boolean).sort().pop() || null,
     })).sort((a,b) => (b.issues - a.issues) || a.hospName.localeCompare(b.hospName));
   }, [filtered, groupBy]);
 
@@ -12871,6 +12872,23 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     const dow = ['일','월','화','수','목','금','토'][d.getDay()];
     return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 ${dow}요일`;
   }, []);
+
+  // 상대시간 — 1분 미만/방금, 60분 미만/N분 전, 24시간 미만/N시간 전, 그 외/MM/DD HH:MM
+  const fmtRelative = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    if (diff < 0) return null;
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return '방금';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}분 전`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}시간 전`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day}일 전`;
+    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  };
 
   // 액션
   const toggleItem = async (item, field) => {
@@ -12989,6 +13007,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                 >
                   <span className="font-semibold text-slate-800">{groupBy === 'vendor' ? '🏭' : '🏥'} {g.hospName}</span>
                   <span className="text-xs text-slate-500">{g.total}개 발주</span>
+                  {g.lastUpdated && <span className="text-xs text-slate-400">· 마지막 변경 {fmtRelative(g.lastUpdated)}</span>}
                   {g.issues > 0 && <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold">⚠ 이슈 {g.issues}</span>}
                   <span className="ml-auto text-slate-400 text-xs select-none">{isOpen ? '▼' : '▶'}</span>
                 </button>
