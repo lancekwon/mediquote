@@ -13569,6 +13569,49 @@ function HomePage({ user, onLogout, nav }) {
   const newInquiries = useMemo(() => leads.filter(l => (l.stage || '신규문의') === '신규문의')
     .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||'')), [leads]);
 
+  // 자금 흐름 — 활성 PO의 매출/매입가를 4단계별로 집계
+  const cashflow = useMemo(() => {
+    const r = {
+      // 들어올 돈 (병원 매출 = sale_amount)
+      incomeOrdered: 0,     // 발주만 — 아직 청구 안 함
+      incomeInvoiced: 0,    // 세금계산서 발행됨 — 청구 진행
+      incomeDelivered: 0,   // 납품 완료 — 청구 확정
+      incomeCollected: 0,   // 수금 완료 = paid in this context는 거래처 송금이라 다름
+      // 나갈 돈 (거래처 매입 = total_amount)
+      outflowOrdered: 0,
+      outflowInvoiced: 0,
+      outflowDelivered: 0,
+      outflowPaid: 0,
+      totalSale: 0,
+      totalPurchase: 0,
+    };
+    pos.forEach(p => {
+      const items = p.purchase_order_items || [];
+      items.forEach(it => {
+        const sale = (Number(it.sale_price)||0) * (Number(it.quantity)||0);
+        const purch = (Number(it.unit_price)||0) * (Number(it.quantity)||0);
+        r.totalSale += sale;
+        r.totalPurchase += purch;
+        // 매입 측 (우리 → 거래처)
+        if (it.paid) r.outflowPaid += purch;
+        else if (it.delivered) r.outflowDelivered += purch;
+        else if (it.tax_invoiced) r.outflowInvoiced += purch;
+        else if (it.ordered) r.outflowOrdered += purch;
+        // 매출 측 (병원 → 우리). 발주의 단계는 매입 기준이라 매출은 단순히 ordered 기준으로만 분류
+        // 실제 매출 수금 추적은 expected_revenue에서 별도 관리
+        if (it.delivered) r.incomeDelivered += sale;
+        else if (it.tax_invoiced) r.incomeInvoiced += sale;
+        else if (it.ordered) r.incomeOrdered += sale;
+      });
+    });
+    // 들어올/나갈 미정산 합계
+    r.incomeTotal = r.incomeOrdered + r.incomeInvoiced + r.incomeDelivered;
+    r.outflowTotal = r.outflowOrdered + r.outflowInvoiced + r.outflowDelivered + r.outflowPaid;
+    r.outflowRemaining = r.outflowOrdered + r.outflowInvoiced + r.outflowDelivered; // 아직 송금 안 한 것
+    r.netPosition = r.incomeTotal - r.outflowRemaining;
+    return r;
+  }, [pos]);
+
   const greeting = (() => { const h = new Date().getHours(); return h<11?'좋은 아침이에요':h<14?'점심 잘 챙기세요':h<18?'좋은 오후예요':'고생하셨어요'; })();
 
   // 영업관리에서 lead 열기
@@ -13608,6 +13651,52 @@ function HomePage({ user, onLogout, nav }) {
                 <div className={`text-2xl font-bold ${card.c}`}>{card.n}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* 💰 자금 흐름 — 활성 발주 기반 즉석 집계 */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-slate-700">💰 자금 흐름 <span className="text-xs font-normal text-slate-400 ml-1">(활성 발주 기준)</span></h3>
+            <button onClick={() => nav?.payables?.()} className="text-xs text-blue-500 hover:text-blue-700">매입매출 관리 →</button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            {/* 들어올 돈 */}
+            <div className="bg-white rounded-xl border border-emerald-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-semibold text-emerald-700">📥 들어올 돈 (병원 매출)</div>
+                <div className="text-lg font-bold text-emerald-600 tnum">{cashflow.incomeTotal.toLocaleString()}원</div>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600"><span>✈ 발주만</span><span className="tnum">{cashflow.incomeOrdered.toLocaleString()}원</span></div>
+                <div className="flex justify-between text-amber-600"><span>📄 세금계산서 발행</span><span className="tnum">{cashflow.incomeInvoiced.toLocaleString()}원</span></div>
+                <div className="flex justify-between text-emerald-700 font-medium"><span>📦 납품 완료 (청구 확정)</span><span className="tnum">{cashflow.incomeDelivered.toLocaleString()}원</span></div>
+              </div>
+            </div>
+            {/* 나갈 돈 */}
+            <div className="bg-white rounded-xl border border-rose-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-semibold text-rose-700">📤 나갈 돈 (거래처 매입)</div>
+                <div className="text-lg font-bold text-rose-600 tnum">{cashflow.outflowRemaining.toLocaleString()}원</div>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600"><span>✈ 발주만</span><span className="tnum">{cashflow.outflowOrdered.toLocaleString()}원</span></div>
+                <div className="flex justify-between text-amber-600"><span>📄 세금계산서 받음</span><span className="tnum">{cashflow.outflowInvoiced.toLocaleString()}원</span></div>
+                <div className="flex justify-between text-rose-700 font-medium"><span>📦 납품 받음 (지급 확정)</span><span className="tnum">{cashflow.outflowDelivered.toLocaleString()}원</span></div>
+                <div className="flex justify-between text-slate-400"><span>✅ 송금 완료 (정산)</span><span className="tnum">{cashflow.outflowPaid.toLocaleString()}원</span></div>
+              </div>
+            </div>
+            {/* 순 자금 포지션 */}
+            <div className={`bg-gradient-to-br ${cashflow.netPosition >= 0 ? 'from-blue-50 to-emerald-50 border-blue-200' : 'from-rose-50 to-amber-50 border-rose-200'} rounded-xl border p-4 flex flex-col justify-center`}>
+              <div className="text-xs font-semibold text-slate-600 mb-2">순 자금 포지션</div>
+              <div className="text-xs text-slate-500 mb-1">들어올 − 나갈</div>
+              <div className={`text-2xl font-bold tnum ${cashflow.netPosition >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
+                {cashflow.netPosition >= 0 ? '+' : ''}{cashflow.netPosition.toLocaleString()}원
+              </div>
+              <div className="text-[10px] text-slate-400 mt-2 leading-tight">
+                활성 발주 매출 합 − 아직 송금 안 한 매입 합. 발주만/세금계산서/납품 단계 모두 포함.
+              </div>
+            </div>
           </div>
         </div>
 
