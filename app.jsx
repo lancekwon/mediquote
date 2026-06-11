@@ -12990,7 +12990,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             <span className="text-slate-400 text-xs ml-2">({p.totalQty}개)</span>
                           </td>
                           <td className="px-3 py-2 text-center text-xs text-slate-600 font-mono align-top">{fmtDate(p.orderedDate)}</td>
-                          <td className="px-3 py-2 text-center text-xs text-slate-600 font-mono align-top">{fmtDate(p.deliveryDate)}</td>
+                          <td className="px-3 py-2 text-center align-top">
+                            <EditableDeliveryDate po={p} setPos={setPos} reload={reload} showToast={showToast} />
+                          </td>
                           <td className="px-3 py-2 text-center align-top">
                             <button onClick={()=>setChecklistModal(p)} title="메모/체크리스트"
                               className={`relative inline-flex items-center justify-center w-8 h-7 rounded transition-colors ${
@@ -13034,6 +13036,50 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         />
       )}
     </div>
+  );
+}
+
+function EditableDeliveryDate({ po, setPos, reload, showToast }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(po.delivery_date || '');
+  useEffect(() => { setVal(po.delivery_date || ''); }, [po.delivery_date]);
+  const fmtDate = (s) => s ? s.slice(5).replace('-','/') : '—';
+  const save = async () => {
+    const newDate = val || null;
+    if (newDate === (po.delivery_date || null)) { setEditing(false); return; }
+    setPos(prev => prev.map(x => x.id === po.id ? { ...x, delivery_date: newDate } : x));
+    setEditing(false);
+    try {
+      await dbUpdatePurchaseOrder(po.id, { delivery_date: newDate });
+    } catch (e) {
+      showToast('저장 실패: ' + (e.message || e), 'error');
+      reload();
+    }
+  };
+  if (editing) {
+    return (
+      <input
+        type="date"
+        autoFocus
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={save}
+        onKeyDown={e => {
+          if (e.key === 'Enter') save();
+          if (e.key === 'Escape') { setVal(po.delivery_date || ''); setEditing(false); }
+        }}
+        className="w-28 border border-blue-400 rounded px-1.5 py-0.5 text-xs font-mono text-center focus:outline-none"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title="클릭하여 예상납품일 수정"
+      className="text-xs text-slate-600 font-mono hover:bg-blue-50 rounded px-2 py-0.5 transition-colors"
+    >
+      {fmtDate(po.delivery_date)}
+    </button>
   );
 }
 
