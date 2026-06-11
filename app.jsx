@@ -8510,6 +8510,28 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   const [searchQuery, setSearchQuery] = React.useState('');
   const [deletingHosp, setDeletingHosp] = React.useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+  const [hospRefs, setHospRefs] = React.useState(null); // { leads, contracts, exp_rev, recv_tx, total }
+  const [refsLoading, setRefsLoading] = React.useState(false);
+  React.useEffect(() => {
+    if (!showDeleteConfirm || !selectedHosp) { setHospRefs(null); return; }
+    setRefsLoading(true);
+    (async () => {
+      try {
+        const [leads, contracts, expRev, recvTx] = await Promise.all([
+          sb.from('leads').select('id', { count:'exact', head:true }).eq('hospital_id', selectedHosp.id),
+          sb.from('contracts').select('id', { count:'exact', head:true }).eq('hospital_id', selectedHosp.id),
+          sb.from('expected_revenue').select('id', { count:'exact', head:true }).eq('target_hospital_id', selectedHosp.id),
+          sb.from('receivable_transactions').select('id', { count:'exact', head:true }).eq('hospital_id', selectedHosp.id),
+        ]);
+        const refs = {
+          leads: leads.count || 0, contracts: contracts.count || 0,
+          exp_rev: expRev.count || 0, recv_tx: recvTx.count || 0,
+        };
+        refs.total = refs.leads + refs.contracts + refs.exp_rev + refs.recv_tx;
+        setHospRefs(refs);
+      } finally { setRefsLoading(false); }
+    })();
+  }, [showDeleteConfirm, selectedHosp]);
   const [inspectionItems, setInspectionItems] = React.useState([]);
 
   const STATUS_COLORS = { '진행중':'bg-blue-100 text-blue-700', '완료':'bg-emerald-100 text-emerald-700', '취소':'bg-slate-100 text-slate-500', '접수':'bg-amber-100 text-amber-700', '처리중':'bg-blue-100 text-blue-700' };
@@ -8577,7 +8599,15 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
       setHospitals(p => p.filter(h => h.id !== selectedHosp.id));
       setSelectedHosp(null);
       setShowDeleteConfirm(false);
-    } catch(e) { console.error(e); alert('삭제 중 오류가 발생했습니다.'); }
+    } catch(e) {
+      console.error(e);
+      const msg = e?.message || String(e);
+      if (msg.includes('foreign key') || msg.includes('violates') || e?.code === '23503') {
+        alert(`삭제 실패 — 다른 데이터(영업 lead·계약·매출·수금)에서 이 병원을 참조하고 있어 DB가 막았습니다.\n해당 데이터를 먼저 정리하거나 다른 병원으로 옮긴 뒤 다시 시도하세요.\n\n원본 메시지: ${msg}`);
+      } else {
+        alert(`삭제 중 오류: ${msg}`);
+      }
+    }
     setDeletingHosp(false);
   };
 
@@ -9208,14 +9238,30 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                   <div className="text-xs text-slate-500 mt-0.5">이 작업은 되돌릴 수 없습니다</div>
                 </div>
               </div>
-              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3 mb-4">
+              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3 mb-3">
                 <div className="text-sm font-semibold text-red-700 mb-1">{selectedHosp.name}</div>
-                <div className="text-xs text-red-500">계약 이력, A/S 이력, 납품 이력 등 관련 데이터가 모두 삭제됩니다.</div>
+                <div className="text-xs text-red-500">병원 정보가 영구 삭제됩니다.</div>
               </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-2 text-xs">
+                <div className="font-semibold text-slate-700 mb-2">연결된 데이터 {refsLoading ? '확인 중...' : ''}</div>
+                {hospRefs && (
+                  <div className="space-y-1 text-slate-600">
+                    <div className="flex justify-between"><span>영업 lead</span><span className={`font-mono font-semibold ${hospRefs.leads > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{hospRefs.leads}</span></div>
+                    <div className="flex justify-between"><span>계약</span><span className={`font-mono font-semibold ${hospRefs.contracts > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{hospRefs.contracts}</span></div>
+                    <div className="flex justify-between"><span>예상 매출</span><span className={`font-mono font-semibold ${hospRefs.exp_rev > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{hospRefs.exp_rev}</span></div>
+                    <div className="flex justify-between"><span>수금 거래</span><span className={`font-mono font-semibold ${hospRefs.recv_tx > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{hospRefs.recv_tx}</span></div>
+                  </div>
+                )}
+              </div>
+              {hospRefs && hospRefs.total > 0 && (
+                <div className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-2">
+                  ⚠️ 연결 데이터가 있어 삭제가 막힐 수 있습니다. 먼저 해당 데이터를 정리하거나 다른 병원으로 옮기세요.
+                </div>
+              )}
             </div>
             <div className="px-6 pb-5 flex gap-2 justify-end">
               <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
-              <button onClick={handleDeleteHosp} disabled={deletingHosp}
+              <button onClick={handleDeleteHosp} disabled={deletingHosp || refsLoading}
                 className="px-5 py-2 text-sm bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors">
                 {deletingHosp ? '삭제 중...' : '삭제 확인'}
               </button>
