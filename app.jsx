@@ -12685,6 +12685,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState({}); // poId → bool
+  const [expandedGroups, setExpandedGroups] = useState({}); // groupName → bool (디폴트: 접힘)
   const [toast, setToast] = useState(null);
   const [checklistModal, setChecklistModal] = useState(null); // po object
   const showToast = (msg, type='success') => { setToast({msg,type}); setTimeout(()=>setToast(null),2500); };
@@ -12923,13 +12924,20 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400 text-sm">표시할 발주가 없습니다.</div>
         ) : (
           <div className="space-y-4">
-            {groupedByHosp.map(g => (
+            {groupedByHosp.map(g => {
+              const isOpen = !!expandedGroups[g.hospName];
+              return (
               <div key={g.hospName} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                <button
+                  onClick={()=>setExpandedGroups(p => ({ ...p, [g.hospName]: !p[g.hospName] }))}
+                  className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-2 transition-colors text-left"
+                >
                   <span className="font-semibold text-slate-800">{groupBy === 'vendor' ? '🏭' : '🏥'} {g.hospName}</span>
                   <span className="text-xs text-slate-500">{g.total}개 발주</span>
                   {g.issues > 0 && <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold">⚠ 이슈 {g.issues}</span>}
-                </div>
+                  <span className="ml-auto text-slate-400 text-xs select-none">{isOpen ? '▼' : '▶'}</span>
+                </button>
+                {isOpen && (
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
                     <tr>
@@ -13019,8 +13027,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                     })}
                   </tbody>
                 </table>
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
