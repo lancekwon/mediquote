@@ -2217,7 +2217,7 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onV
   };
 
   const updateQty = (delta) => {
-    const newQty = Math.max(1, Math.min(99, item.quantity + delta));
+    const newQty = Math.max(1, Math.min(9999, item.quantity + delta));
     onUpdate({ ...item, quantity: newQty });
   };
 
@@ -6231,8 +6231,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           const days = ['일','월','화','수','목','금','토'];
                           return `${parseInt(m[2])}월 ${parseInt(m[3])}일 ${days[d.getDay()]}요일`;
                         };
+                        // 거래처 담당자 이름이 있으면 그 사람 기준으로 인사
+                        const vMfr = manufacturers.find(m => m.name === it.vendor);
+                        const contactName = (vMfr?.contact_name || '').trim();
+                        const greeting = contactName ? `${contactName}님 안녕하세요` : '대표님 안녕하세요';
                         const lines = [];
-                        lines.push(`대표님 안녕하세요 ${cleanCo} ${sender}입니다.`);
+                        lines.push(`${greeting} ${cleanCo} ${sender}입니다.`);
                         lines.push('발주내용 보내드립니다.');
                         lines.push('');
                         lines.push(`${it.modelName || it.itemName || ''} ${it.quantity}대`);
@@ -6314,13 +6318,23 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                             </button>
                           </td>
                           <td className="px-2 py-1.5 text-center">
-                            <button onClick={() => setContactModal({ vendor: it.vendor, items: [it] })}
-                              title="담당자 / 연락처"
-                              className="inline-flex items-center justify-center w-7 h-7 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                              </svg>
-                            </button>
+                            {(() => {
+                              const vMfr = manufacturers.find(m => m.name === it.vendor);
+                              const hasContact = !!((vMfr?.contact_name || '').trim() || (vMfr?.contact_phone || '').trim());
+                              return (
+                                <button onClick={() => setContactModal({ vendor: it.vendor, items: [it] })}
+                                  title={hasContact ? '담당자 / 연락처' : '담당자 정보 미입력 — 클릭하여 등록'}
+                                  className={`inline-flex items-center justify-center w-7 h-7 rounded border ${
+                                    hasContact
+                                      ? 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200'
+                                      : 'bg-rose-100 text-rose-700 hover:bg-rose-200 border-rose-300 ring-1 ring-rose-200 animate-pulse'
+                                  }`}>
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                  </svg>
+                                </button>
+                              );
+                            })()}
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <button onClick={sendKakaoOne}
