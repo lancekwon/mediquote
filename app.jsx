@@ -150,8 +150,7 @@ async function dbSaveEquip(entry) {
     alt_models: entry.altModels || [],
     homepage: entry.homepage || '',
     purchase_price: entry.purchasePrice || null,
-    contact_name:  entry.contactName  || '',
-    contact_phone: entry.contactPhone || '',
+    // contact_name/phone — B안: 거래처 마스터(manufacturers)로 통일, equipment에 안 씀
     raw_data: entry,
   };
   // 수정 (id가 있으면 Supabase UUID로 update)
@@ -3712,7 +3711,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   const editImgRef                    = useRef(null);
 
   /* ── 장비 등록 state ── */
-  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', vendor:'', purchasePrice:'', price:'', altModels:[], homepage:'', contactName:'', contactPhone:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
+  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', vendor:'', purchasePrice:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
   const [regForm, setRegForm]         = useState(emptyRegForm);
   const [regSaving, setRegSaving]     = useState(false);
   const [regSaved, setRegSaved]       = useState(false);
@@ -3747,7 +3746,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       vendor: e.vendor || '',
       purchasePrice: e.purchasePrice != null ? e.purchasePrice.toLocaleString('ko-KR') : '',
       price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
-      contactName: e.contactName || '', contactPhone: e.contactPhone || '',
       altText: e.altText || '', altModels: Array.isArray(e.altModels) ? e.altModels.map(m=>({...m, price: m.price != null ? String(m.price) : ''})) : [], homepage: e.homepage || '', image: e.image || null,
       desc: e.spec?.desc || '', specs: e.spec?.specs?.length ? e.spec.specs : [emptySpec()],
       origin: e.spec?.origin || '', cert: e.spec?.cert || '', as: e.spec?.as || '', warranty: e.spec?.warranty || '', notes: e.model.notes || '',
@@ -3766,30 +3764,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     const r = new FileReader(); r.onload = (e) => setEF('image', e.target.result); r.readAsDataURL(file);
   };
 
-  // 장비의 거래처/담당자 → manufacturers 자동 동기화 (비어있는 필드만 채움)
-  const syncContactToVendor = async (vendor, contactName, contactPhone) => {
-    if (!vendor) return;
-    if (!contactName && !contactPhone) return;
-    try {
-      const existing = manufacturers.find(m => m.name === vendor);
-      if (existing) {
-        const patch = {};
-        if (contactName && !existing.contact_name) patch.contact_name = contactName;
-        if (contactPhone && !existing.contact_phone) patch.contact_phone = contactPhone;
-        if (Object.keys(patch).length === 0) return;
-        await dbUpdateManufacturer(existing.id, patch);
-        setManufacturers?.(p => p.map(m => m.id === existing.id ? { ...m, ...patch } : m));
-      } else {
-        const id = await dbSaveManufacturer({
-          name: vendor,
-          contact_name: contactName || '',
-          contact_phone: contactPhone || '',
-        });
-        setManufacturers?.(p => [...p, { id, name: vendor, contact_name: contactName || '', contact_phone: contactPhone || '', created_at: new Date().toISOString() }]);
-      }
-    } catch (e) { console.warn('거래처 담당자 동기화 실패:', e); }
-  };
-
   const handleSave = async () => {
     if (!editForm.itemName.trim() || !editForm.modelName.trim()) return;
     setSaving(true);
@@ -3801,8 +3775,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       model: { id: editTarget.model.id, name: editForm.modelName.trim(), manufacturer: editForm.manufacturer.trim(), price: parseInt(editForm.price.replace(/[^0-9]/g,''))||null, notes: editForm.notes.trim() },
       vendor: (editForm.vendor || '').trim(),
       purchasePrice: parseInt((editForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
-      contactName: editForm.contactName?.trim() || '',
-      contactPhone: editForm.contactPhone?.trim() || '',
       altText: editForm.altText.trim(),
       altModels: editForm.altModels || [],
       homepage: editForm.homepage?.trim() || '',
@@ -3813,8 +3785,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     try {
       await dbSaveEquip(entry);
       setEquips(p => p.map(e => e.id===editTarget.id ? entry : e));
-      // 거래처 담당자 자동 동기화 (manufacturers의 contact가 비어있을 때만)
-      await syncContactToVendor(entry.vendor, entry.contactName, entry.contactPhone);
       closeEdit(); onEquipChange?.();
     } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); } finally { setSaving(false); }
   };
@@ -3860,8 +3830,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       model: { id:'cm-'+Date.now(), name: regForm.modelName.trim(), manufacturer: regForm.manufacturer.trim(), price: parseInt(regForm.price.replace(/[^0-9]/g,''))||null, notes: regForm.notes.trim() },
       vendor: (regForm.vendor || '').trim(),
       purchasePrice: parseInt((regForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
-      contactName: regForm.contactName?.trim() || '',
-      contactPhone: regForm.contactPhone?.trim() || '',
       altText: '',
       altModels: regForm.altModels || [],
       homepage: regForm.homepage?.trim() || '',
@@ -3872,8 +3840,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     try {
       const savedId = await dbSaveEquip(entry); entry.id = savedId;
       setEquips(p => [entry, ...p]);
-      // 거래처 담당자 자동 동기화 (manufacturers의 contact가 비어있을 때만)
-      await syncContactToVendor(entry.vendor, entry.contactName, entry.contactPhone);
       setRegForm(emptyRegForm()); setRegSaved(true); setTimeout(()=>setRegSaved(false),2000);
       onEquipChange?.();
     } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); } finally { setRegSaving(false); }
@@ -4036,12 +4002,17 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                             : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-3 py-2.5">
-                          {e.contactName||e.contactPhone
-                            ? <div className="flex flex-col gap-0.5">
-                                {e.contactName && <span className="text-slate-700 font-medium">{e.contactName}</span>}
-                                {e.contactPhone && <span className="text-slate-500">{e.contactPhone}</span>}
-                              </div>
-                            : <span className="text-slate-300">—</span>}
+                          {(() => {
+                            const m = manufacturers.find(x => x.name === e.vendor);
+                            const cn = m?.contact_name || '';
+                            const cp = m?.contact_phone || '';
+                            return (cn || cp)
+                              ? <div className="flex flex-col gap-0.5">
+                                  {cn && <span className="text-slate-700 font-medium">{cn}</span>}
+                                  {cp && <span className="text-slate-500">{cp}</span>}
+                                </div>
+                              : <span className="text-slate-300">—</span>;
+                          })()}
                         </td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.as||'—'}</td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.warranty||'—'}</td>
@@ -4138,16 +4109,9 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                     <input type="text" placeholder="예: 콘덴서 포함" value={regForm.notes} onChange={e=>setRF('notes',e.target.value)} className={inputCls}/>
                   </div>
                 </div>
-                {/* Row 3: 담당자 */}
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <label className={labelCls}>담당자 이름</label>
-                    <input type="text" placeholder="예: 홍길동" value={regForm.contactName} onChange={e=>setRF('contactName',e.target.value)} className={inputCls}/>
-                  </div>
-                  <div>
-                    <label className={labelCls}>담당자 연락처</label>
-                    <input type="text" placeholder="예: 010-1234-5678" value={regForm.contactPhone} onChange={e=>setRF('contactPhone',e.target.value)} className={inputCls}/>
-                  </div>
+                {/* 담당자 안내 — 거래처 마스터로 통일 */}
+                <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600">
+                  💡 담당자·연락처는 <span className="font-semibold">거래처 관리</span>에서 한 번 입력하면 모든 장비/발주 화면에서 자동으로 표시됩니다.
                 </div>
                 {/* 대체 모델 */}
                 {(() => {
@@ -4512,9 +4476,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                       })()}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><label className={labelCls}>담당자 이름</label><input type="text" value={editForm.contactName||''} onChange={e=>setEF('contactName',e.target.value)} className={inputCls} placeholder="예: 홍길동"/></div>
-                    <div><label className={labelCls}>담당자 연락처</label><input type="text" value={editForm.contactPhone||''} onChange={e=>setEF('contactPhone',e.target.value)} className={inputCls} placeholder="예: 010-1234-5678"/></div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600">
+                    💡 담당자·연락처는 <span className="font-semibold">거래처 관리</span>에서 한 번 입력하면 모든 장비/발주 화면에서 자동으로 표시됩니다.
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>제조국가</label><input type="text" value={editForm.origin} onChange={e=>setEF('origin',e.target.value)} className={inputCls}/></div>
