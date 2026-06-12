@@ -12611,7 +12611,7 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
     return filtered.slice(0, 200);
   }, [vendors, hospitals, search, filter]);
   return (
-    <ModalShell title="거래처/병원 선택" onClose={onClose} wide>
+    <ModalShell title="거래처/병원 선택" onClose={onClose} wide z={60}>
       <div className="flex flex-col" style={{height:'520px'}}>
         <div className="flex gap-2 items-center mb-3 shrink-0">
           <input autoFocus type="text" value={search} onChange={e=>setSearch(e.target.value)}
@@ -12666,9 +12666,9 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
   );
 }
 
-function ModalShell({ title, subtitle, onClose, children, wide }) {
+function ModalShell({ title, subtitle, onClose, children, wide, z = 50 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 flex items-center justify-center bg-slate-900/50 p-4" style={{zIndex: z}} onClick={onClose}>
       <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-4xl' : 'max-w-lg'} max-h-[92vh] overflow-y-auto`}
            onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
