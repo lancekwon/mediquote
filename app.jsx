@@ -10282,13 +10282,13 @@ function TaxInvoiceTab() {
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
       {/* 입력 폼 — 엑셀형 한 줄 */}
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-        <div className="text-xs font-semibold text-slate-700 mb-2">📄 세금계산서 입력</div>
+        <div className="text-xs font-semibold text-slate-700 mb-2">세금계산서 입력</div>
         <div className="flex gap-2 flex-wrap">
           <div className="flex gap-1 border border-slate-300 rounded p-0.5 bg-white">
             <button onClick={()=>setForm(p=>({...p, kind:'sale'}))}
-              className={`px-3 py-1 text-xs rounded ${form.kind==='sale' ? 'bg-emerald-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>📤 매출</button>
+              className={`px-3 py-1 text-xs rounded ${form.kind==='sale' ? 'bg-emerald-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>매출</button>
             <button onClick={()=>setForm(p=>({...p, kind:'purchase'}))}
-              className={`px-3 py-1 text-xs rounded ${form.kind==='purchase' ? 'bg-rose-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>📥 매입</button>
+              className={`px-3 py-1 text-xs rounded ${form.kind==='purchase' ? 'bg-rose-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>매입</button>
           </div>
           <input type="date" value={form.issue_date}
             onChange={e=>setForm(p=>({...p, issue_date:e.target.value}))}
@@ -10307,25 +10307,6 @@ function TaxInvoiceTab() {
             className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
         </div>
         <div className="text-[10px] text-slate-400 mt-2">Enter로 빠르게 추가. 발급일자·상호·금액 모두 필수.</div>
-      </div>
-
-      {/* 상단 요약 — 매출/매입 건수·합계 + 차이 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-white border border-emerald-200 rounded-lg p-3 flex flex-col">
-          <div className="text-xs font-semibold text-emerald-700 mb-1">📤 매출 합계</div>
-          <div className="text-xl font-bold text-emerald-700 tnum">{fmt(totalSale)}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{sales.length}건</div>
-        </div>
-        <div className="bg-white border border-rose-200 rounded-lg p-3 flex flex-col">
-          <div className="text-xs font-semibold text-rose-700 mb-1">📥 매입 합계</div>
-          <div className="text-xl font-bold text-rose-700 tnum">{fmt(totalPur)}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{purchases.length}건</div>
-        </div>
-        <div className={`bg-white border ${totalSale-totalPur >= 0 ? 'border-blue-200' : 'border-amber-200'} rounded-lg p-3 flex flex-col`}>
-          <div className="text-xs font-semibold text-slate-600 mb-1">차이 (매출 − 매입)</div>
-          <div className={`text-xl font-bold tnum ${totalSale-totalPur >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>{totalSale-totalPur >= 0 ? '+' : ''}{fmt(totalSale-totalPur)}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">전체 {rows.length}건</div>
-        </div>
       </div>
 
       {loading ? (
@@ -10349,9 +10330,9 @@ function TaxInvoiceTab() {
                 <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="px-3 py-1.5 text-center">
                     {r.kind === 'sale' ? (
-                      <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded">📤 매출</span>
+                      <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded">매출</span>
                     ) : (
-                      <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded">📥 매입</span>
+                      <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded">매입</span>
                     )}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
@@ -10850,7 +10831,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               { k: 'balance', l: '거래처 원장' },
               { k: 'cashflow', l: '💰 자금 흐름' },
               { k: 'cash', l: '통장 출납' },
-              { k: 'taxinv', l: '📄 세금계산서' },
+              { k: 'taxinv', l: '세금계산서' },
               { k: 'report', l: '리포트' },
             ].map(t => (
               <button key={t.k} onClick={() => setTab(t.k)}
