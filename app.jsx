@@ -3391,6 +3391,46 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
   const [search, setSearch] = React.useState('');
   const [editingId, setEditingId] = React.useState(null);
   const [expandedId, setExpandedId] = React.useState(null);
+  const [deleteTarget, setDeleteTarget] = React.useState(null);
+  const [deleteRefs, setDeleteRefs] = React.useState(null);
+  const [deleteLoading, setDeleteLoading] = React.useState(false);
+  const [deletingNow, setDeletingNow] = React.useState(false);
+  React.useEffect(() => {
+    if (!deleteTarget) { setDeleteRefs(null); return; }
+    setDeleteLoading(true);
+    (async () => {
+      try {
+        const [eqs, pos, payTxs] = await Promise.all([
+          sb.from('equipment').select('id', { count:'exact', head:true }).eq('vendor_id', deleteTarget.id),
+          sb.from('purchase_orders').select('id', { count:'exact', head:true }).eq('manufacturer_id', deleteTarget.id),
+          sb.from('payable_transactions').select('id', { count:'exact', head:true }).eq('manufacturer_id', deleteTarget.id),
+        ]);
+        setDeleteRefs({
+          equipment: eqs.count || 0,
+          purchase_orders: pos.count || 0,
+          payable_transactions: payTxs.count || 0,
+          total: (eqs.count||0) + (pos.count||0) + (payTxs.count||0),
+        });
+      } finally { setDeleteLoading(false); }
+    })();
+  }, [deleteTarget]);
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeletingNow(true);
+    try {
+      await dbDeleteManufacturer(deleteTarget.id);
+      setManufacturers(p => p.filter(x => x.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch(e) {
+      const msg = e?.message || String(e);
+      if (msg.includes('foreign key') || msg.includes('violates') || e?.code === '23503') {
+        alert(`삭제 실패 — 다른 데이터(발주서·외상매입·장비)에서 이 거래처를 참조하고 있어 DB가 막았습니다.\n해당 데이터를 먼저 정리하거나 다른 거래처로 옮긴 뒤 다시 시도하세요.\n\n원본 메시지: ${msg}`);
+      } else {
+        alert('삭제 중 오류: ' + msg);
+      }
+    } finally { setDeletingNow(false); }
+  };
   const [showAddForm, setShowAddForm] = React.useState(false);
   const [form, setForm] = React.useState({ name:'', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
   const [saving, setSaving] = React.useState(false);
@@ -3529,13 +3569,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
 
   const handleDelete = async (m) => {
     if (!m.id) { alert('등록되지 않은 거래처는 삭제할 수 없습니다.'); return; }
-    if (!window.confirm(`${m.name} 거래처를 삭제하시겠습니까?`)) return;
-    try {
-      await dbDeleteManufacturer(m.id);
-      setManufacturers(p => p.filter(x => x.id !== m.id));
-    } catch(e) {
-      alert('삭제 실패: ' + e.message);
-    }
+    setDeleteTarget(m);
   };
 
   const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -3709,6 +3743,49 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
           </div>
         </div>
       </div>
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                </div>
+                <div>
+                  <div className="font-bold text-slate-900">거래처 삭제</div>
+                  <div className="text-xs text-slate-500 mt-0.5">이 작업은 되돌릴 수 없습니다</div>
+                </div>
+              </div>
+              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3 mb-3">
+                <div className="text-sm font-semibold text-red-700 mb-1">{deleteTarget.vendor_code ? deleteTarget.vendor_code + ' · ' : ''}{deleteTarget.name}</div>
+                <div className="text-xs text-red-500">거래처 마스터 정보가 영구 삭제됩니다.</div>
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-2 text-xs">
+                <div className="font-semibold text-slate-700 mb-2">연결된 데이터 {deleteLoading ? '확인 중...' : ''}</div>
+                {deleteRefs && (
+                  <div className="space-y-1 text-slate-600">
+                    <div className="flex justify-between"><span>장비 (vendor_id)</span><span className={`font-mono font-semibold ${deleteRefs.equipment > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.equipment}</span></div>
+                    <div className="flex justify-between"><span>발주서</span><span className={`font-mono font-semibold ${deleteRefs.purchase_orders > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.purchase_orders}</span></div>
+                    <div className="flex justify-between"><span>외상매입 거래</span><span className={`font-mono font-semibold ${deleteRefs.payable_transactions > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.payable_transactions}</span></div>
+                  </div>
+                )}
+              </div>
+              {deleteRefs && deleteRefs.total > 0 && (
+                <div className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-2">
+                  ⚠️ 연결 데이터가 있어 삭제가 막힐 수 있습니다. 외상매입 거래는 정리한 뒤 다시 시도하세요. (FK 정책 변경 후엔 장비·발주서는 연결만 끊기고 보존됩니다)
+                </div>
+              )}
+            </div>
+            <div className="px-6 pb-5 flex gap-2 justify-end">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+              <button onClick={handleDeleteConfirm} disabled={deletingNow || deleteLoading}
+                className="px-5 py-2 text-sm bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors">
+                {deletingNow ? '삭제 중...' : '삭제 확인'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
