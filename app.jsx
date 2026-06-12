@@ -493,8 +493,17 @@ async function dbLoadManufacturers() {
   if (error) { console.error('dbLoadManufacturers:', error); return []; }
   return data;
 }
+async function dbNextVendorCode() {
+  const { data } = await sb.from('manufacturers').select('vendor_code').like('vendor_code', 'V%').order('vendor_code', { ascending: false }).limit(1);
+  if (!data || data.length === 0) return 'V001';
+  const m = (data[0].vendor_code || '').match(/V(\d+)/);
+  const next = m ? parseInt(m[1], 10) + 1 : 1;
+  return 'V' + String(next).padStart(3, '0');
+}
 async function dbSaveManufacturer(m) {
-  const { data, error } = await sb.from('manufacturers').insert(m).select('id').single();
+  const row = { ...m };
+  if (!row.vendor_code) row.vendor_code = await dbNextVendorCode();
+  const { data, error } = await sb.from('manufacturers').insert(row).select('id').single();
   if (error) throw error;
   return data.id;
 }
@@ -3587,6 +3596,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                     onClick={() => setExpandedId(isExpanded ? null : (m.id || m.name))}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
+                        {m.vendor_code && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-mono font-semibold rounded">{m.vendor_code}</span>}
                         <span className="font-semibold text-slate-800">{m.name}</span>
                         {m.notRegistered && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">미등록</span>}
                         <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">장비 {mfrEquips.length}개</span>
@@ -10233,6 +10243,7 @@ function TaxInvoiceTab() {
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0,10);
   const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', amount: '' });
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -10301,11 +10312,10 @@ function TaxInvoiceTab() {
           <input type="date" value={form.issue_date}
             onChange={e=>setForm(p=>({...p, issue_date:e.target.value}))}
             className="border border-slate-300 rounded px-2 py-1 text-sm"/>
-          <input type="text" value={form.party_name}
-            onChange={e=>setForm(p=>({...p, party_name:e.target.value}))}
-            onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
-            placeholder="상호 (병원명 또는 거래처명)"
-            className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm"/>
+          <button type="button" onClick={()=>setPickerOpen(true)}
+            className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm text-left bg-white hover:bg-slate-50 truncate">
+            {form.party_name || <span className="text-slate-400">상호 선택 (클릭)</span>}
+          </button>
           <input type="text" value={form.amount ? Number(form.amount).toLocaleString() : ''}
             onChange={e=>setForm(p=>({...p, amount:e.target.value.replace(/[^0-9]/g,'')}))}
             onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
@@ -10314,8 +10324,16 @@ function TaxInvoiceTab() {
           <button onClick={handleAdd}
             className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
         </div>
-        <div className="text-[10px] text-slate-400 mt-2">Enter로 빠르게 추가. 발급일자·상호·금액 모두 필수.</div>
+        <div className="text-[10px] text-slate-400 mt-2">상호 칸 클릭 → 검색 모달에서 선택. 발급일자·상호·금액 모두 필수.</div>
       </div>
+      {pickerOpen && (
+        <VendorPickerModal
+          onClose={()=>setPickerOpen(false)}
+          onSelect={(it)=>setForm(p=>({...p, party_name: it.name}))}
+          defaultFilter={form.kind === 'sale' ? 'hospital' : 'vendor'}
+          allowedKinds='both'
+        />
+      )}
 
       {/* 검색 바 */}
       <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 flex items-center gap-3 flex-wrap">
@@ -12507,6 +12525,99 @@ function CashAddModal({ currentBalance, onClose, onSaved }) {
             className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-50">
             {saving ? '저장 중...' : '저장'}
           </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ============================================================
+   VENDOR/HOSPITAL PICKER MODAL — 검색창 + 필터 (전체/업체/병원)
+   ============================================================ */
+function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowedKinds = 'both' }) {
+  const [vendors, setVendors] = useState([]);
+  const [hospitals, setHospitals] = useState([]);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState(allowedKinds === 'both' ? defaultFilter : allowedKinds);
+  useEffect(() => {
+    (async () => {
+      if (allowedKinds === 'vendor' || allowedKinds === 'both') {
+        const { data } = await sb.from('manufacturers').select('id, vendor_code, name, contact_name, contact_phone').order('vendor_code');
+        setVendors(data || []);
+      }
+      if (allowedKinds === 'hospital' || allowedKinds === 'both') {
+        const { data } = await sb.from('hospitals').select('id, name').order('name');
+        setHospitals(data || []);
+      }
+    })();
+  }, [allowedKinds]);
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const items = [];
+    if (filter === 'all' || filter === 'vendor') {
+      vendors.forEach(v => items.push({ kind: 'vendor', id: v.id, code: v.vendor_code, name: v.name, contact: v.contact_name, phone: v.contact_phone }));
+    }
+    if (filter === 'all' || filter === 'hospital') {
+      hospitals.forEach(h => items.push({ kind: 'hospital', id: h.id, name: h.name }));
+    }
+    if (!q) return items.slice(0, 200);
+    const filtered = items.filter(it =>
+      (it.name||'').toLowerCase().includes(q) ||
+      (it.code||'').toLowerCase().includes(q) ||
+      (it.contact||'').toLowerCase().includes(q)
+    );
+    return filtered.slice(0, 200);
+  }, [vendors, hospitals, search, filter]);
+  return (
+    <ModalShell title="거래처/병원 선택" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex gap-2 items-center">
+          <input autoFocus type="text" value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="V코드·이름·담당자 검색"
+            className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
+          {allowedKinds === 'both' && (
+            <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5 shrink-0">
+              {[{k:'all', l:'전체'}, {k:'vendor', l:'업체'}, {k:'hospital', l:'병원'}].map(t => (
+                <button key={t.k} onClick={()=>setFilter(t.k)}
+                  className={`px-2.5 py-1 text-xs rounded ${filter===t.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="text-xs text-slate-500">{list.length}건 (최대 200 표시)</div>
+        <div className="max-h-[55vh] overflow-y-auto -mx-2">
+          {list.length === 0 ? (
+            <div className="text-center text-sm text-slate-400 py-12">
+              검색 결과가 없습니다.
+              {(filter === 'vendor' || filter === 'all') && (
+                <div className="mt-3 text-xs">거래처가 없으면 <b>장비 및 거래처 관리</b>에서 먼저 등록하세요.</div>
+              )}
+            </div>
+          ) : (
+            <ul className="space-y-0.5">
+              {list.map((it) => (
+                <li key={it.kind + ':' + it.id}>
+                  <button onClick={() => { onSelect(it); onClose(); }}
+                    className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded text-sm flex items-center gap-2">
+                    {it.kind === 'vendor' ? (
+                      <>
+                        <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">{it.code || '—'}</span>
+                        <span className="text-slate-800">{it.name}</span>
+                        {(it.contact || it.phone) && (
+                          <span className="text-xs text-slate-500 ml-auto truncate max-w-[180px]">{it.contact || ''}{it.contact && it.phone ? ' · ' : ''}{it.phone || ''}</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">병원</span>
+                        <span className="text-slate-800">{it.name}</span>
+                      </>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </ModalShell>
