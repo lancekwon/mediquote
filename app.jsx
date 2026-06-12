@@ -3727,13 +3727,15 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
   const [itemFilter, setItemFilter]   = useState('all');
   const [editTarget, setEditTarget]   = useState(null);
   const [editForm, setEditForm]       = useState(null);
+  const [regPickerOpen, setRegPickerOpen] = useState(false);
+  const [editPickerOpen, setEditPickerOpen] = useState(false);
   const [confirmDel, setConfirmDel]   = useState(null);
   const [saving, setSaving]           = useState(false);
   const [showPriceHistory, setShowPriceHistory] = useState(null); // 장비 객체
   const editImgRef                    = useRef(null);
 
   /* ── 장비 등록 state ── */
-  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', vendor:'', purchasePrice:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
+  const emptyRegForm = () => ({ catId: dynCats[0]?.id || '', itemName:'', modelName:'', manufacturer:'', vendor:'', vendorId:null, vendorCode:'', purchasePrice:'', price:'', altModels:[], homepage:'', image:null, desc:'', specs:[emptySpec()], origin:'대한민국', cert:'', as:'1년', warranty:'1년', notes:'' });
   const [regForm, setRegForm]         = useState(emptyRegForm);
   const [regSaving, setRegSaving]     = useState(false);
   const [regSaved, setRegSaved]       = useState(false);
@@ -3766,6 +3768,8 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       catId: e.catId || dynCats[0]?.id || '',
       itemName: e.itemName, modelName: e.model.name, manufacturer: e.model.manufacturer,
       vendor: e.vendor || '',
+      vendorId: e.vendorId || null,
+      vendorCode: e.vendorCode || '',
       purchasePrice: e.purchasePrice != null ? e.purchasePrice.toLocaleString('ko-KR') : '',
       price: e.model.price != null ? e.model.price.toLocaleString('ko-KR') : '',
       altText: e.altText || '', altModels: Array.isArray(e.altModels) ? e.altModels.map(m=>({...m, price: m.price != null ? String(m.price) : ''})) : [], homepage: e.homepage || '', image: e.image || null,
@@ -3796,6 +3800,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       itemName: editForm.itemName.trim(),
       model: { id: editTarget.model.id, name: editForm.modelName.trim(), manufacturer: editForm.manufacturer.trim(), price: parseInt(editForm.price.replace(/[^0-9]/g,''))||null, notes: editForm.notes.trim() },
       vendor: (editForm.vendor || '').trim(),
+      vendorId: editForm.vendorId || null,
       purchasePrice: parseInt((editForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
       altText: editForm.altText.trim(),
       altModels: editForm.altModels || [],
@@ -3851,6 +3856,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       itemName: regForm.itemName,
       model: { id:'cm-'+Date.now(), name: regForm.modelName.trim(), manufacturer: regForm.manufacturer.trim(), price: parseInt(regForm.price.replace(/[^0-9]/g,''))||null, notes: regForm.notes.trim() },
       vendor: (regForm.vendor || '').trim(),
+      vendorId: regForm.vendorId || null,
       purchasePrice: parseInt((regForm.purchasePrice||'').replace(/[^0-9]/g,''))||null,
       altText: '',
       altModels: regForm.altModels || [],
@@ -4094,13 +4100,11 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   </div>
                   <div>
                     <label className={labelCls}>거래처 <span className="text-slate-400 font-normal">(매입처)</span></label>
-                    <select value={regForm.vendor || ''} onChange={e=>setRF('vendor',e.target.value)} className={inputCls}>
-                      <option value="">선택 안 함</option>
-                      {manufacturers.map(m => <option key={m.id || m.name} value={m.name}>{m.name}</option>)}
-                    </select>
-                    {manufacturers.length === 0 && (
-                      <div className="text-xs text-amber-600 mt-1">거래처 관리 탭에서 거래처를 먼저 등록하세요</div>
-                    )}
+                    <button type="button" onClick={()=>setRegPickerOpen(true)}
+                      className={`${inputCls} text-left bg-white hover:bg-slate-50 truncate`}>
+                      {regForm.vendorCode && <span className="font-mono text-blue-700 text-[10px] bg-blue-50 px-1 py-0.5 rounded mr-1.5">{regForm.vendorCode}</span>}
+                      {regForm.vendor || <span className="text-slate-400">거래처 선택 (클릭)</span>}
+                    </button>
                   </div>
                 </div>
                 {/* Row 2: 매입가 / 단가 / 판매이익 / 특이사항 */}
@@ -4373,6 +4377,23 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
       )}
 
       {/* Delete category confirm */}
+      {regPickerOpen && (
+        <VendorPickerModal
+          allowedKinds="vendor"
+          defaultFilter="vendor"
+          onClose={()=>setRegPickerOpen(false)}
+          onSelect={(it)=>setRegForm(p=>({...p, vendor: it.name, vendorId: it.id, vendorCode: it.code || ''}))}
+        />
+      )}
+      {editPickerOpen && (
+        <VendorPickerModal
+          allowedKinds="vendor"
+          defaultFilter="vendor"
+          onClose={()=>setEditPickerOpen(false)}
+          onSelect={(it)=>setEditForm(p=>({...p, vendor: it.name, vendorId: it.id, vendorCode: it.code || ''}))}
+        />
+      )}
+
       {confirmDelCat && (() => {
         const itemCount = dynItems.filter(it => it.catId === confirmDelCat.id).length;
         const equipCount = customEquips.filter(e => e.catId === confirmDelCat.id).length;
@@ -4469,10 +4490,11 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   <div className="grid grid-cols-3 gap-2">
                     <div><label className={labelCls}>제조사</label><input type="text" value={editForm.manufacturer} onChange={e=>setEF('manufacturer',e.target.value)} className={inputCls}/></div>
                     <div><label className={labelCls}>거래처 <span className="text-slate-400 font-normal">(매입처)</span></label>
-                      <select value={editForm.vendor || ''} onChange={e=>setEF('vendor',e.target.value)} className={inputCls}>
-                        <option value="">선택 안 함</option>
-                        {manufacturers.map(m => <option key={m.id || m.name} value={m.name}>{m.name}</option>)}
-                      </select>
+                      <button type="button" onClick={()=>setEditPickerOpen(true)}
+                        className={`${inputCls} text-left bg-white hover:bg-slate-50 truncate`}>
+                        {editForm.vendorCode && <span className="font-mono text-blue-700 text-[10px] bg-blue-50 px-1 py-0.5 rounded mr-1.5">{editForm.vendorCode}</span>}
+                        {editForm.vendor || <span className="text-slate-400">거래처 선택 (클릭)</span>}
+                      </button>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
