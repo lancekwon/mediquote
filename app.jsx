@@ -1971,9 +1971,9 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], dynIte
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — 직접입력 제거. 마스터에 없는 모델은 장비 및 거래처 관리 → 장비 등록에서 추가 후 사용 */}
         <div className="flex border-b border-slate-200 shrink-0">
-          {[{id:'search',label:'카탈로그 검색',icon:'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0'},{id:'custom',label:'직접 입력',icon:'M12 4v16m8-8H4'}].map(t => (
+          {[{id:'search',label:'카탈로그 검색',icon:'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0'}].map(t => (
             <button key={t.id} onClick={()=>setTab(t.id)}
               className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab===t.id?'border-blue-600 text-blue-700':'border-transparent text-slate-500 hover:text-slate-700'}`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={t.icon}/></svg>
@@ -1981,7 +1981,7 @@ function AddEquipmentModal({ categories, customEquips = [], dynCats = [], dynIte
             </button>
           ))}
           <div className="ml-auto flex items-center pr-4">
-            <span className="text-xs text-slate-400">총 {catalog.length}개 모델 등록됨</span>
+            <span className="text-xs text-slate-400">총 {catalog.length}개 모델 등록됨 · 없는 모델은 장비 관리에서 먼저 등록</span>
           </div>
         </div>
 
@@ -9052,10 +9052,11 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
           {showDashboard ? '목록 보기' : '대시보드'}
         </button>
-        <button onClick={openNewHospForm}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+        <button onClick={()=>nav?.manage?.()}
+          title="병원 마스터 등록은 장비 및 거래처 관리 → 병원 관리 탭에서"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-          새 병원 등록
+          신규 등록 → 거래처 관리
         </button>
       </AppHeader>
 
@@ -9085,7 +9086,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
           ) : hospitals.length === 0 ? (
             <div className="p-10 text-center text-slate-400">
               <div className="text-sm font-medium">등록된 병원이 없습니다</div>
-              <div className="text-xs mt-1">"새 병원 등록" 버튼으로 추가하세요</div>
+              <div className="text-xs mt-1"><b>장비 및 거래처 관리 → 병원 관리</b> 탭에서 등록하세요</div>
             </div>
           ) : (
             <div>
