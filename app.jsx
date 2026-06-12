@@ -10273,38 +10273,10 @@ function TaxInvoiceTab() {
   const totalSale = sales.reduce((s, r) => s + (Number(r.amount)||0), 0);
   const totalPur = purchases.reduce((s, r) => s + (Number(r.amount)||0), 0);
 
-  const renderTable = (list, kindLabel, kindColor) => (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-      <div className={`px-4 py-2.5 ${kindColor} text-white text-sm font-semibold flex items-center justify-between`}>
-        <span>{kindLabel}</span>
-        <span className="tnum">합계 {fmt(list.reduce((s, r) => s + (Number(r.amount)||0), 0))} · {list.length}건</span>
-      </div>
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
-          <tr>
-            <th className="px-3 py-2 text-left w-32">발급일자</th>
-            <th className="px-3 py-2 text-left">상호</th>
-            <th className="px-3 py-2 text-right w-40">합계금액</th>
-            <th className="px-3 py-2 text-center w-12"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.length === 0 ? (
-            <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
-          ) : list.map(r => (
-            <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-              <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
-              <td className="px-3 py-1.5 text-slate-800">{r.party_name}</td>
-              <td className="px-3 py-1.5 text-right tnum font-medium text-slate-800">{fmt(r.amount)}</td>
-              <td className="px-3 py-1.5 text-center">
-                <button onClick={()=>handleDelete(r.id)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  // 매출/매입 섞어서 발급일자 DESC 정렬
+  const sorted = useMemo(() =>
+    [...rows].sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||'')),
+  [rows]);
 
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
@@ -10337,21 +10309,61 @@ function TaxInvoiceTab() {
         <div className="text-[10px] text-slate-400 mt-2">Enter로 빠르게 추가. 발급일자·상호·금액 모두 필수.</div>
       </div>
 
+      {/* 상단 요약 — 매출/매입 건수·합계 + 차이 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="bg-white border border-emerald-200 rounded-lg p-3 flex flex-col">
+          <div className="text-xs font-semibold text-emerald-700 mb-1">📤 매출 합계</div>
+          <div className="text-xl font-bold text-emerald-700 tnum">{fmt(totalSale)}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{sales.length}건</div>
+        </div>
+        <div className="bg-white border border-rose-200 rounded-lg p-3 flex flex-col">
+          <div className="text-xs font-semibold text-rose-700 mb-1">📥 매입 합계</div>
+          <div className="text-xl font-bold text-rose-700 tnum">{fmt(totalPur)}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{purchases.length}건</div>
+        </div>
+        <div className={`bg-white border ${totalSale-totalPur >= 0 ? 'border-blue-200' : 'border-amber-200'} rounded-lg p-3 flex flex-col`}>
+          <div className="text-xs font-semibold text-slate-600 mb-1">차이 (매출 − 매입)</div>
+          <div className={`text-xl font-bold tnum ${totalSale-totalPur >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>{totalSale-totalPur >= 0 ? '+' : ''}{fmt(totalSale-totalPur)}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">전체 {rows.length}건</div>
+        </div>
+      </div>
+
       {loading ? (
         <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {/* 매출 세금계산서 */}
-          {renderTable(sales, '📤 매출 세금계산서 (우리가 발행)', 'bg-emerald-600')}
-          {/* 매입 세금계산서 */}
-          {renderTable(purchases, '📥 매입 세금계산서 (거래처에서 받음)', 'bg-rose-600')}
-          {/* 요약 */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3 flex items-center gap-6 text-sm">
-            <span className="font-semibold text-slate-700">전체 합계</span>
-            <span>매출 <span className="font-bold text-emerald-700 tnum">{fmt(totalSale)}</span> ({sales.length}건)</span>
-            <span>매입 <span className="font-bold text-rose-700 tnum">{fmt(totalPur)}</span> ({purchases.length}건)</span>
-            <span className="ml-auto">차이 <span className={`font-bold tnum ${totalSale-totalPur >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>{fmt(totalSale-totalPur)}</span></span>
-          </div>
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100 sticky top-0">
+              <tr>
+                <th className="px-3 py-2 text-center w-16">종류</th>
+                <th className="px-3 py-2 text-left w-32">발급일자</th>
+                <th className="px-3 py-2 text-left">상호</th>
+                <th className="px-3 py-2 text-right w-40">합계금액</th>
+                <th className="px-3 py-2 text-center w-12"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0 ? (
+                <tr><td colSpan={5} className="px-3 py-12 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
+              ) : sorted.map(r => (
+                <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-1.5 text-center">
+                    {r.kind === 'sale' ? (
+                      <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded">📤 매출</span>
+                    ) : (
+                      <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded">📥 매입</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
+                  <td className="px-3 py-1.5 text-slate-800">{r.party_name}</td>
+                  <td className={`px-3 py-1.5 text-right tnum font-medium ${r.kind === 'sale' ? 'text-emerald-700' : 'text-rose-700'}`}>{fmt(r.amount)}</td>
+                  <td className="px-3 py-1.5 text-center">
+                    <button onClick={()=>handleDelete(r.id)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
