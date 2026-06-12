@@ -10230,30 +10230,55 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
    ============================================================ */
 function CashflowTab({ contracts = [], hospitals = [] }) {
   const [pos, setPos] = useState([]);
+  const [recvTx, setRecvTx] = useState([]);    // 병원 → 우리 입금
+  const [payTx, setPayTx] = useState([]);      // 우리 → 거래처 송금
   const [loading, setLoading] = useState(true);
   const [openHosps, setOpenHosps] = useState({}); // hospName → bool
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      const { data } = await sb.from('purchase_orders').select('id, po_no, contract_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)').eq('is_active', true);
-      if (alive) { setPos(data || []); setLoading(false); }
-    })();
-    return () => { alive = false; };
-  }, []);
 
-  // contract.id → hospital_name 매핑
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [poRes, recvRes, payRes] = await Promise.all([
+        sb.from('purchase_orders').select('id, po_no, contract_id, manufacturer_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)').eq('is_active', true),
+        sb.from('receivable_transactions').select('*').eq('tx_type', 'collect').order('tx_date', { ascending: true }),
+        sb.from('payable_transactions').select('*').eq('tx_type', 'payment').order('tx_date', { ascending: true }),
+      ]);
+      setPos(poRes.data || []);
+      setRecvTx(recvRes.data || []);
+      setPayTx(payRes.data || []);
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  // contract.id → hospital_name / hospital_id 매핑
   const hospByContract = useMemo(() => {
     const m = new Map();
-    contracts.forEach(c => m.set(c.id, c.hospital_name));
+    contracts.forEach(c => m.set(c.id, { name: c.hospital_name, id: c.hospital_id }));
     return m;
   }, [contracts]);
+  const hospIdByName = useMemo(() => {
+    const m = new Map();
+    hospitals.forEach(h => m.set(h.name, h.id));
+    return m;
+  }, [hospitals]);
+
+  // 병원별 입금 / 거래처별 송금 매핑
+  const recvByHospId = useMemo(() => {
+    const m = new Map();
+    recvTx.forEach(t => { if (!m.has(t.hospital_id)) m.set(t.hospital_id, []); m.get(t.hospital_id).push(t); });
+    return m;
+  }, [recvTx]);
+  const payByVendorId = useMemo(() => {
+    const m = new Map();
+    payTx.forEach(t => { if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, []); m.get(t.manufacturer_id).push(t); });
+    return m;
+  }, [payTx]);
 
   // 병원별 그룹
   const byHosp = useMemo(() => {
     const m = new Map();
     pos.forEach(p => {
-      const hospName = hospByContract.get(p.contract_id) || p.hospital_name || '(병원 미지정)';
+      const hospName = hospByContract.get(p.contract_id)?.name || p.hospital_name || '(병원 미지정)';
       if (!m.has(hospName)) m.set(hospName, []);
       m.get(hospName).push(p);
     });
@@ -10290,25 +10315,83 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
   };
 
   // 전체 합산
-  const grand = useMemo(() => tally(pos), [pos]);
-  // 병원별 합산 + 거래처별 분할
+  const grand = useMemo(() => {
+    const t = tally(pos);
+    t.totalCollected = recvTx.reduce((s, r) => s + (Number(r.amount)||0), 0);
+    t.totalSentOut = payTx.reduce((s, r) => s + (Number(r.amount)||0), 0);
+    t.incomeRemaining = Math.max(0, t.incomeTotal - t.totalCollected);
+    t.outflowRemaining = Math.max(0, t.outflowTotal - t.totalSentOut);
+    t.net = t.incomeRemaining - t.outflowRemaining;
+    return t;
+  }, [pos, recvTx, payTx]);
+
+  // 병원별 합산 + 거래처별 분할 + 입금 내역
   const hospEntries = useMemo(() => {
     return Array.from(byHosp.entries()).map(([hosp, poList]) => {
       const sums = tally(poList);
-      // 거래처별 매입 합
+      const hospId = hospByContract.get(poList[0]?.contract_id)?.id || hospIdByName.get(hosp) || null;
+      const incomes = (hospId && recvByHospId.get(hospId)) || [];
+      const totalCollected = incomes.reduce((s, t) => s + (Number(t.amount)||0), 0);
+      sums.totalCollected = totalCollected;
+      sums.incomeRemaining = Math.max(0, sums.incomeTotal - totalCollected);
+      // 거래처별 매입 합 + 송금 내역
       const byVendor = new Map();
       poList.forEach(p => {
         const v = p.manufacturer_name || p.vendor_name || '(미지정)';
-        if (!byVendor.has(v)) byVendor.set(v, []);
-        byVendor.get(v).push(p);
+        if (!byVendor.has(v)) byVendor.set(v, { list: [], mfrId: p.manufacturer_id });
+        byVendor.get(v).list.push(p);
+        if (p.manufacturer_id) byVendor.get(v).mfrId = p.manufacturer_id;
       });
-      const vendors = Array.from(byVendor.entries()).map(([v, list]) => {
+      const vendors = Array.from(byVendor.entries()).map(([v, { list, mfrId }]) => {
         const t = tally(list);
-        return { vendor: v, ...t, poCount: list.length };
-      }).sort((a,b) => (b.outflowOrdered + b.outflowInvoiced + b.outflowDelivered) - (a.outflowOrdered + a.outflowInvoiced + a.outflowDelivered));
-      return { hosp, poCount: poList.length, ...sums, vendors };
-    }).sort((a,b) => b.incomeTotal - a.incomeTotal);
-  }, [byHosp]);
+        const sentTx = (mfrId && payByVendorId.get(mfrId)) || [];
+        const sentSum = sentTx.reduce((s, x) => s + (Number(x.amount)||0), 0);
+        return { vendor: v, mfrId, ...t, poCount: list.length, sentTx, sentSum, outflowRemaining: Math.max(0, t.outflowTotal - sentSum) };
+      }).sort((a,b) => b.outflowRemaining - a.outflowRemaining);
+      const totalSentForHosp = vendors.reduce((s, v) => s + v.sentSum, 0);
+      sums.totalSentOut = totalSentForHosp;
+      sums.outflowRemaining = Math.max(0, sums.outflowTotal - totalSentForHosp);
+      sums.net = sums.incomeRemaining - sums.outflowRemaining;
+      return { hosp, hospId, poCount: poList.length, ...sums, incomes, vendors };
+    }).sort((a,b) => b.incomeRemaining - a.incomeRemaining);
+  }, [byHosp, recvByHospId, payByVendorId, hospByContract, hospIdByName]);
+
+  const today = new Date().toISOString().slice(0,10);
+  const [collectInputs, setCollectInputs] = useState({}); // hospName → { date, amount }
+  const getCI = (hosp) => collectInputs[hosp] || { date: today, amount: '' };
+  const setCI = (hosp, patch) => setCollectInputs(p => ({ ...p, [hosp]: { ...getCI(hosp), ...patch } }));
+
+  const addCollect = async (hospId, hospName) => {
+    const ci = getCI(hospName);
+    const amt = Number((ci.amount||'').toString().replace(/[^0-9]/g,'')) || 0;
+    if (!hospId) { alert('병원 ID가 없어 저장할 수 없습니다.'); return; }
+    if (amt <= 0) { alert('금액을 입력하세요.'); return; }
+    try {
+      await sb.from('receivable_transactions').insert({
+        hospital_id: hospId, tx_date: ci.date, tx_type: 'collect', amount: amt, memo: '자금 흐름 탭에서 입력',
+      });
+      await sb.from('cash_balance_log').insert({
+        log_date: ci.date, delta: amt, memo: `${hospName} 입금 (자금 흐름)`,
+      });
+      setCI(hospName, { amount: '' });
+      reload();
+    } catch (e) { alert('저장 실패: '+(e.message||e)); }
+  };
+
+  const confirmPayment = async (mfrId, vendorName, amount) => {
+    if (!mfrId) { alert('거래처 ID가 없습니다. manufacturers에 등록 후 시도하세요.'); return; }
+    const date = prompt(`${vendorName} 송금 날짜? (YYYY-MM-DD)`, today);
+    if (!date) return;
+    try {
+      await sb.from('payable_transactions').insert({
+        manufacturer_id: mfrId, tx_date: date, tx_type: 'payment', amount, memo: '자금 흐름 탭에서 입력',
+      });
+      await sb.from('cash_balance_log').insert({
+        log_date: date, delta: -amount, memo: `${vendorName} 송금 (자금 흐름)`,
+      });
+      reload();
+    } catch (e) { alert('저장 실패: '+(e.message||e)); }
+  };
 
   if (loading) return <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>;
   if (pos.length === 0) return <div className="p-12 text-center text-slate-400 text-sm">활성 발주가 없습니다.</div>;
@@ -10355,49 +10438,106 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
               </button>
               {isOpen && (
                 <div className="p-4 space-y-3 bg-slate-50/50">
-                  {/* 단계별 요약 — 독립 체크박스 (중복 가산) */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    {/* 들어올 돈: 매출 + 입금 누적 + 추가 폼 */}
                     <div className="bg-white rounded-lg border border-emerald-100 p-3">
                       <div className="text-[11px] font-semibold text-emerald-700 mb-2">📥 들어올 돈</div>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between font-medium"><span className="text-emerald-700">💵 매출금액 (전체)</span><span className="tnum text-emerald-700">{fmt(g.incomeTotal)}</span></div>
-                        <div className="flex justify-between"><span className="text-amber-600">📄 세금계산서 발행</span><span className="tnum text-amber-700">{fmt(g.incomeInvoiced)}</span></div>
+                      <div className="flex justify-between text-sm font-semibold mb-2">
+                        <span className="text-emerald-700">💵 매출금액 (전체)</span>
+                        <span className="tnum text-emerald-700">{fmt(g.incomeTotal)}</span>
+                      </div>
+                      {g.incomes.length > 0 && (
+                        <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
+                          {g.incomes.map((tx, i) => (
+                            <div key={tx.id} className="flex justify-between">
+                              <span className="text-slate-500">{i+1}차 입금 · {tx.tx_date}</span>
+                              <span className="tnum text-slate-700">+{fmt(tx.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-bold border-t border-emerald-200 pt-2 mt-2">
+                        <span className={g.incomeRemaining > 0 ? 'text-emerald-700' : 'text-slate-400 line-through'}>= 받을 돈</span>
+                        <span className={`tnum ${g.incomeRemaining > 0 ? 'text-emerald-700' : 'text-slate-400 line-through'}`}>{fmt(g.incomeRemaining)}</span>
+                      </div>
+                      <div className="flex gap-1 mt-3 pt-2 border-t border-slate-100">
+                        <input type="date" value={getCI(g.hosp).date}
+                          onChange={e => setCI(g.hosp, { date: e.target.value })}
+                          className="border border-slate-200 rounded px-2 py-1 text-xs"/>
+                        <input type="text" placeholder="금액" value={getCI(g.hosp).amount}
+                          onChange={e => setCI(g.hosp, { amount: e.target.value.replace(/[^0-9]/g,'') })}
+                          className="flex-1 border border-slate-200 rounded px-2 py-1 text-xs tnum text-right"/>
+                        <button onClick={() => addCollect(g.hospId, g.hosp)}
+                          className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-semibold">+ 입금</button>
                       </div>
                     </div>
+                    {/* 나갈 돈: 매입 + 송금 합계 */}
                     <div className="bg-white rounded-lg border border-rose-100 p-3">
                       <div className="text-[11px] font-semibold text-rose-700 mb-2">📤 나갈 돈</div>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between font-medium"><span className="text-rose-700">💵 매입금액 (전체)</span><span className="tnum text-rose-700">{fmt(g.outflowTotal)}</span></div>
-                        <div className="flex justify-between"><span className="text-amber-600">📄 세금계산서 받음</span><span className="tnum text-amber-700">{fmt(g.outflowInvoiced)}</span></div>
-                        <div className="flex justify-between"><span className="text-slate-500">✅ 송금 완료</span><span className="tnum text-slate-500">{fmt(g.outflowPaid)}</span></div>
+                      <div className="flex justify-between text-sm font-semibold mb-1">
+                        <span className="text-rose-700">💵 매입금액 (전체)</span>
+                        <span className="tnum text-rose-700">{fmt(g.outflowTotal)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs mb-1 text-amber-600">
+                        <span>📄 세금계산서 받음</span>
+                        <span className="tnum">{fmt(g.outflowInvoiced)}</span>
+                      </div>
+                      {g.totalSentOut > 0 && (
+                        <div className="flex justify-between text-xs mb-1 text-slate-500">
+                          <span>✅ 송금 누적</span>
+                          <span className="tnum">−{fmt(g.totalSentOut)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-bold border-t border-rose-200 pt-2 mt-2">
+                        <span className={g.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-400 line-through'}>= 줄 돈</span>
+                        <span className={`tnum ${g.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-400 line-through'}`}>{fmt(g.outflowRemaining)}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-2 pt-2 border-t border-slate-100">
+                        ※ 송금은 아래 거래처별 표에서 [확인] 버튼으로 처리
                       </div>
                     </div>
                   </div>
-                  {/* 거래처별 매입 상세 */}
+                  {/* 거래처별 매입 상세 + 확인 버튼 */}
                   <div className="bg-white rounded-lg border border-slate-100 overflow-hidden">
                     <div className="px-3 py-2 bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-100">🏭 거래처별 매입 분포</div>
                     <table className="w-full text-xs">
                       <thead className="bg-white text-slate-500 text-[10px] uppercase border-b border-slate-100">
                         <tr>
                           <th className="px-3 py-2 text-left">거래처</th>
-                          <th className="px-3 py-2 text-center w-12">발주</th>
                           <th className="px-3 py-2 text-right w-32">💵 매입금액</th>
                           <th className="px-3 py-2 text-right w-32">📄 세금계산서</th>
-                          <th className="px-3 py-2 text-right w-32">✅ 송금완료</th>
+                          <th className="px-3 py-2 text-right w-40">송금 내역</th>
                           <th className="px-3 py-2 text-right w-32">미정산</th>
+                          <th className="px-3 py-2 text-center w-20"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {g.vendors.map(v => (
-                          <tr key={v.vendor} className="border-t border-slate-100">
-                            <td className="px-3 py-1.5 text-slate-800">{v.vendor}</td>
-                            <td className="px-3 py-1.5 text-center text-slate-500">{v.poCount}</td>
-                            <td className="px-3 py-1.5 text-right tnum text-rose-700 font-medium">{fmt(v.outflowTotal)}</td>
-                            <td className="px-3 py-1.5 text-right tnum text-amber-600">{v.outflowInvoiced ? fmt(v.outflowInvoiced) : '—'}</td>
-                            <td className="px-3 py-1.5 text-right tnum text-slate-500">{v.outflowPaid ? fmt(v.outflowPaid) : '—'}</td>
-                            <td className="px-3 py-1.5 text-right tnum font-semibold text-rose-700">{fmt(v.outflowRemaining)}</td>
-                          </tr>
-                        ))}
+                        {g.vendors.map(v => {
+                          const settled = v.outflowRemaining === 0 && v.outflowTotal > 0;
+                          return (
+                            <tr key={v.vendor} className={`border-t border-slate-100 ${settled ? 'opacity-60' : ''}`}>
+                              <td className={`px-3 py-1.5 text-slate-800 ${settled ? 'line-through' : ''}`}>{v.vendor} <span className="text-slate-400">({v.poCount})</span></td>
+                              <td className={`px-3 py-1.5 text-right tnum text-rose-700 font-medium ${settled ? 'line-through' : ''}`}>{fmt(v.outflowTotal)}</td>
+                              <td className="px-3 py-1.5 text-right tnum text-amber-600">{v.outflowInvoiced ? fmt(v.outflowInvoiced) : '—'}</td>
+                              <td className="px-3 py-1.5 text-right text-[10px] text-slate-500">
+                                {v.sentTx.length === 0 ? '—' : (
+                                  <div className="flex flex-col items-end gap-0.5">
+                                    {v.sentTx.map((tx, i) => (
+                                      <div key={tx.id}>{i+1}차 {tx.tx_date} · {fmt(tx.amount)}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td className={`px-3 py-1.5 text-right tnum font-semibold ${v.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-300'}`}>{v.outflowRemaining > 0 ? fmt(v.outflowRemaining) : '완료'}</td>
+                              <td className="px-3 py-1.5 text-center">
+                                {v.outflowRemaining > 0 && (
+                                  <button onClick={() => confirmPayment(v.mfrId, v.vendor, v.outflowRemaining)}
+                                    className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-[10px] font-semibold">✓ 확인</button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
