@@ -34,7 +34,7 @@ function vendorMatch(name, query) {
 
 /* ---------- Equipment DB ---------- */
 // 목록 로드: image_data 제외 (Egress 절감)
-const EQUIP_COLUMNS = 'id,cat_id,cat_name,category,item_name,model_name,model_id,manufacturer,vendor,price,model_notes,alt_text,alt_models,homepage,purchase_price,contact_name,contact_phone,image_url,description,specs,origin,cert,as_period,warranty,memo,created_at';
+const EQUIP_COLUMNS = 'id,cat_id,cat_name,category,item_name,model_name,model_id,manufacturer,vendor,vendor_id,price,model_notes,alt_text,alt_models,homepage,purchase_price,contact_name,contact_phone,image_url,description,specs,origin,cert,as_period,warranty,memo,created_at,manufacturers:vendor_id(id,vendor_code,name,contact_name,contact_phone)';
 async function dbLoadEquip() {
   const { data, error } = await sb.from('equipment').select(EQUIP_COLUMNS).order('created_at', { ascending: false });
   if (error) { console.error('dbLoadEquip:', error); return []; }
@@ -50,7 +50,9 @@ async function dbLoadEquip() {
       price:        r.price ?? null,
       notes:        r.model_notes  || '',
     },
-    vendor:   r.vendor     || '',
+    vendorId:  r.vendor_id || null,
+    vendorCode: r.manufacturers?.vendor_code || '',
+    vendor:    r.manufacturers?.name || r.vendor || '',
     altText:  r.alt_text   || '',
     altModels: Array.isArray(r.alt_models) ? r.alt_models : [],
     homepage: r.homepage   || '',
@@ -132,6 +134,7 @@ async function dbSaveEquip(entry) {
     model_name: entry.model.name,
     manufacturer: entry.model.manufacturer || '',
     vendor: entry.vendor || '',
+    vendor_id: entry.vendorId || null,
     price: entry.model.price || null,
     specs: entry.spec?.specs || [],
     description: entry.spec?.desc || '',
@@ -376,8 +379,17 @@ async function dbLoadHospitals() {
   if (error) { console.error('dbLoadHospitals:', error); return []; }
   return data;
 }
+async function dbNextHospitalCode() {
+  const { data } = await sb.from('hospitals').select('hospital_code').like('hospital_code', 'H%').order('hospital_code', { ascending: false }).limit(1);
+  if (!data || data.length === 0) return 'H001';
+  const m = (data[0].hospital_code || '').match(/H(\d+)/);
+  const next = m ? parseInt(m[1], 10) + 1 : 1;
+  return 'H' + String(next).padStart(3, '0');
+}
 async function dbSaveHospital(h) {
-  const { data, error } = await sb.from('hospitals').insert(h).select('id').single();
+  const row = { ...h };
+  if (!row.hospital_code) row.hospital_code = await dbNextHospitalCode();
+  const { data, error } = await sb.from('hospitals').insert(row).select('id').single();
   if (error) throw error;
   return data.id;
 }
@@ -12546,7 +12558,7 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
         setVendors(data || []);
       }
       if (allowedKinds === 'hospital' || allowedKinds === 'both') {
-        const { data } = await sb.from('hospitals').select('id, name').order('name');
+        const { data } = await sb.from('hospitals').select('id, name, hospital_code').order('hospital_code');
         setHospitals(data || []);
       }
     })();
@@ -12558,7 +12570,7 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
       vendors.forEach(v => items.push({ kind: 'vendor', id: v.id, code: v.vendor_code, name: v.name, contact: v.contact_name, phone: v.contact_phone }));
     }
     if (filter === 'all' || filter === 'hospital') {
-      hospitals.forEach(h => items.push({ kind: 'hospital', id: h.id, name: h.name }));
+      hospitals.forEach(h => items.push({ kind: 'hospital', id: h.id, code: h.hospital_code, name: h.name }));
     }
     if (!q) return items.slice(0, 200);
     const filtered = items.filter(it =>
@@ -12609,7 +12621,7 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
                       </>
                     ) : (
                       <>
-                        <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">병원</span>
+                        <span className="text-[10px] font-mono bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">{it.code || '병원'}</span>
                         <span className="text-slate-800">{it.name}</span>
                       </>
                     )}
