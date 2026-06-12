@@ -10226,6 +10226,139 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
 }
 
 /* ============================================================
+   TAX INVOICE TAB — 매출/매입 세금계산서 (엑셀형 입력)
+   ============================================================ */
+function TaxInvoiceTab() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const today = new Date().toISOString().slice(0,10);
+  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', amount: '' });
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    const { data } = await sb.from('tax_invoices').select('*').order('issue_date', { ascending: false }).order('created_at', { ascending: false });
+    setRows(data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  const fmt = (n) => (n || 0).toLocaleString() + '원';
+
+  const handleAdd = async () => {
+    const amt = Number((form.amount||'').toString().replace(/[^0-9]/g,'')) || 0;
+    if (!form.issue_date || !form.party_name.trim() || amt <= 0) {
+      alert('발급일자·상호·금액을 모두 입력하세요.');
+      return;
+    }
+    try {
+      await sb.from('tax_invoices').insert({
+        kind: form.kind, issue_date: form.issue_date,
+        party_name: form.party_name.trim(), amount: amt,
+      });
+      setForm(p => ({ ...p, party_name: '', amount: '' }));
+      reload();
+    } catch (e) { alert('저장 실패: '+(e.message||e)); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('이 세금계산서를 삭제할까요?')) return;
+    try {
+      await sb.from('tax_invoices').delete().eq('id', id);
+      reload();
+    } catch (e) { alert('삭제 실패: '+(e.message||e)); }
+  };
+
+  const sales = rows.filter(r => r.kind === 'sale');
+  const purchases = rows.filter(r => r.kind === 'purchase');
+  const totalSale = sales.reduce((s, r) => s + (Number(r.amount)||0), 0);
+  const totalPur = purchases.reduce((s, r) => s + (Number(r.amount)||0), 0);
+
+  const renderTable = (list, kindLabel, kindColor) => (
+    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <div className={`px-4 py-2.5 ${kindColor} text-white text-sm font-semibold flex items-center justify-between`}>
+        <span>{kindLabel}</span>
+        <span className="tnum">합계 {fmt(list.reduce((s, r) => s + (Number(r.amount)||0), 0))} · {list.length}건</span>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100">
+          <tr>
+            <th className="px-3 py-2 text-left w-32">발급일자</th>
+            <th className="px-3 py-2 text-left">상호</th>
+            <th className="px-3 py-2 text-right w-40">합계금액</th>
+            <th className="px-3 py-2 text-center w-12"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.length === 0 ? (
+            <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
+          ) : list.map(r => (
+            <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+              <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
+              <td className="px-3 py-1.5 text-slate-800">{r.party_name}</td>
+              <td className="px-3 py-1.5 text-right tnum font-medium text-slate-800">{fmt(r.amount)}</td>
+              <td className="px-3 py-1.5 text-center">
+                <button onClick={()=>handleDelete(r.id)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
+      {/* 입력 폼 — 엑셀형 한 줄 */}
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div className="text-xs font-semibold text-slate-700 mb-2">📄 세금계산서 입력</div>
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-1 border border-slate-300 rounded p-0.5 bg-white">
+            <button onClick={()=>setForm(p=>({...p, kind:'sale'}))}
+              className={`px-3 py-1 text-xs rounded ${form.kind==='sale' ? 'bg-emerald-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>📤 매출</button>
+            <button onClick={()=>setForm(p=>({...p, kind:'purchase'}))}
+              className={`px-3 py-1 text-xs rounded ${form.kind==='purchase' ? 'bg-rose-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>📥 매입</button>
+          </div>
+          <input type="date" value={form.issue_date}
+            onChange={e=>setForm(p=>({...p, issue_date:e.target.value}))}
+            className="border border-slate-300 rounded px-2 py-1 text-sm"/>
+          <input type="text" value={form.party_name}
+            onChange={e=>setForm(p=>({...p, party_name:e.target.value}))}
+            onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
+            placeholder="상호 (병원명 또는 거래처명)"
+            className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm"/>
+          <input type="text" value={form.amount ? Number(form.amount).toLocaleString() : ''}
+            onChange={e=>setForm(p=>({...p, amount:e.target.value.replace(/[^0-9]/g,'')}))}
+            onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
+            placeholder="합계금액"
+            className="w-40 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
+          <button onClick={handleAdd}
+            className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
+        </div>
+        <div className="text-[10px] text-slate-400 mt-2">Enter로 빠르게 추가. 발급일자·상호·금액 모두 필수.</div>
+      </div>
+
+      {loading ? (
+        <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {/* 매출 세금계산서 */}
+          {renderTable(sales, '📤 매출 세금계산서 (우리가 발행)', 'bg-emerald-600')}
+          {/* 매입 세금계산서 */}
+          {renderTable(purchases, '📥 매입 세금계산서 (거래처에서 받음)', 'bg-rose-600')}
+          {/* 요약 */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3 flex items-center gap-6 text-sm">
+            <span className="font-semibold text-slate-700">전체 합계</span>
+            <span>매출 <span className="font-bold text-emerald-700 tnum">{fmt(totalSale)}</span> ({sales.length}건)</span>
+            <span>매입 <span className="font-bold text-rose-700 tnum">{fmt(totalPur)}</span> ({purchases.length}건)</span>
+            <span className="ml-auto">차이 <span className={`font-bold tnum ${totalSale-totalPur >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>{fmt(totalSale-totalPur)}</span></span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    CASHFLOW TAB — 활성 발주 기반 자금 흐름 (병원/계약별)
    ============================================================ */
 function CashflowTab({ contracts = [], hospitals = [] }) {
@@ -10703,9 +10836,9 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             {[
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
-              { k: 'expected', l: '예상 매출' },
               { k: 'cashflow', l: '💰 자금 흐름' },
               { k: 'cash', l: '통장 출납' },
+              { k: 'taxinv', l: '📄 세금계산서' },
               { k: 'report', l: '리포트' },
             ].map(t => (
               <button key={t.k} onClick={() => setTab(t.k)}
@@ -10803,10 +10936,10 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             </div>
           ) : tab === 'entry' ? (
             <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} expectedRev={expectedRev} onReload={reload} showToast={showToast} />
-          ) : tab === 'expected' ? (
-            <ExpectedRevenueTab rows={expectedRev} hospitals={hospitals} cashLogs={cashLogs} onReload={reload} showToast={showToast} />
           ) : tab === 'cashflow' ? (
             <CashflowTab contracts={contracts} hospitals={hospitals} />
+          ) : tab === 'taxinv' ? (
+            <TaxInvoiceTab />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} cashCurrent={cashCurrent} />
           ) : (
