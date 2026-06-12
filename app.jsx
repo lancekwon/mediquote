@@ -3387,6 +3387,229 @@ function CompanySettingsModal({ onClose }) {
   );
 }
 
+function HospitalManageTab() {
+  const [hospitals, setHospitals] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+  const [editingId, setEditingId] = React.useState(null);
+  const [expandedId, setExpandedId] = React.useState(null);
+  const [form, setForm] = React.useState({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'' });
+  const [saving, setSaving] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState(null);
+  const [deleteRefs, setDeleteRefs] = React.useState(null);
+  const [deleteLoading, setDeleteLoading] = React.useState(false);
+  const [deletingNow, setDeletingNow] = React.useState(false);
+
+  const reload = React.useCallback(async () => {
+    setLoading(true);
+    const data = await dbLoadHospitals();
+    setHospitals((data || []).sort((a,b) => (a.hospital_code || 'Z').localeCompare(b.hospital_code || 'Z')));
+    setLoading(false);
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return hospitals;
+    return hospitals.filter(h =>
+      (h.hospital_code || '').toLowerCase().includes(q) ||
+      (h.name || '').toLowerCase().includes(q) ||
+      (h.contact_name || '').toLowerCase().includes(q) ||
+      (h.contact_phone || '').includes(q)
+    );
+  }, [hospitals, search]);
+
+  React.useEffect(() => {
+    if (!deleteTarget) { setDeleteRefs(null); return; }
+    setDeleteLoading(true);
+    (async () => {
+      try {
+        const [leads, contracts, expRev, recvTx] = await Promise.all([
+          sb.from('leads').select('id', { count:'exact', head:true }).eq('hospital_id', deleteTarget.id),
+          sb.from('contracts').select('id', { count:'exact', head:true }).eq('hospital_id', deleteTarget.id),
+          sb.from('expected_revenue').select('id', { count:'exact', head:true }).eq('target_hospital_id', deleteTarget.id),
+          sb.from('receivable_transactions').select('id', { count:'exact', head:true }).eq('hospital_id', deleteTarget.id),
+        ]);
+        const r = { leads: leads.count||0, contracts: contracts.count||0, exp_rev: expRev.count||0, recv_tx: recvTx.count||0 };
+        r.total = r.leads + r.contracts + r.exp_rev + r.recv_tx;
+        setDeleteRefs(r);
+      } finally { setDeleteLoading(false); }
+    })();
+  }, [deleteTarget]);
+
+  const handleNew = () => { setEditingId('__new__'); setExpandedId('__new__'); setForm({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'' }); };
+  const handleEdit = (h) => { setEditingId(h.id); setExpandedId(h.id); setForm({ name: h.name||'', region: h.region||'', address: h.address||'', phone: h.phone||'', contact_name: h.contact_name||'', contact_phone: h.contact_phone||'', contact_email: h.contact_email||'', notes: h.notes||'' }); };
+  const handleSave = async () => {
+    if (!form.name.trim()) { alert('병원명을 입력하세요.'); return; }
+    setSaving(true);
+    try {
+      if (editingId === '__new__') {
+        await dbSaveHospital(form);
+      } else {
+        await dbUpdateHospital(editingId, form);
+      }
+      await reload();
+      setEditingId(null); setExpandedId(null);
+    } catch (e) { alert('저장 실패: ' + (e.message||e)); }
+    finally { setSaving(false); }
+  };
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeletingNow(true);
+    try {
+      await dbDeleteHospital(deleteTarget.id);
+      setHospitals(p => p.filter(x => x.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      const msg = e?.message || String(e);
+      if (msg.includes('foreign key') || msg.includes('violates') || e?.code === '23503') {
+        alert(`삭제 실패 — 다른 데이터(영업 lead·계약·매출·수금)에서 이 병원을 참조하고 있어 DB가 막았습니다.\n해당 데이터를 먼저 정리하거나 다른 병원으로 옮긴 뒤 다시 시도하세요.\n\n원본 메시지: ${msg}`);
+      } else { alert('삭제 중 오류: ' + msg); }
+    } finally { setDeletingNow(false); }
+  };
+
+  const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const labelCls = "block text-xs font-semibold text-slate-600 mb-1";
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 bg-slate-50">
+        <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="H코드·병원명·담당자 검색"
+          className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
+        <div className="ml-auto text-xs text-slate-500">{filtered.length}개 / 전체 {hospitals.length}</div>
+        <button onClick={handleNew} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold">+ 신규 병원 등록</button>
+      </div>
+      {loading ? (
+        <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
+      ) : (
+        <div className="divide-y divide-slate-100 max-h-[calc(100vh-280px)] overflow-y-auto">
+          {editingId === '__new__' && (
+            <div className="px-5 py-4 bg-blue-50">
+              <div className="text-xs font-semibold text-blue-700 mb-3">+ 신규 병원 등록 — H코드는 자동 부여됩니다</div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div><label className={labelCls}>병원명 <span className="text-red-400">*</span></label><input value={form.name} onChange={e=>setForm(p=>({...p, name:e.target.value}))} className={inputCls} autoFocus/></div>
+                <div><label className={labelCls}>지역</label><input value={form.region} onChange={e=>setForm(p=>({...p, region:e.target.value}))} className={inputCls}/></div>
+                <div><label className={labelCls}>전화</label><input value={form.phone} onChange={e=>setForm(p=>({...p, phone:e.target.value}))} className={inputCls}/></div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div><label className={labelCls}>담당자</label><input value={form.contact_name} onChange={e=>setForm(p=>({...p, contact_name:e.target.value}))} className={inputCls}/></div>
+                <div><label className={labelCls}>담당자 연락처</label><input value={form.contact_phone} onChange={e=>setForm(p=>({...p, contact_phone:e.target.value}))} className={inputCls}/></div>
+                <div><label className={labelCls}>이메일</label><input value={form.contact_email} onChange={e=>setForm(p=>({...p, contact_email:e.target.value}))} className={inputCls}/></div>
+              </div>
+              <div className="mb-2"><label className={labelCls}>주소</label><input value={form.address} onChange={e=>setForm(p=>({...p, address:e.target.value}))} className={inputCls}/></div>
+              <div className="mb-3"><label className={labelCls}>메모</label><input value={form.notes} onChange={e=>setForm(p=>({...p, notes:e.target.value}))} className={inputCls}/></div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={()=>{setEditingId(null); setExpandedId(null);}} className="px-4 py-1.5 text-sm border border-slate-200 text-slate-600 rounded hover:bg-slate-50">취소</button>
+                <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-semibold">{saving ? '저장 중...' : '저장'}</button>
+              </div>
+            </div>
+          )}
+          {filtered.map(h => {
+            const isExpanded = expandedId === h.id;
+            const isEditing = editingId === h.id;
+            return (
+              <div key={h.id}>
+                <div className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 cursor-pointer" onClick={()=>setExpandedId(isExpanded ? null : h.id)}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {h.hospital_code && <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-mono font-semibold rounded">{h.hospital_code}</span>}
+                      <span className="font-semibold text-slate-800">{h.name}</span>
+                      {h.region && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">{h.region}</span>}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {h.contact_name && `${h.contact_name} · `}
+                      {h.contact_phone && `${h.contact_phone}`}
+                      {!h.contact_name && !h.contact_phone && '담당자 정보 미입력'}
+                    </div>
+                  </div>
+                  <button onClick={(e)=>{e.stopPropagation(); handleEdit(h);}} className="px-3 py-1 text-xs border border-slate-200 text-slate-600 rounded hover:bg-slate-100">수정</button>
+                  <button onClick={(e)=>{e.stopPropagation(); setDeleteTarget(h);}} className="px-2 py-1 text-xs border border-slate-200 text-slate-400 rounded hover:border-red-300 hover:text-red-500">삭제</button>
+                  <svg className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                </div>
+                {isExpanded && isEditing && (
+                  <div className="px-5 py-4 bg-blue-50">
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <div><label className={labelCls}>병원명</label><input value={form.name} onChange={e=>setForm(p=>({...p, name:e.target.value}))} className={inputCls}/></div>
+                      <div><label className={labelCls}>지역</label><input value={form.region} onChange={e=>setForm(p=>({...p, region:e.target.value}))} className={inputCls}/></div>
+                      <div><label className={labelCls}>전화</label><input value={form.phone} onChange={e=>setForm(p=>({...p, phone:e.target.value}))} className={inputCls}/></div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <div><label className={labelCls}>담당자</label><input value={form.contact_name} onChange={e=>setForm(p=>({...p, contact_name:e.target.value}))} className={inputCls}/></div>
+                      <div><label className={labelCls}>담당자 연락처</label><input value={form.contact_phone} onChange={e=>setForm(p=>({...p, contact_phone:e.target.value}))} className={inputCls}/></div>
+                      <div><label className={labelCls}>이메일</label><input value={form.contact_email} onChange={e=>setForm(p=>({...p, contact_email:e.target.value}))} className={inputCls}/></div>
+                    </div>
+                    <div className="mb-2"><label className={labelCls}>주소</label><input value={form.address} onChange={e=>setForm(p=>({...p, address:e.target.value}))} className={inputCls}/></div>
+                    <div className="mb-3"><label className={labelCls}>메모</label><input value={form.notes} onChange={e=>setForm(p=>({...p, notes:e.target.value}))} className={inputCls}/></div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={()=>{setEditingId(null);}} className="px-4 py-1.5 text-sm border border-slate-200 text-slate-600 rounded hover:bg-slate-50">취소</button>
+                      <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-semibold">{saving ? '저장 중...' : '저장'}</button>
+                    </div>
+                  </div>
+                )}
+                {isExpanded && !isEditing && (
+                  <div className="px-5 py-3 bg-slate-50 grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                    <div><span className="text-slate-500">담당자 </span><span className="font-medium text-slate-800">{h.contact_name || '-'}</span></div>
+                    <div><span className="text-slate-500">연락처 </span><span className="font-medium text-slate-800">{h.contact_phone || '-'}</span></div>
+                    <div><span className="text-slate-500">전화 </span><span className="font-medium text-slate-800">{h.phone || '-'}</span></div>
+                    <div><span className="text-slate-500">이메일 </span><span className="font-medium text-slate-800">{h.contact_email || '-'}</span></div>
+                    <div className="col-span-2"><span className="text-slate-500">주소 </span><span className="font-medium text-slate-800">{h.address || '-'}</span></div>
+                    {h.notes && <div className="col-span-2"><span className="text-slate-500">메모 </span><span className="text-slate-700">{h.notes}</span></div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                </div>
+                <div>
+                  <div className="font-bold text-slate-900">병원 삭제</div>
+                  <div className="text-xs text-slate-500 mt-0.5">이 작업은 되돌릴 수 없습니다</div>
+                </div>
+              </div>
+              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3 mb-3">
+                <div className="text-sm font-semibold text-red-700 mb-1">{deleteTarget.hospital_code ? deleteTarget.hospital_code + ' · ' : ''}{deleteTarget.name}</div>
+                <div className="text-xs text-red-500">병원 마스터 정보가 영구 삭제됩니다.</div>
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-2 text-xs">
+                <div className="font-semibold text-slate-700 mb-2">연결된 데이터 {deleteLoading ? '확인 중...' : ''}</div>
+                {deleteRefs && (
+                  <div className="space-y-1 text-slate-600">
+                    <div className="flex justify-between"><span>영업 lead</span><span className={`font-mono font-semibold ${deleteRefs.leads > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.leads}</span></div>
+                    <div className="flex justify-between"><span>계약</span><span className={`font-mono font-semibold ${deleteRefs.contracts > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.contracts}</span></div>
+                    <div className="flex justify-between"><span>예상 매출</span><span className={`font-mono font-semibold ${deleteRefs.exp_rev > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.exp_rev}</span></div>
+                    <div className="flex justify-between"><span>수금 거래</span><span className={`font-mono font-semibold ${deleteRefs.recv_tx > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{deleteRefs.recv_tx}</span></div>
+                  </div>
+                )}
+              </div>
+              {deleteRefs && deleteRefs.total > 0 && (
+                <div className="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2 mt-2">
+                  ⚠️ 연결 데이터가 있어 삭제가 막힐 수 있습니다. 먼저 해당 데이터를 정리하거나 다른 병원으로 옮기세요.
+                </div>
+              )}
+            </div>
+            <div className="px-6 pb-5 flex gap-2 justify-end">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+              <button onClick={handleDeleteConfirm} disabled={deletingNow || deleteLoading}
+                className="px-5 py-2 text-sm bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors">
+                {deletingNow ? '삭제 중...' : '삭제 확인'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEquipChange }) {
   const [search, setSearch] = React.useState('');
   const [editingId, setEditingId] = React.useState(null);
@@ -3996,6 +4219,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     { id:'register',label:'장비 등록',        icon:'M12 4v16m8-8H4' },
     { id:'catmgr',  label:'카테고리·품목 관리', icon:'M4 6h16M4 12h16M4 18h7' },
     { id:'mfrmgr',  label:'거래처 관리',       icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
+    { id:'hospmgr', label:'병원 관리',         icon:'M9 12h6m-3 -3v6m-9 1V7a4 4 0 014-4h10a4 4 0 014 4v6a4 4 0 01-4 4H7l-4 4z' },
   ];
 
   return (
@@ -4428,6 +4652,11 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
           equips={equips}
           onEquipChange={onEquipChange}
         />
+      )}
+
+      {/* ═══════════════ 병원 관리 탭 ═══════════════ */}
+      {activeTab === 'hospmgr' && (
+        <HospitalManageTab />
       )}
 
       {/* Delete equip confirm */}
