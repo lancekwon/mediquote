@@ -5645,6 +5645,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   const toggleVendor = (v) => setExpandedVendors(p => ({ ...p, [v]: !p[v] }));
   const [itemMemoModal, setItemMemoModal] = React.useState(null); // { key, item }
   const [contactModal, setContactModal] = React.useState(null);   // { vendor, items }
+  const [vendorPickFor, setVendorPickFor] = React.useState(null); // 행 key
 
   // 저장: 거래처별로 PO upsert (장비 매입가도 갱신 + 이력 기록)
   const handleSave = async () => {
@@ -6303,11 +6304,10 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{poNo}</td>
                           <td className="px-2 py-1.5 text-slate-800 font-medium">
                             {it.poItemId ? (it.vendor || <span className="text-amber-600">미지정</span>) : (
-                              <select value={it.vendor || ''} onChange={e => setItem(it.key, { vendor: e.target.value, modelName: '', manufacturer: '', purchasePrice: 0, salePrice: 0 })}
-                                className={`w-full px-1 py-0.5 border rounded text-xs ${it.vendor ? 'border-slate-200' : 'border-amber-300 bg-amber-50'}`}>
-                                <option value="">거래처 선택</option>
-                                {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
-                              </select>
+                              <button type="button" onClick={()=>setVendorPickFor(it.key)}
+                                className={`w-full text-left px-1.5 py-0.5 border rounded text-xs ${it.vendor ? 'border-slate-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
+                                {it.vendor || <span className="text-amber-600">거래처 선택</span>}
+                              </button>
                             )}
                           </td>
                           <td className="px-2 py-1.5">
@@ -6446,6 +6446,14 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           item={itemMemoModal.item}
           onSave={(text) => { setItem(itemMemoModal.key, { memo: text }); setItemMemoModal(null); }}
           onClose={() => setItemMemoModal(null)}
+        />
+      )}
+      {vendorPickFor && (
+        <VendorPickerModal
+          allowedKinds="vendor"
+          defaultFilter="vendor"
+          onClose={()=>setVendorPickFor(null)}
+          onSelect={(it)=>setItem(vendorPickFor, { vendor: it.name, modelName: '', manufacturer: '', purchasePrice: 0, salePrice: 0 })}
         />
       )}
       {contactModal && (
@@ -12603,9 +12611,9 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
     return filtered.slice(0, 200);
   }, [vendors, hospitals, search, filter]);
   return (
-    <ModalShell title="거래처/병원 선택" onClose={onClose}>
-      <div className="space-y-3">
-        <div className="flex gap-2 items-center">
+    <ModalShell title="거래처/병원 선택" onClose={onClose} wide>
+      <div className="flex flex-col" style={{height:'520px'}}>
+        <div className="flex gap-2 items-center mb-3 shrink-0">
           <input autoFocus type="text" value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="V코드·이름·담당자 검색"
             className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
@@ -12618,8 +12626,8 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
             </div>
           )}
         </div>
-        <div className="text-xs text-slate-500">{list.length}건 (최대 200 표시)</div>
-        <div className="max-h-[55vh] overflow-y-auto -mx-2">
+        <div className="text-xs text-slate-500 mb-2 shrink-0">{list.length}건 (최대 200 표시)</div>
+        <div className="flex-1 overflow-y-auto -mx-2 border border-slate-100 rounded">
           {list.length === 0 ? (
             <div className="text-center text-sm text-slate-400 py-12">
               검색 결과가 없습니다.
@@ -12755,6 +12763,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
   const [vendorId, setVendorId] = useState('');
   const [vendorSearch, setVendorSearch] = useState('');
   const [vendorOpen, setVendorOpen] = useState(false);
+  const [vendorPickOpen, setVendorPickOpen] = useState(false);
   const [vendorFreeText, setVendorFreeText] = useState(''); // 기타 유형 — 거래처 직접 입력
   const vendorBoxRef = useRef(null);
   // 수금 — 병원/계약 (optional)
@@ -12905,30 +12914,10 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
                 : <>거래처 <span className="text-slate-300">(불필요)</span></>}
             </label>
             {needVendor ? (
-              <div className="relative" ref={vendorBoxRef}>
-                <input type="text"
-                  value={vendorOpen ? vendorSearch : (selectedVendor ? `${selectedVendor.manufacturer_name} (잔액 ${(selectedVendor.balance || 0).toLocaleString()})` : '')}
-                  onChange={e => { setVendorSearch(e.target.value); setVendorOpen(true); }}
-                  onFocus={() => { setVendorOpen(true); setVendorSearch(''); }}
-                  placeholder="거래처 검색 (초성 ㅇㄹ 가능)"
-                  className={`w-full ${inputCls}`} />
-                {vendorOpen && (
-                  <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl">
-                    {vendorOptions.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-slate-400">검색 결과 없음</div>
-                    ) : vendorOptions.slice(0, 50).map(b => (
-                      <div key={b.manufacturer_id}
-                        onClick={() => { setVendorId(b.manufacturer_id); setVendorOpen(false); setVendorSearch(''); }}
-                        className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 ${b.manufacturer_id === vendorId ? 'bg-blue-50 font-medium' : ''}`}>
-                        {b.manufacturer_name} <span className="text-xs text-slate-400">잔액 {(b.balance || 0).toLocaleString()}</span>
-                      </div>
-                    ))}
-                    {vendorOptions.length > 50 && (
-                      <div className="px-3 py-1.5 text-[11px] text-slate-400 border-t border-slate-100">상위 50개만 표시 — 더 입력해 좁히세요</div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <button type="button" onClick={()=>setVendorPickOpen(true)}
+                className={`w-full ${inputCls} text-left bg-white hover:bg-slate-50 truncate`}>
+                {selectedVendor ? `${selectedVendor.manufacturer_name} (잔액 ${(selectedVendor.balance || 0).toLocaleString()})` : <span className="text-slate-400">거래처 선택 (클릭)</span>}
+              </button>
             ) : needHospital ? (
               <div className="space-y-1">
                 {/* 예상매출 행 선택 (우선) — 선택 시 자동으로 병원/금액 연동 */}
@@ -13075,6 +13064,14 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
           {saving ? '저장 중...' : `${pending.length}건 일괄 저장`}
         </button>
       </div>
+      {vendorPickOpen && (
+        <VendorPickerModal
+          allowedKinds="vendor"
+          defaultFilter="vendor"
+          onClose={()=>setVendorPickOpen(false)}
+          onSelect={(it)=>setVendorId(it.id)}
+        />
+      )}
     </div>
   );
 }
