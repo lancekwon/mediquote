@@ -10273,10 +10273,18 @@ function TaxInvoiceTab() {
   const totalSale = sales.reduce((s, r) => s + (Number(r.amount)||0), 0);
   const totalPur = purchases.reduce((s, r) => s + (Number(r.amount)||0), 0);
 
-  // 매출/매입 섞어서 발급일자 DESC 정렬
-  const sorted = useMemo(() =>
-    [...rows].sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||'')),
-  [rows]);
+  const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState('all'); // all | sale | purchase
+
+  // 검색 + 매출/매입 섞어서 발급일자 DESC 정렬
+  const sorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
+      if (!q) return true;
+      return (r.party_name||'').toLowerCase().includes(q) || (r.issue_date||'').includes(q) || String(r.amount||'').includes(q);
+    }).sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||''));
+  }, [rows, search, kindFilter]);
 
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
@@ -10307,6 +10315,20 @@ function TaxInvoiceTab() {
             className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
         </div>
         <div className="text-[10px] text-slate-400 mt-2">Enter로 빠르게 추가. 발급일자·상호·금액 모두 필수.</div>
+      </div>
+
+      {/* 검색 바 */}
+      <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 flex items-center gap-3 flex-wrap">
+        <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="상호·발급일자·금액 검색"
+          className="flex-1 min-w-[240px] border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
+        <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
+          {[{k:'all', l:'전체'}, {k:'sale', l:'매출'}, {k:'purchase', l:'매입'}].map(t => (
+            <button key={t.k} onClick={()=>setKindFilter(t.k)}
+              className={`px-3 py-1 text-xs rounded transition-colors ${kindFilter===t.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-500 ml-auto">{sorted.length}건 / 전체 {rows.length}</span>
       </div>
 
       {loading ? (
