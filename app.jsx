@@ -10752,13 +10752,15 @@ function TaxInvoiceTab() {
             <tbody>
               {sorted.length === 0 ? (
                 <tr><td colSpan={5} className="px-3 py-12 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
-              ) : sorted.map(r => (
-                <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+              ) : sorted.map(r => {
+                const matched = !!r.matched_payment_id;
+                return (
+                <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${matched ? 'opacity-40' : ''}`} title={matched ? '송금에 매칭됨 (자금흐름에서 해제 가능)' : ''}>
                   <td className="px-3 py-1.5 text-center">
                     {r.kind === 'sale' ? (
                       <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded">매출</span>
                     ) : (
-                      <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded">매입</span>
+                      <span className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded">매입{matched && ' ✓'}</span>
                     )}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
@@ -10768,7 +10770,8 @@ function TaxInvoiceTab() {
                     <button onClick={()=>handleDelete(r.id)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -10780,24 +10783,29 @@ function TaxInvoiceTab() {
 /* ============================================================
    CASHFLOW TAB — 활성 발주 기반 자금 흐름 (병원/계약별)
    ============================================================ */
-function CashflowTab({ contracts = [], hospitals = [] }) {
+function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const [pos, setPos] = useState([]);
   const [recvTx, setRecvTx] = useState([]);    // 병원 → 우리 입금
   const [payTx, setPayTx] = useState([]);      // 우리 → 거래처 송금
+  const [taxInv, setTaxInv] = useState([]);    // 세금계산서 (매입)
   const [loading, setLoading] = useState(true);
   const [openHosps, setOpenHosps] = useState({}); // hospName → bool
+  const [selectingTaxFor, setSelectingTaxFor] = useState(null);  // 세금계산서 선택 모달 { id, name }
+  const [selectingPayFor, setSelectingPayFor] = useState(null);  // 송금 선택 모달 { id, name }
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poRes, recvRes, payRes] = await Promise.all([
+      const [poRes, recvRes, payRes, tiRes] = await Promise.all([
         sb.from('purchase_orders').select('id, po_no, contract_id, manufacturer_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)').eq('is_active', true),
         sb.from('receivable_transactions').select('*').eq('tx_type', 'collect').order('tx_date', { ascending: true }),
         sb.from('payable_transactions').select('*').eq('tx_type', 'payment').order('tx_date', { ascending: true }),
+        sb.from('tax_invoices').select('id, manufacturer_id, issue_date, amount, party_name, matched_payment_id, confirmed').eq('kind', 'purchase').order('issue_date', { ascending: false }),
       ]);
       setPos(poRes.data || []);
       setRecvTx(recvRes.data || []);
       setPayTx(payRes.data || []);
+      setTaxInv(tiRes.data || []);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -10820,11 +10828,28 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
     recvTx.forEach(t => { if (!m.has(t.hospital_id)) m.set(t.hospital_id, []); m.get(t.hospital_id).push(t); });
     return m;
   }, [recvTx]);
+  // 거래처별 송금 — 사용자가 [확인]한 것만 (자동 매칭 manufacturer_id는 보존, confirmed=true만 집계)
   const payByVendorId = useMemo(() => {
     const m = new Map();
-    payTx.forEach(t => { if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, []); m.get(t.manufacturer_id).push(t); });
+    payTx.forEach(t => {
+      if (!t.manufacturer_id || !t.confirmed) return;
+      if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, []);
+      m.get(t.manufacturer_id).push(t);
+    });
     return m;
   }, [payTx]);
+
+  // 거래처별 세금계산서 합 — 사용자가 [확인]한 것만 (confirmed=true)
+  const taxByVendor = useMemo(() => {
+    const m = new Map();
+    taxInv.forEach(t => {
+      if (!t.manufacturer_id || !t.confirmed) return;
+      if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, { count: 0, sum: 0 });
+      const v = m.get(t.manufacturer_id);
+      v.count++; v.sum += Number(t.amount)||0;
+    });
+    return m;
+  }, [taxInv]);
 
   // 병원별 그룹
   const byHosp = useMemo(() => {
@@ -11057,36 +11082,58 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
                         <tr>
                           <th className="px-3 py-2 text-left">거래처</th>
                           <th className="px-3 py-2 text-right w-32">💵 매입금액</th>
-                          <th className="px-3 py-2 text-right w-32">📄 세금계산서</th>
-                          <th className="px-3 py-2 text-right w-40">송금 내역</th>
+                          <th className="px-3 py-2 text-right w-48">📄 세금계산서</th>
+                          <th className="px-3 py-2 text-right w-48">송금 내역</th>
                           <th className="px-3 py-2 text-right w-32">미정산</th>
-                          <th className="px-3 py-2 text-center w-20"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {g.vendors.map(v => {
                           const settled = v.outflowRemaining === 0 && v.outflowTotal > 0;
+                          const taxInfo = (v.mfrId && taxByVendor.get(v.mfrId)) || { count: 0, sum: 0, matchedCount: 0, matchedSum: 0 };
+                          const taxBtnLabel = taxInfo.count > 0 ? `✓ ${taxInfo.count}건` : '📋 조회';
+                          const payBtnLabel = v.sentTx.length > 0 ? `✓ ${v.sentTx.length}건` : '📋 조회';
+                          const taxBtnClass = taxInfo.count > 0
+                            ? 'px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0'
+                            : 'px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0';
+                          const payBtnClass = v.sentTx.length > 0
+                            ? 'px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0'
+                            : 'px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0';
                           return (
                             <tr key={v.vendor} className={`border-t border-slate-100 ${settled ? 'opacity-60' : ''}`}>
                               <td className={`px-3 py-1.5 text-slate-800 ${settled ? 'line-through' : ''}`}>{v.vendor} <span className="text-slate-400">({v.poCount})</span></td>
                               <td className={`px-3 py-1.5 text-right tnum text-rose-700 font-medium ${settled ? 'line-through' : ''}`}>{fmt(v.outflowTotal)}</td>
-                              <td className="px-3 py-1.5 text-right tnum text-amber-600">{v.outflowInvoiced ? fmt(v.outflowInvoiced) : '—'}</td>
-                              <td className="px-3 py-1.5 text-right text-[10px] text-slate-500">
-                                {v.sentTx.length === 0 ? '—' : (
-                                  <div className="flex flex-col items-end gap-0.5">
-                                    {v.sentTx.map((tx, i) => (
-                                      <div key={tx.id}>{i+1}차 {tx.tx_date} · {fmt(tx.amount)}</div>
-                                    ))}
-                                  </div>
-                                )}
+                              {/* 세금계산서 — 사용자가 묶은 것만 + [조회/확인] */}
+                              <td className="px-3 py-1.5 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {taxInfo.count > 0
+                                    ? <span className="text-[11px] text-amber-700 font-medium tnum">{fmt(taxInfo.sum)}</span>
+                                    : <span className="text-slate-300 text-[10px]">없음</span>}
+                                  {v.mfrId && (
+                                    <button onClick={() => setSelectingTaxFor({ id: v.mfrId, name: v.vendor })}
+                                      className={taxBtnClass}>{taxBtnLabel}</button>
+                                  )}
+                                </div>
+                              </td>
+                              {/* 송금 내역 — 사용자가 묶은 것만 + [조회/확인] */}
+                              <td className="px-3 py-1.5 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {v.sentTx.length === 0 ? (
+                                    <span className="text-slate-300 text-[10px]">없음</span>
+                                  ) : (
+                                    <div className="flex flex-col items-end gap-0.5 text-[10px] text-slate-600">
+                                      {v.sentTx.map((tx, i) => (
+                                        <div key={tx.id}>{i+1}차 {tx.tx_date} · <span className="tnum">{fmt(tx.amount)}</span></div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {v.mfrId && (
+                                    <button onClick={() => setSelectingPayFor({ id: v.mfrId, name: v.vendor })}
+                                      className={payBtnClass}>{payBtnLabel}</button>
+                                  )}
+                                </div>
                               </td>
                               <td className={`px-3 py-1.5 text-right tnum font-semibold ${v.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-300'}`}>{v.outflowRemaining > 0 ? fmt(v.outflowRemaining) : '완료'}</td>
-                              <td className="px-3 py-1.5 text-center">
-                                {v.outflowRemaining > 0 && (
-                                  <button onClick={() => confirmPayment(v.mfrId, v.vendor, v.outflowRemaining)}
-                                    className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-[10px] font-semibold">✓ 확인</button>
-                                )}
-                              </td>
                             </tr>
                           );
                         })}
@@ -11103,7 +11150,223 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
       <div className="text-xs text-slate-400 text-center pt-2 pb-2">
         ※ 활성 발주(is_active=true)의 매입/매출 단가만 집계합니다. 세금계산서·송금은 독립 체크박스 (중복 가산).
       </div>
+
+      {selectingTaxFor && (
+        <TaxSelectModal
+          mfrId={selectingTaxFor.id}
+          mfrName={selectingTaxFor.name}
+          allTaxInv={taxInv}
+          manufacturers={manufacturers}
+          onClose={() => setSelectingTaxFor(null)}
+          onChanged={reload}
+        />
+      )}
+      {selectingPayFor && (
+        <PaymentSelectModal
+          mfrId={selectingPayFor.id}
+          mfrName={selectingPayFor.name}
+          allPayTx={payTx}
+          manufacturers={manufacturers}
+          onClose={() => setSelectingPayFor(null)}
+          onChanged={reload}
+        />
+      )}
     </div>
+  );
+}
+
+/* ============================================================
+/* ============================================================
+   TAX SELECT MODAL — 그 거래처에 묶을 세금계산서를 사용자가 직접 선택
+   ============================================================ */
+function TaxSelectModal({ mfrId, mfrName, allTaxInv, manufacturers = [], onClose, onChanged }) {
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const fmt = (n) => (n || 0).toLocaleString() + '원';
+  const mfrById = useMemo(() => new Map(manufacturers.map(m => [m.id, m])), [manufacturers]);
+  const vendorName = (t) => t.manufacturer_id ? (mfrById.get(t.manufacturer_id)?.name || '') : '';
+
+  const toggle = async (taxId, checked) => {
+    setSaving(true);
+    try {
+      // 체크: 이 거래처로 묶고 confirmed=true. 해제: confirmed만 false (manufacturer_id 보존)
+      const update = checked
+        ? { manufacturer_id: mfrId, confirmed: true }
+        : { confirmed: false };
+      await sb.from('tax_invoices').update(update).eq('id', taxId);
+      await onChanged?.();
+    } catch (e) { alert('저장 실패: '+(e.message||e)); }
+    finally { setSaving(false); }
+  };
+
+  const isMine = (t) => t.manufacturer_id === mfrId && t.confirmed;
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = allTaxInv.filter(t => t.kind === 'purchase' || !t.kind).filter(t => {
+      if (!q) return true;
+      return (t.issue_date||'').includes(q)
+        || (t.party_name||'').toLowerCase().includes(q)
+        || vendorName(t).toLowerCase().includes(q)
+        || String(t.amount||'').includes(q.replace(/[^0-9]/g,''));
+    });
+    return filtered.sort((a,b) => {
+      const aMine = isMine(a) ? 1 : 0;
+      const bMine = isMine(b) ? 1 : 0;
+      if (aMine !== bMine) return bMine - aMine;
+      return (b.issue_date||'').localeCompare(a.issue_date||'');
+    });
+  }, [allTaxInv, search, mfrId]);
+
+  const minePool = allTaxInv.filter(isMine);
+  const matchedCount = minePool.length;
+  const matchedSum = minePool.reduce((s,t)=>s+Number(t.amount||0),0);
+
+  return (
+    <ModalShell title={`📄 ${mfrName} — 세금계산서 선택`} onClose={onClose} wide z={60}>
+      <div className="flex flex-col" style={{height:'520px'}}>
+        <div className="flex items-center gap-2 mb-3 shrink-0">
+          <div className="text-xs text-slate-600">
+            묶인 세금계산서 <span className="font-bold text-emerald-700">{matchedCount}건</span> · <span className="tnum">{fmt(matchedSum)}</span>
+          </div>
+          <input type="text" value={search} onChange={e=>setSearch(e.target.value)} autoFocus
+            placeholder="날짜·세금계산서 상호·마스터 거래처명·금액"
+            className="ml-auto border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"/>
+        </div>
+        <div className="flex-1 overflow-y-auto border border-slate-100 rounded">
+          {list.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-400">세금계산서가 없습니다.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-[10px] text-slate-500 sticky top-0">
+                <tr>
+                  <th className="px-2 py-1.5 w-10"></th>
+                  <th className="px-2 py-1.5 text-left">발급일</th>
+                  <th className="px-2 py-1.5 text-left">상호</th>
+                  <th className="px-2 py-1.5 text-right">금액</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map(t => {
+                  const mine = isMine(t);
+                  return (
+                    <tr key={t.id} className={`border-t border-slate-100 hover:bg-slate-50 ${mine ? 'bg-emerald-50' : ''}`}>
+                      <td className="px-2 py-1.5 text-center">
+                        <input type="checkbox" checked={mine} disabled={saving}
+                          onChange={e => toggle(t.id, e.target.checked)} className="cursor-pointer"/>
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{t.issue_date}</td>
+                      <td className="px-2 py-1.5 text-slate-800" title={t.party_name}>{t.party_name}</td>
+                      <td className="px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap">{fmt(t.amount)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="text-[10px] text-slate-400 mt-2 shrink-0">
+          ※ 체크하면 그 세금계산서가 이 거래처에 묶입니다. 다른 거래처에 묶인 것도 체크하면 이쪽으로 옮겨집니다.
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ============================================================
+   PAYMENT SELECT MODAL — 그 거래처에 묶을 송금을 사용자가 직접 선택
+   ============================================================ */
+function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onClose, onChanged }) {
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const fmt = (n) => (n || 0).toLocaleString() + '원';
+  const mfrById = useMemo(() => new Map(manufacturers.map(m => [m.id, m])), [manufacturers]);
+  const vendorName = (p) => p.manufacturer_id ? (mfrById.get(p.manufacturer_id)?.name || '') : '';
+
+  const toggle = async (payId, checked) => {
+    setSaving(true);
+    try {
+      // 체크: manufacturer_id=mfrId + confirmed=true / 해제: confirmed=false (manufacturer_id 보존)
+      const update = checked
+        ? { manufacturer_id: mfrId, confirmed: true }
+        : { confirmed: false };
+      await sb.from('payable_transactions').update(update).eq('id', payId);
+      await onChanged?.();
+    } catch (e) { alert('저장 실패: '+(e.message||e)); }
+    finally { setSaving(false); }
+  };
+
+  const isMine = (p) => p.manufacturer_id === mfrId && p.confirmed;
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = allPayTx.filter(p => {
+      if (!q) return true;
+      return (p.tx_date||'').includes(q)
+        || (p.memo||'').toLowerCase().includes(q)
+        || vendorName(p).toLowerCase().includes(q)
+        || String(p.amount||'').includes(q.replace(/[^0-9]/g,''));
+    });
+    return filtered.sort((a,b) => {
+      const aMine = isMine(a) ? 1 : 0;
+      const bMine = isMine(b) ? 1 : 0;
+      if (aMine !== bMine) return bMine - aMine;
+      return (b.tx_date||'').localeCompare(a.tx_date||'');
+    }).slice(0, 200);
+  }, [allPayTx, search, mfrId]);
+
+  const minePool = allPayTx.filter(isMine);
+  const matchedCount = minePool.length;
+  const matchedSum = minePool.reduce((s,p)=>s+Number(p.amount||0),0);
+
+  return (
+    <ModalShell title={`📤 ${mfrName} — 송금 내역 선택`} onClose={onClose} wide z={60}>
+      <div className="flex flex-col" style={{height:'520px'}}>
+        <div className="flex items-center gap-2 mb-3 shrink-0">
+          <div className="text-xs text-slate-600">
+            묶인 송금 <span className="font-bold text-emerald-700">{matchedCount}건</span> · <span className="tnum">{fmt(matchedSum)}</span>
+          </div>
+          <input type="text" value={search} onChange={e=>setSearch(e.target.value)} autoFocus
+            placeholder="날짜·금액·메모·거래처 검색"
+            className="ml-auto border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"/>
+        </div>
+        <div className="flex-1 overflow-y-auto border border-slate-100 rounded">
+          {list.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-400">송금 내역이 없습니다.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-[10px] text-slate-500 sticky top-0">
+                <tr>
+                  <th className="px-2 py-1.5 w-10"></th>
+                  <th className="px-2 py-1.5 text-left">송금일</th>
+                  <th className="px-2 py-1.5 text-right">금액</th>
+                  <th className="px-2 py-1.5 text-left">메모</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map(p => {
+                  const mine = isMine(p);
+                  return (
+                    <tr key={p.id} className={`border-t border-slate-100 hover:bg-slate-50 ${mine ? 'bg-emerald-50' : ''}`}>
+                      <td className="px-2 py-1.5 text-center">
+                        <input type="checkbox" checked={mine} disabled={saving}
+                          onChange={e => toggle(p.id, e.target.checked)} className="cursor-pointer"/>
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{p.tx_date}</td>
+                      <td className="px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap">{fmt(p.amount)}</td>
+                      <td className="px-2 py-1.5 text-slate-600 break-words" title={p.memo}>{p.memo || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="text-[10px] text-slate-400 mt-2 shrink-0">
+          ※ 체크하면 그 송금이 이 거래처에 묶입니다. 다른 거래처에 묶인 것도 체크하면 이쪽으로 옮겨집니다.
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -11356,7 +11619,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'entry' ? (
             <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} expectedRev={expectedRev} onReload={reload} showToast={showToast} />
           ) : tab === 'cashflow' ? (
-            <CashflowTab contracts={contracts} hospitals={hospitals} />
+            <CashflowTab contracts={contracts} hospitals={hospitals} manufacturers={manufacturers} />
           ) : tab === 'taxinv' ? (
             <TaxInvoiceTab />
           ) : tab === 'report' ? (

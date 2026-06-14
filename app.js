@@ -7455,25 +7455,33 @@ function TaxInvoiceTab() {
       className: `px-3 py-1 text-xs rounded transition-colors ${kindFilter === t.k ? "bg-slate-900 text-white font-semibold" : "text-slate-600 hover:bg-slate-50"}`
     },
     t.l
-  ))), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-500 ml-auto" }, sorted.length, "\uAC74 / \uC804\uCCB4 ", rows.length)), loading ? /* @__PURE__ */ React.createElement("div", { className: "p-12 text-center text-slate-400 text-sm" }, "\uBD88\uB7EC\uC624\uB294 \uC911...") : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-lg border border-slate-200 overflow-hidden" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100 sticky top-0" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-center w-16" }, "\uC885\uB958"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-left w-32" }, "\uBC1C\uAE09\uC77C\uC790"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-left" }, "\uC0C1\uD638"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-40" }, "\uD569\uACC4\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-center w-12" }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, className: "px-3 py-12 text-center text-slate-400 text-xs" }, "\uB4F1\uB85D\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")) : sorted.map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.id, className: "border-t border-slate-100 hover:bg-slate-50" }, /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-center" }, r.kind === "sale" ? /* @__PURE__ */ React.createElement("span", { className: "inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded" }, "\uB9E4\uCD9C") : /* @__PURE__ */ React.createElement("span", { className: "inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded" }, "\uB9E4\uC785")), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 font-mono text-xs text-slate-600" }, r.issue_date), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-slate-800" }, r.party_name), /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-right tnum font-medium ${r.kind === "sale" ? "text-emerald-700" : "text-rose-700"}` }, fmt(r.amount)), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(r.id), className: "text-slate-300 hover:text-rose-500 text-xs" }, "\u2715"))))))));
+  ))), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-500 ml-auto" }, sorted.length, "\uAC74 / \uC804\uCCB4 ", rows.length)), loading ? /* @__PURE__ */ React.createElement("div", { className: "p-12 text-center text-slate-400 text-sm" }, "\uBD88\uB7EC\uC624\uB294 \uC911...") : /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-lg border border-slate-200 overflow-hidden" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-100 sticky top-0" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-center w-16" }, "\uC885\uB958"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-left w-32" }, "\uBC1C\uAE09\uC77C\uC790"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-left" }, "\uC0C1\uD638"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-40" }, "\uD569\uACC4\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-center w-12" }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.length === 0 ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, className: "px-3 py-12 text-center text-slate-400 text-xs" }, "\uB4F1\uB85D\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")) : sorted.map((r) => {
+    const matched = !!r.matched_payment_id;
+    return /* @__PURE__ */ React.createElement("tr", { key: r.id, className: `border-t border-slate-100 hover:bg-slate-50 ${matched ? "opacity-40" : ""}`, title: matched ? "\uC1A1\uAE08\uC5D0 \uB9E4\uCE6D\uB428 (\uC790\uAE08\uD750\uB984\uC5D0\uC11C \uD574\uC81C \uAC00\uB2A5)" : "" }, /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-center" }, r.kind === "sale" ? /* @__PURE__ */ React.createElement("span", { className: "inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded" }, "\uB9E4\uCD9C") : /* @__PURE__ */ React.createElement("span", { className: "inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded" }, "\uB9E4\uC785", matched && " \u2713")), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 font-mono text-xs text-slate-600" }, r.issue_date), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-slate-800" }, r.party_name), /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-right tnum font-medium ${r.kind === "sale" ? "text-emerald-700" : "text-rose-700"}` }, fmt(r.amount)), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(r.id), className: "text-slate-300 hover:text-rose-500 text-xs" }, "\u2715")));
+  })))));
 }
-function CashflowTab({ contracts = [], hospitals = [] }) {
+function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const [pos, setPos] = useState([]);
   const [recvTx, setRecvTx] = useState([]);
   const [payTx, setPayTx] = useState([]);
+  const [taxInv, setTaxInv] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openHosps, setOpenHosps] = useState({});
+  const [selectingTaxFor, setSelectingTaxFor] = useState(null);
+  const [selectingPayFor, setSelectingPayFor] = useState(null);
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poRes, recvRes, payRes] = await Promise.all([
+      const [poRes, recvRes, payRes, tiRes] = await Promise.all([
         sb.from("purchase_orders").select("id, po_no, contract_id, manufacturer_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)").eq("is_active", true),
         sb.from("receivable_transactions").select("*").eq("tx_type", "collect").order("tx_date", { ascending: true }),
-        sb.from("payable_transactions").select("*").eq("tx_type", "payment").order("tx_date", { ascending: true })
+        sb.from("payable_transactions").select("*").eq("tx_type", "payment").order("tx_date", { ascending: true }),
+        sb.from("tax_invoices").select("id, manufacturer_id, issue_date, amount, party_name, matched_payment_id, confirmed").eq("kind", "purchase").order("issue_date", { ascending: false })
       ]);
       setPos(poRes.data || []);
       setRecvTx(recvRes.data || []);
       setPayTx(payRes.data || []);
+      setTaxInv(tiRes.data || []);
     } finally {
       setLoading(false);
     }
@@ -7502,11 +7510,23 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
   const payByVendorId = useMemo(() => {
     const m = /* @__PURE__ */ new Map();
     payTx.forEach((t) => {
+      if (!t.manufacturer_id || !t.confirmed) return;
       if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, []);
       m.get(t.manufacturer_id).push(t);
     });
     return m;
   }, [payTx]);
+  const taxByVendor = useMemo(() => {
+    const m = /* @__PURE__ */ new Map();
+    taxInv.forEach((t) => {
+      if (!t.manufacturer_id || !t.confirmed) return;
+      if (!m.has(t.manufacturer_id)) m.set(t.manufacturer_id, { count: 0, sum: 0 });
+      const v = m.get(t.manufacturer_id);
+      v.count++;
+      v.sum += Number(t.amount) || 0;
+    });
+    return m;
+  }, [taxInv]);
   const byHosp = useMemo(() => {
     const m = /* @__PURE__ */ new Map();
     pos.forEach((p) => {
@@ -7680,18 +7700,168 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
         className: "px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-semibold"
       },
       "+ \uC785\uAE08"
-    ))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-lg border border-rose-100 p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-semibold text-rose-700 mb-2" }, "\u{1F4E4} \uB098\uAC08 \uB3C8"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-sm font-semibold mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "text-rose-700" }, "\u{1F4B5} \uB9E4\uC785\uAE08\uC561 (\uC804\uCCB4)"), /* @__PURE__ */ React.createElement("span", { className: "tnum text-rose-700" }, fmt(g.outflowTotal))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-xs mb-1 text-amber-600" }, /* @__PURE__ */ React.createElement("span", null, "\u{1F4C4} \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1B\uC74C"), /* @__PURE__ */ React.createElement("span", { className: "tnum" }, fmt(g.outflowInvoiced))), g.totalSentOut > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-xs mb-1 text-slate-500" }, /* @__PURE__ */ React.createElement("span", null, "\u2705 \uC1A1\uAE08 \uB204\uC801"), /* @__PURE__ */ React.createElement("span", { className: "tnum" }, "\u2212", fmt(g.totalSentOut))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-sm font-bold border-t border-rose-200 pt-2 mt-2" }, /* @__PURE__ */ React.createElement("span", { className: g.outflowRemaining > 0 ? "text-rose-700" : "text-slate-400 line-through" }, "= \uC904 \uB3C8"), /* @__PURE__ */ React.createElement("span", { className: `tnum ${g.outflowRemaining > 0 ? "text-rose-700" : "text-slate-400 line-through"}` }, fmt(g.outflowRemaining))), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-2 pt-2 border-t border-slate-100" }, "\u203B \uC1A1\uAE08\uC740 \uC544\uB798 \uAC70\uB798\uCC98\uBCC4 \uD45C\uC5D0\uC11C [\uD655\uC778] \uBC84\uD2BC\uC73C\uB85C \uCC98\uB9AC"))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-lg border border-slate-100 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "px-3 py-2 bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-100" }, "\u{1F3ED} \uAC70\uB798\uCC98\uBCC4 \uB9E4\uC785 \uBD84\uD3EC"), /* @__PURE__ */ React.createElement("table", { className: "w-full text-xs" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-white text-slate-500 text-[10px] uppercase border-b border-slate-100" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-left" }, "\uAC70\uB798\uCC98"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-32" }, "\u{1F4B5} \uB9E4\uC785\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-32" }, "\u{1F4C4} \uC138\uAE08\uACC4\uC0B0\uC11C"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-40" }, "\uC1A1\uAE08 \uB0B4\uC5ED"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-32" }, "\uBBF8\uC815\uC0B0"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-center w-20" }))), /* @__PURE__ */ React.createElement("tbody", null, g.vendors.map((v) => {
+    ))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-lg border border-rose-100 p-3" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] font-semibold text-rose-700 mb-2" }, "\u{1F4E4} \uB098\uAC08 \uB3C8"), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-sm font-semibold mb-1" }, /* @__PURE__ */ React.createElement("span", { className: "text-rose-700" }, "\u{1F4B5} \uB9E4\uC785\uAE08\uC561 (\uC804\uCCB4)"), /* @__PURE__ */ React.createElement("span", { className: "tnum text-rose-700" }, fmt(g.outflowTotal))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-xs mb-1 text-amber-600" }, /* @__PURE__ */ React.createElement("span", null, "\u{1F4C4} \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1B\uC74C"), /* @__PURE__ */ React.createElement("span", { className: "tnum" }, fmt(g.outflowInvoiced))), g.totalSentOut > 0 && /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-xs mb-1 text-slate-500" }, /* @__PURE__ */ React.createElement("span", null, "\u2705 \uC1A1\uAE08 \uB204\uC801"), /* @__PURE__ */ React.createElement("span", { className: "tnum" }, "\u2212", fmt(g.totalSentOut))), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-sm font-bold border-t border-rose-200 pt-2 mt-2" }, /* @__PURE__ */ React.createElement("span", { className: g.outflowRemaining > 0 ? "text-rose-700" : "text-slate-400 line-through" }, "= \uC904 \uB3C8"), /* @__PURE__ */ React.createElement("span", { className: `tnum ${g.outflowRemaining > 0 ? "text-rose-700" : "text-slate-400 line-through"}` }, fmt(g.outflowRemaining))), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-2 pt-2 border-t border-slate-100" }, "\u203B \uC1A1\uAE08\uC740 \uC544\uB798 \uAC70\uB798\uCC98\uBCC4 \uD45C\uC5D0\uC11C [\uD655\uC778] \uBC84\uD2BC\uC73C\uB85C \uCC98\uB9AC"))), /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-lg border border-slate-100 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "px-3 py-2 bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-100" }, "\u{1F3ED} \uAC70\uB798\uCC98\uBCC4 \uB9E4\uC785 \uBD84\uD3EC"), /* @__PURE__ */ React.createElement("table", { className: "w-full text-xs" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-white text-slate-500 text-[10px] uppercase border-b border-slate-100" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-left" }, "\uAC70\uB798\uCC98"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-32" }, "\u{1F4B5} \uB9E4\uC785\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-48" }, "\u{1F4C4} \uC138\uAE08\uACC4\uC0B0\uC11C"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-48" }, "\uC1A1\uAE08 \uB0B4\uC5ED"), /* @__PURE__ */ React.createElement("th", { className: "px-3 py-2 text-right w-32" }, "\uBBF8\uC815\uC0B0"))), /* @__PURE__ */ React.createElement("tbody", null, g.vendors.map((v) => {
       const settled = v.outflowRemaining === 0 && v.outflowTotal > 0;
-      return /* @__PURE__ */ React.createElement("tr", { key: v.vendor, className: `border-t border-slate-100 ${settled ? "opacity-60" : ""}` }, /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-slate-800 ${settled ? "line-through" : ""}` }, v.vendor, " ", /* @__PURE__ */ React.createElement("span", { className: "text-slate-400" }, "(", v.poCount, ")")), /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-right tnum text-rose-700 font-medium ${settled ? "line-through" : ""}` }, fmt(v.outflowTotal)), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-right tnum text-amber-600" }, v.outflowInvoiced ? fmt(v.outflowInvoiced) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-right text-[10px] text-slate-500" }, v.sentTx.length === 0 ? "\u2014" : /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-end gap-0.5" }, v.sentTx.map((tx, i) => /* @__PURE__ */ React.createElement("div", { key: tx.id }, i + 1, "\uCC28 ", tx.tx_date, " \xB7 ", fmt(tx.amount))))), /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-right tnum font-semibold ${v.outflowRemaining > 0 ? "text-rose-700" : "text-slate-300"}` }, v.outflowRemaining > 0 ? fmt(v.outflowRemaining) : "\uC644\uB8CC"), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-center" }, v.outflowRemaining > 0 && /* @__PURE__ */ React.createElement(
+      const taxInfo = v.mfrId && taxByVendor.get(v.mfrId) || { count: 0, sum: 0, matchedCount: 0, matchedSum: 0 };
+      const taxBtnLabel = taxInfo.count > 0 ? `\u2713 ${taxInfo.count}\uAC74` : "\u{1F4CB} \uC870\uD68C";
+      const payBtnLabel = v.sentTx.length > 0 ? `\u2713 ${v.sentTx.length}\uAC74` : "\u{1F4CB} \uC870\uD68C";
+      const taxBtnClass = taxInfo.count > 0 ? "px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0" : "px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0";
+      const payBtnClass = v.sentTx.length > 0 ? "px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0" : "px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0";
+      return /* @__PURE__ */ React.createElement("tr", { key: v.vendor, className: `border-t border-slate-100 ${settled ? "opacity-60" : ""}` }, /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-slate-800 ${settled ? "line-through" : ""}` }, v.vendor, " ", /* @__PURE__ */ React.createElement("span", { className: "text-slate-400" }, "(", v.poCount, ")")), /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-right tnum text-rose-700 font-medium ${settled ? "line-through" : ""}` }, fmt(v.outflowTotal)), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-right" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-end gap-2" }, taxInfo.count > 0 ? /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-amber-700 font-medium tnum" }, fmt(taxInfo.sum)) : /* @__PURE__ */ React.createElement("span", { className: "text-slate-300 text-[10px]" }, "\uC5C6\uC74C"), v.mfrId && /* @__PURE__ */ React.createElement(
         "button",
         {
-          onClick: () => confirmPayment(v.mfrId, v.vendor, v.outflowRemaining),
-          className: "px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-[10px] font-semibold"
+          onClick: () => setSelectingTaxFor({ id: v.mfrId, name: v.vendor }),
+          className: taxBtnClass
         },
-        "\u2713 \uD655\uC778"
-      )));
+        taxBtnLabel
+      ))), /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 text-right" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-end gap-2" }, v.sentTx.length === 0 ? /* @__PURE__ */ React.createElement("span", { className: "text-slate-300 text-[10px]" }, "\uC5C6\uC74C") : /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-end gap-0.5 text-[10px] text-slate-600" }, v.sentTx.map((tx, i) => /* @__PURE__ */ React.createElement("div", { key: tx.id }, i + 1, "\uCC28 ", tx.tx_date, " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: "tnum" }, fmt(tx.amount))))), v.mfrId && /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setSelectingPayFor({ id: v.mfrId, name: v.vendor }),
+          className: payBtnClass
+        },
+        payBtnLabel
+      ))), /* @__PURE__ */ React.createElement("td", { className: `px-3 py-1.5 text-right tnum font-semibold ${v.outflowRemaining > 0 ? "text-rose-700" : "text-slate-300"}` }, v.outflowRemaining > 0 ? fmt(v.outflowRemaining) : "\uC644\uB8CC"));
     }))))));
-  })), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-400 text-center pt-2 pb-2" }, "\u203B \uD65C\uC131 \uBC1C\uC8FC(is_active=true)\uC758 \uB9E4\uC785/\uB9E4\uCD9C \uB2E8\uAC00\uB9CC \uC9D1\uACC4\uD569\uB2C8\uB2E4. \uC138\uAE08\uACC4\uC0B0\uC11C\xB7\uC1A1\uAE08\uC740 \uB3C5\uB9BD \uCCB4\uD06C\uBC15\uC2A4 (\uC911\uBCF5 \uAC00\uC0B0)."));
+  })), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-400 text-center pt-2 pb-2" }, "\u203B \uD65C\uC131 \uBC1C\uC8FC(is_active=true)\uC758 \uB9E4\uC785/\uB9E4\uCD9C \uB2E8\uAC00\uB9CC \uC9D1\uACC4\uD569\uB2C8\uB2E4. \uC138\uAE08\uACC4\uC0B0\uC11C\xB7\uC1A1\uAE08\uC740 \uB3C5\uB9BD \uCCB4\uD06C\uBC15\uC2A4 (\uC911\uBCF5 \uAC00\uC0B0)."), selectingTaxFor && /* @__PURE__ */ React.createElement(
+    TaxSelectModal,
+    {
+      mfrId: selectingTaxFor.id,
+      mfrName: selectingTaxFor.name,
+      allTaxInv: taxInv,
+      manufacturers,
+      onClose: () => setSelectingTaxFor(null),
+      onChanged: reload
+    }
+  ), selectingPayFor && /* @__PURE__ */ React.createElement(
+    PaymentSelectModal,
+    {
+      mfrId: selectingPayFor.id,
+      mfrName: selectingPayFor.name,
+      allPayTx: payTx,
+      manufacturers,
+      onClose: () => setSelectingPayFor(null),
+      onChanged: reload
+    }
+  ));
+}
+function TaxSelectModal({ mfrId, mfrName, allTaxInv, manufacturers = [], onClose, onChanged }) {
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const fmt = (n) => (n || 0).toLocaleString() + "\uC6D0";
+  const mfrById = useMemo(() => new Map(manufacturers.map((m) => [m.id, m])), [manufacturers]);
+  const vendorName = (t) => t.manufacturer_id ? mfrById.get(t.manufacturer_id)?.name || "" : "";
+  const toggle = async (taxId, checked) => {
+    setSaving(true);
+    try {
+      const update = checked ? { manufacturer_id: mfrId, confirmed: true } : { confirmed: false };
+      await sb.from("tax_invoices").update(update).eq("id", taxId);
+      await onChanged?.();
+    } catch (e) {
+      alert("\uC800\uC7A5 \uC2E4\uD328: " + (e.message || e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const isMine = (t) => t.manufacturer_id === mfrId && t.confirmed;
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = allTaxInv.filter((t) => t.kind === "purchase" || !t.kind).filter((t) => {
+      if (!q) return true;
+      return (t.issue_date || "").includes(q) || (t.party_name || "").toLowerCase().includes(q) || vendorName(t).toLowerCase().includes(q) || String(t.amount || "").includes(q.replace(/[^0-9]/g, ""));
+    });
+    return filtered.sort((a, b) => {
+      const aMine = isMine(a) ? 1 : 0;
+      const bMine = isMine(b) ? 1 : 0;
+      if (aMine !== bMine) return bMine - aMine;
+      return (b.issue_date || "").localeCompare(a.issue_date || "");
+    });
+  }, [allTaxInv, search, mfrId]);
+  const minePool = allTaxInv.filter(isMine);
+  const matchedCount = minePool.length;
+  const matchedSum = minePool.reduce((s, t) => s + Number(t.amount || 0), 0);
+  return /* @__PURE__ */ React.createElement(ModalShell, { title: `\u{1F4C4} ${mfrName} \u2014 \uC138\uAE08\uACC4\uC0B0\uC11C \uC120\uD0DD`, onClose, wide: true, z: 60 }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col", style: { height: "520px" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-3 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-600" }, "\uBB36\uC778 \uC138\uAE08\uACC4\uC0B0\uC11C ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-emerald-700" }, matchedCount, "\uAC74"), " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: "tnum" }, fmt(matchedSum))), /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "text",
+      value: search,
+      onChange: (e) => setSearch(e.target.value),
+      autoFocus: true,
+      placeholder: "\uB0A0\uC9DC\xB7\uC138\uAE08\uACC4\uC0B0\uC11C \uC0C1\uD638\xB7\uB9C8\uC2A4\uD130 \uAC70\uB798\uCC98\uBA85\xB7\uAE08\uC561",
+      className: "ml-auto border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"
+    }
+  )), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto border border-slate-100 rounded" }, list.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "p-6 text-center text-xs text-slate-400" }, "\uC138\uAE08\uACC4\uC0B0\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.") : /* @__PURE__ */ React.createElement("table", { className: "w-full text-xs" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-[10px] text-slate-500 sticky top-0" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 w-10" }), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uBC1C\uAE09\uC77C"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uC0C1\uD638"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-right" }, "\uAE08\uC561"))), /* @__PURE__ */ React.createElement("tbody", null, list.map((t) => {
+    const mine = isMine(t);
+    return /* @__PURE__ */ React.createElement("tr", { key: t.id, className: `border-t border-slate-100 hover:bg-slate-50 ${mine ? "bg-emerald-50" : ""}` }, /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-center" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "checkbox",
+        checked: mine,
+        disabled: saving,
+        onChange: (e) => toggle(t.id, e.target.checked),
+        className: "cursor-pointer"
+      }
+    )), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-700 whitespace-nowrap" }, t.issue_date), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-800", title: t.party_name }, t.party_name), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap" }, fmt(t.amount)));
+  })))), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-2 shrink-0" }, "\u203B \uCCB4\uD06C\uD558\uBA74 \uADF8 \uC138\uAE08\uACC4\uC0B0\uC11C\uAC00 \uC774 \uAC70\uB798\uCC98\uC5D0 \uBB36\uC785\uB2C8\uB2E4. \uB2E4\uB978 \uAC70\uB798\uCC98\uC5D0 \uBB36\uC778 \uAC83\uB3C4 \uCCB4\uD06C\uD558\uBA74 \uC774\uCABD\uC73C\uB85C \uC62E\uACA8\uC9D1\uB2C8\uB2E4.")));
+}
+function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onClose, onChanged }) {
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const fmt = (n) => (n || 0).toLocaleString() + "\uC6D0";
+  const mfrById = useMemo(() => new Map(manufacturers.map((m) => [m.id, m])), [manufacturers]);
+  const vendorName = (p) => p.manufacturer_id ? mfrById.get(p.manufacturer_id)?.name || "" : "";
+  const toggle = async (payId, checked) => {
+    setSaving(true);
+    try {
+      const update = checked ? { manufacturer_id: mfrId, confirmed: true } : { confirmed: false };
+      await sb.from("payable_transactions").update(update).eq("id", payId);
+      await onChanged?.();
+    } catch (e) {
+      alert("\uC800\uC7A5 \uC2E4\uD328: " + (e.message || e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const isMine = (p) => p.manufacturer_id === mfrId && p.confirmed;
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = allPayTx.filter((p) => {
+      if (!q) return true;
+      return (p.tx_date || "").includes(q) || (p.memo || "").toLowerCase().includes(q) || vendorName(p).toLowerCase().includes(q) || String(p.amount || "").includes(q.replace(/[^0-9]/g, ""));
+    });
+    return filtered.sort((a, b) => {
+      const aMine = isMine(a) ? 1 : 0;
+      const bMine = isMine(b) ? 1 : 0;
+      if (aMine !== bMine) return bMine - aMine;
+      return (b.tx_date || "").localeCompare(a.tx_date || "");
+    }).slice(0, 200);
+  }, [allPayTx, search, mfrId]);
+  const minePool = allPayTx.filter(isMine);
+  const matchedCount = minePool.length;
+  const matchedSum = minePool.reduce((s, p) => s + Number(p.amount || 0), 0);
+  return /* @__PURE__ */ React.createElement(ModalShell, { title: `\u{1F4E4} ${mfrName} \u2014 \uC1A1\uAE08 \uB0B4\uC5ED \uC120\uD0DD`, onClose, wide: true, z: 60 }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col", style: { height: "520px" } }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-3 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-600" }, "\uBB36\uC778 \uC1A1\uAE08 ", /* @__PURE__ */ React.createElement("span", { className: "font-bold text-emerald-700" }, matchedCount, "\uAC74"), " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: "tnum" }, fmt(matchedSum))), /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "text",
+      value: search,
+      onChange: (e) => setSearch(e.target.value),
+      autoFocus: true,
+      placeholder: "\uB0A0\uC9DC\xB7\uAE08\uC561\xB7\uBA54\uBAA8\xB7\uAC70\uB798\uCC98 \uAC80\uC0C9",
+      className: "ml-auto border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"
+    }
+  )), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto border border-slate-100 rounded" }, list.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "p-6 text-center text-xs text-slate-400" }, "\uC1A1\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.") : /* @__PURE__ */ React.createElement("table", { className: "w-full text-xs" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-[10px] text-slate-500 sticky top-0" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 w-10" }), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uC1A1\uAE08\uC77C"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-right" }, "\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uBA54\uBAA8"))), /* @__PURE__ */ React.createElement("tbody", null, list.map((p) => {
+    const mine = isMine(p);
+    return /* @__PURE__ */ React.createElement("tr", { key: p.id, className: `border-t border-slate-100 hover:bg-slate-50 ${mine ? "bg-emerald-50" : ""}` }, /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-center" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "checkbox",
+        checked: mine,
+        disabled: saving,
+        onChange: (e) => toggle(p.id, e.target.checked),
+        className: "cursor-pointer"
+      }
+    )), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-700 whitespace-nowrap" }, p.tx_date), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap" }, fmt(p.amount)), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-600 break-words", title: p.memo }, p.memo || "\u2014"));
+  })))), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-2 shrink-0" }, "\u203B \uCCB4\uD06C\uD558\uBA74 \uADF8 \uC1A1\uAE08\uC774 \uC774 \uAC70\uB798\uCC98\uC5D0 \uBB36\uC785\uB2C8\uB2E4. \uB2E4\uB978 \uAC70\uB798\uCC98\uC5D0 \uBB36\uC778 \uAC83\uB3C4 \uCCB4\uD06C\uD558\uBA74 \uC774\uCABD\uC73C\uB85C \uC62E\uACA8\uC9D1\uB2C8\uB2E4.")));
 }
 function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
   const [tab, setTab] = useState("entry");
@@ -7885,7 +8055,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2.5 text-xs text-slate-600" }, lt ? /* @__PURE__ */ React.createElement("span", { className: "flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement(TypeBadge, { type: lt.tx_type }), /* @__PURE__ */ React.createElement("span", { className: "truncate max-w-[260px]", title: lt.memo || "" }, lt.memo || "\u2014")) : /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014")),
       /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2.5 text-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs text-blue-500" }, "\uC0C1\uC138 \u2192"))
     );
-  }), sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, className: "py-12 text-center text-slate-400 text-sm" }, "\uD45C\uC2DC\uD560 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4"))), sorted.length > 0 && /* @__PURE__ */ React.createElement("tfoot", { className: "bg-slate-100 font-semibold" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { className: "px-4 py-3" }, "\uD569 \uACC4"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-3 text-right" }, filtered.reduce((s, b) => s + (b.balance || 0), 0).toLocaleString()), /* @__PURE__ */ React.createElement("td", { colSpan: 3 })))))) : tab === "entry" ? /* @__PURE__ */ React.createElement(TransactionEntryTab, { balances, cashCurrent, hospitals, contracts, expectedRev, onReload: reload, showToast }) : tab === "cashflow" ? /* @__PURE__ */ React.createElement(CashflowTab, { contracts, hospitals }) : tab === "taxinv" ? /* @__PURE__ */ React.createElement(TaxInvoiceTab, null) : tab === "report" ? /* @__PURE__ */ React.createElement(PayableReportTab, { transactions, balances, cashLogs, arBalances, arTransactions, expectedRev, cashCurrent }) : /* @__PURE__ */ React.createElement(CashBalanceTable, { logs: cashLogs, onReload: reload, showToast })), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-400 text-center mt-4" }, "\uC815\uAE30 \uC9C0\uAE09\uC77C: \uB9E4\uC8FC \uC218\uC694\uC77C / \uAE08\uC694\uC77C (\uC548\uB0B4\uC6A9. \uC790\uB3D9 \uC9C0\uAE09\uC740 \uC218\uB3D9 \uC77C\uAD04 \uC785\uAE08\uC73C\uB85C \uCC98\uB9AC)")), purchaseModal && /* @__PURE__ */ React.createElement(
+  }), sorted.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, className: "py-12 text-center text-slate-400 text-sm" }, "\uD45C\uC2DC\uD560 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4"))), sorted.length > 0 && /* @__PURE__ */ React.createElement("tfoot", { className: "bg-slate-100 font-semibold" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { className: "px-4 py-3" }, "\uD569 \uACC4"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-3 text-right" }, filtered.reduce((s, b) => s + (b.balance || 0), 0).toLocaleString()), /* @__PURE__ */ React.createElement("td", { colSpan: 3 })))))) : tab === "entry" ? /* @__PURE__ */ React.createElement(TransactionEntryTab, { balances, cashCurrent, hospitals, contracts, expectedRev, onReload: reload, showToast }) : tab === "cashflow" ? /* @__PURE__ */ React.createElement(CashflowTab, { contracts, hospitals, manufacturers }) : tab === "taxinv" ? /* @__PURE__ */ React.createElement(TaxInvoiceTab, null) : tab === "report" ? /* @__PURE__ */ React.createElement(PayableReportTab, { transactions, balances, cashLogs, arBalances, arTransactions, expectedRev, cashCurrent }) : /* @__PURE__ */ React.createElement(CashBalanceTable, { logs: cashLogs, onReload: reload, showToast })), /* @__PURE__ */ React.createElement("div", { className: "text-xs text-slate-400 text-center mt-4" }, "\uC815\uAE30 \uC9C0\uAE09\uC77C: \uB9E4\uC8FC \uC218\uC694\uC77C / \uAE08\uC694\uC77C (\uC548\uB0B4\uC6A9. \uC790\uB3D9 \uC9C0\uAE09\uC740 \uC218\uB3D9 \uC77C\uAD04 \uC785\uAE08\uC73C\uB85C \uCC98\uB9AC)")), purchaseModal && /* @__PURE__ */ React.createElement(
     PurchaseAddModal,
     {
       balances,
