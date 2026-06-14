@@ -10866,17 +10866,6 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
     return r;
   };
 
-  // 전체 합산
-  const grand = useMemo(() => {
-    const t = tally(pos);
-    t.totalCollected = recvTx.reduce((s, r) => s + (Number(r.amount)||0), 0);
-    t.totalSentOut = payTx.reduce((s, r) => s + (Number(r.amount)||0), 0);
-    t.incomeRemaining = Math.max(0, t.incomeTotal - t.totalCollected);
-    t.outflowRemaining = Math.max(0, t.outflowTotal - t.totalSentOut);
-    t.net = t.incomeRemaining - t.outflowRemaining;
-    return t;
-  }, [pos, recvTx, payTx]);
-
   // 병원별 합산 + 거래처별 분할 + 입금 내역
   const hospEntries = useMemo(() => {
     return Array.from(byHosp.entries()).map(([hosp, poList]) => {
@@ -10907,6 +10896,17 @@ function CashflowTab({ contracts = [], hospitals = [] }) {
       return { hosp, hospId, poCount: poList.length, ...sums, incomes, vendors };
     }).sort((a,b) => b.incomeRemaining - a.incomeRemaining);
   }, [byHosp, recvByHospId, payByVendorId, hospByContract, hospIdByName]);
+
+  // 전체 합산 — 활성 PO 기준, 미정산 매입은 거래처별 매칭(hospEntries) 결과를 합산
+  const grand = useMemo(() => {
+    const t = tally(pos);
+    t.totalCollected = hospEntries.reduce((s, h) => s + (h.totalCollected||0), 0);
+    t.totalSentOut = hospEntries.reduce((s, h) => s + (h.totalSentOut||0), 0);
+    t.incomeRemaining = Math.max(0, t.incomeTotal - t.totalCollected);
+    t.outflowRemaining = hospEntries.reduce((s, h) => s + (h.outflowRemaining||0), 0);
+    t.net = t.incomeRemaining - t.outflowRemaining;
+    return t;
+  }, [pos, hospEntries]);
 
   const today = new Date().toISOString().slice(0,10);
   const [collectInputs, setCollectInputs] = useState({}); // hospName → { date, amount }
