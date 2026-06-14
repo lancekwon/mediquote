@@ -11229,9 +11229,14 @@ function TaxSelectModal({ mfrId, mfrName, allTaxInv, manufacturers = [], onClose
           <div className="text-xs text-slate-600">
             묶인 세금계산서 <span className="font-bold text-emerald-700">{matchedCount}건</span> · <span className="tnum">{fmt(matchedSum)}</span>
           </div>
-          <input type="text" value={search} onChange={e=>setSearch(e.target.value)} autoFocus
-            placeholder="날짜·세금계산서 상호·마스터 거래처명·금액"
-            className="ml-auto border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"/>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] text-slate-400">state:'<b className="text-rose-600">{search}</b>' / 표시 <b className="text-slate-700">{list.length}</b>건</span>
+            <input type="text" value={search}
+              onChange={e=>setSearch(e.target.value)}
+              placeholder="날짜·상호·거래처명·금액"
+              className="border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"/>
+            {search && <button onClick={()=>setSearch('')} className="text-[10px] text-slate-400 hover:text-slate-700">✕ 지움</button>}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto border border-slate-100 rounded">
           {list.length === 0 ? (
@@ -11326,9 +11331,14 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
           <div className="text-xs text-slate-600">
             묶인 송금 <span className="font-bold text-emerald-700">{matchedCount}건</span> · <span className="tnum">{fmt(matchedSum)}</span>
           </div>
-          <input type="text" value={search} onChange={e=>setSearch(e.target.value)} autoFocus
-            placeholder="날짜·금액·메모·거래처 검색"
-            className="ml-auto border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"/>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] text-slate-400">state:'<b className="text-rose-600">{search}</b>' / 표시 <b className="text-slate-700">{list.length}</b>건</span>
+            <input type="text" value={search}
+              onChange={e=>setSearch(e.target.value)}
+              placeholder="날짜·금액·메모·거래처"
+              className="border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"/>
+            {search && <button onClick={()=>setSearch('')} className="text-[10px] text-slate-400 hover:text-slate-700">✕ 지움</button>}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto border border-slate-100 rounded">
           {list.length === 0 ? (
