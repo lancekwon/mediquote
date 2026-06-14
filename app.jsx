@@ -5666,6 +5666,8 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   const [planItems, setPlanItems] = React.useState([]); // 편집 가능한 발주 계획 항목
   const [hospitalAddress, setHospitalAddress] = React.useState('');
   const [hospitalRow, setHospitalRow] = React.useState(null);
+  const [hospitalPickerOpen, setHospitalPickerOpen] = React.useState(false);
+  const [hospitalMustPick, setHospitalMustPick] = React.useState(false); // 진입 강제
   const [kakaoModal, setKakaoModal] = React.useState(null); // { vendor, text }
   const [deliveryDate, setDeliveryDate] = React.useState('');
   const [dirty, setDirty] = React.useState(false); // 저장 안 한 변경 여부
@@ -5757,6 +5759,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         } else if (hospId) {
           const { data: hRow } = await sb.from('hospitals').select('*').eq('id', hospId).maybeSingle();
           if (hRow) { setHospitalRow(hRow); setHospitalAddress(hRow.address || ''); }
+        }
+
+        // 마스터 정책: 발주계획서 진입 시 hospital_id 없으면 강제 선택
+        if (!hospId) {
+          setHospitalMustPick(true);
+          setHospitalPickerOpen(true);
         }
 
         // ── 발주 독립 모델 ──
@@ -6752,6 +6760,35 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           item={itemMemoModal.item}
           onSave={(text) => { setItem(itemMemoModal.key, { memo: text }); setItemMemoModal(null); }}
           onClose={() => setItemMemoModal(null)}
+        />
+      )}
+      {hospitalPickerOpen && (
+        <VendorPickerModal
+          allowedKinds="hospital"
+          defaultFilter="hospital"
+          onClose={() => {
+            if (hospitalMustPick) {
+              if (!confirm('병원을 선택하지 않으면 발주계획서를 진행할 수 없습니다. 영업관리로 돌아갈까요?')) return;
+              onBack?.();
+            } else {
+              setHospitalPickerOpen(false);
+            }
+          }}
+          onSelect={async (it) => {
+            try {
+              // contract / lead 양쪽 update
+              if (contract?.id) await sb.from('contracts').update({ hospital_id: it.id, hospital_name: it.name }).eq('id', contract.id);
+              if (lead?.id) await sb.from('leads').update({ hospital_id: it.id, hospital_name: it.name }).eq('id', lead.id);
+              setContract(p => p ? { ...p, hospital_id: it.id, hospital_name: it.name } : p);
+              // hospital row 로드 후 주소 채움
+              const { data: hRow } = await sb.from('hospitals').select('*').eq('id', it.id).maybeSingle();
+              if (hRow) { setHospitalRow(hRow); setHospitalAddress(hRow.address || ''); }
+              // 부모 lead state 갱신
+              onLeadUpdate?.(lead?.id, { hospital_id: it.id, hospital_name: it.name });
+              setHospitalMustPick(false);
+              setHospitalPickerOpen(false);
+            } catch (e) { alert('병원 연결 실패: ' + (e.message||e)); }
+          }}
         />
       )}
       {vendorPickFor && (
