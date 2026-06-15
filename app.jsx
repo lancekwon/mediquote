@@ -11354,12 +11354,14 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
                   <th className="px-2 py-1.5 w-10"></th>
                   <th className="px-2 py-1.5 text-left">송금일</th>
                   <th className="px-2 py-1.5 text-right">금액</th>
+                  <th className="px-2 py-1.5 text-left">거래처</th>
                   <th className="px-2 py-1.5 text-left">메모</th>
                 </tr>
               </thead>
               <tbody>
                 {list.map(p => {
                   const mine = isMine(p);
+                  const vname = p.manufacturer_id ? (manufacturers.find(m=>m.id===p.manufacturer_id)?.name || '') : '';
                   return (
                     <tr key={p.id} className={`border-t border-slate-100 hover:bg-slate-50 ${mine ? 'bg-emerald-50' : ''}`}>
                       <td className="px-2 py-1.5 text-center">
@@ -11368,7 +11370,8 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
                       </td>
                       <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{p.tx_date}</td>
                       <td className="px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap">{fmt(p.amount)}</td>
-                      <td className="px-2 py-1.5 text-slate-600 break-words" title={p.memo}>{p.memo || '—'}</td>
+                      <td className="px-2 py-1.5 text-slate-800" title={vname}>{vname || <span className="text-slate-300">—</span>}</td>
+                      <td className="px-2 py-1.5 text-slate-600 break-words" title={p.memo}>{p.memo || <span className="text-slate-300">—</span>}</td>
                     </tr>
                   );
                 })}
@@ -11708,6 +11711,21 @@ const parseCashTag = (memo) => {
   if (!m) return { tag: null, body: memo || '' };
   return { tag: m[1].trim(), body: m[2].trim().replace(/^—\s*/, '') };
 };
+// counterparty/entry_type/memo 컬럼이 있으면 그걸, 없으면 옛 memo 파싱 — 통합 행 표시용
+const cashRowDisplay = (l) => {
+  if (l.counterparty || l.entry_type) {
+    // 새 입력: 분리 저장됨
+    return { tag: l.entry_type || '', counterparty: l.counterparty || '', body: l.memo || '' };
+  }
+  // 옛 입력: memo에 합쳐짐 → 정규식 파싱
+  const { tag, body } = parseCashTag(l.memo);
+  // "거래처 — 메모" 형태에서 — 기준 분리
+  const dashIdx = body.indexOf(' — ');
+  if (dashIdx > 0) {
+    return { tag: tag || '', counterparty: body.slice(0, dashIdx), body: body.slice(dashIdx + 3) };
+  }
+  return { tag: tag || '', counterparty: body, body: '' };
+};
 
 function CashBalanceTable({ logs, onReload, showToast }) {
   const [search, setSearch] = useState('');
@@ -11739,7 +11757,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return logs.filter(l => {
-      if (q && !(l.memo || '').toLowerCase().includes(q)) return false;
+      if (q && !((l.memo || '').toLowerCase().includes(q) || (l.counterparty || '').toLowerCase().includes(q))) return false;
       if (tagFilter !== 'all') {
         const { tag } = parseCashTag(l.memo);
         if (tag !== tagFilter) return false;
@@ -11812,7 +11830,8 @@ function CashBalanceTable({ logs, onReload, showToast }) {
             <th className="px-4 py-2.5 text-left w-32">유형</th>
             <th className="px-4 py-2.5 text-right w-32">증감</th>
             <th className="px-4 py-2.5 text-right w-32">잔액</th>
-            <th className="px-4 py-2.5 text-left">내용</th>
+            <th className="px-4 py-2.5 text-left w-48">거래처</th>
+            <th className="px-4 py-2.5 text-left">메모</th>
             <th className="px-4 py-2.5 text-center w-16"></th>
           </tr>
         </thead>
@@ -11820,11 +11839,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
           {viewMode === 'time' ? (
             <>
               {filtered.map(l => {
-                const { tag, body } = parseCashTag(l.memo);
+                const { tag, counterparty, body } = cashRowDisplay(l);
                 const style = tag ? (CASH_TAG_STYLE[tag] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
                 return (
                   <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
+                    <td className="px-4 py-2 text-slate-700 text-xs whitespace-nowrap">{l.log_date}</td>
                     <td className="px-4 py-2">
                       {tag ? (
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
@@ -11836,8 +11855,9 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                     <td className="px-4 py-2 text-right font-mono text-slate-800">
                       {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
                     </td>
+                    <td className="px-4 py-2 text-slate-800 text-xs">{counterparty || <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-2 text-slate-600 text-xs">
-                      {body || '—'}
+                      {body || <span className="text-slate-300">—</span>}
                       {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
                     </td>
                     <td className="px-4 py-2 text-center">
@@ -11847,7 +11867,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
               )}
             </>
           ) : (
@@ -11860,7 +11880,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                   <React.Fragment key={g.tag}>
                     <tr className="bg-slate-50 border-t-2 border-slate-300 cursor-pointer hover:bg-slate-100"
                       onClick={() => setCollapsed(p => ({...p, [g.tag]: !p[g.tag]}))}>
-                      <td colSpan={6} className="px-4 py-2">
+                      <td colSpan={7} className="px-4 py-2">
                         <div className="flex items-center gap-3">
                           <span className="text-slate-500 text-xs w-3 select-none">{isCollapsed ? '▶' : '▼'}</span>
                           <span className={`inline-block px-2.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}`}>{g.tag}</span>
@@ -11876,10 +11896,10 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                       </td>
                     </tr>
                     {!isCollapsed && g.rows.map(l => {
-                      const { body } = parseCashTag(l.memo);
+                      const { counterparty, body } = cashRowDisplay(l);
                       return (
                         <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
-                          <td className="px-4 py-2 text-slate-700 text-xs">{l.log_date}</td>
+                          <td className="px-4 py-2 text-slate-700 text-xs whitespace-nowrap">{l.log_date}</td>
                           <td className="px-4 py-2"><span className="text-[10px] text-slate-300">└</span></td>
                           <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                             {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
@@ -11887,8 +11907,9 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                           <td className="px-4 py-2 text-right font-mono text-slate-400 text-xs">
                             {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
                           </td>
+                          <td className="px-4 py-2 text-slate-800 text-xs">{counterparty || <span className="text-slate-300">—</span>}</td>
                           <td className="px-4 py-2 text-slate-600 text-xs">
-                            {body || '—'}
+                            {body || <span className="text-slate-300">—</span>}
                             {l.payment_batch_id && <span className="ml-2 text-[10px] text-slate-400">[일괄지급]</span>}
                           </td>
                           <td className="px-4 py-2 text-center">
@@ -11901,7 +11922,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                 );
               })}
               {grouped.length === 0 && (
-                <tr><td colSpan={6} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
               )}
             </>
           )}
@@ -13359,14 +13380,18 @@ async function dbSaveManualEntry(e) {
     });
     await dbInsertCashBalance({
       log_date: e.date, delta: -amount,
-      memo: `[지급] ${e.vendorName || ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+      counterparty: e.vendorName || null,
+      entry_type: '지급',
+      memo: e.memo || null,
     });
   } else if (t.key === 'collect' && (e.expectedId || e.hospitalId)) {
     // 병원 매출 수금 — 통장 입금 + (예상매출 수금완료 또는 legacy receivable)
     const tag = t.shortLabel || t.label;
     const cashId = await dbInsertCashBalance({
       log_date: e.date, delta: amount,
-      memo: `[${tag}]${e.hospitalName ? ' ' + e.hospitalName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+      counterparty: e.hospitalName || null,
+      entry_type: tag,
+      memo: e.memo || null,
     });
     if (e.expectedId) {
       // 신규: 예상매출 행 수금완료 처리
@@ -13393,7 +13418,9 @@ async function dbSaveManualEntry(e) {
     const delta = t.cashDir * amount;
     await dbInsertCashBalance({
       log_date: e.date, delta,
-      memo: `[${tag}]${e.vendorName ? ' ' + e.vendorName : ''}${e.memo ? ' — ' + e.memo : ''}`.trim(),
+      counterparty: e.vendorName || null,
+      entry_type: tag,
+      memo: e.memo || null,
     });
   }
 }

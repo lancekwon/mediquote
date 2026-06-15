@@ -7854,8 +7854,9 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
       placeholder: "\uB0A0\uC9DC\xB7\uAE08\uC561\xB7\uBA54\uBAA8\xB7\uAC70\uB798\uCC98",
       className: "border border-slate-300 rounded px-2 py-1 text-xs w-72 focus:outline-none focus:border-blue-400"
     }
-  ), search && /* @__PURE__ */ React.createElement("button", { onClick: () => setSearch(""), className: "text-[10px] text-slate-400 hover:text-slate-700" }, "\u2715 \uC9C0\uC6C0"))), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto border border-slate-100 rounded" }, list.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "p-6 text-center text-xs text-slate-400" }, "\uC1A1\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.") : /* @__PURE__ */ React.createElement("table", { className: "w-full text-xs" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-[10px] text-slate-500 sticky top-0" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 w-10" }), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uC1A1\uAE08\uC77C"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-right" }, "\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uBA54\uBAA8"))), /* @__PURE__ */ React.createElement("tbody", null, list.map((p) => {
+  ), search && /* @__PURE__ */ React.createElement("button", { onClick: () => setSearch(""), className: "text-[10px] text-slate-400 hover:text-slate-700" }, "\u2715 \uC9C0\uC6C0"))), /* @__PURE__ */ React.createElement("div", { className: "flex-1 overflow-y-auto border border-slate-100 rounded" }, list.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "p-6 text-center text-xs text-slate-400" }, "\uC1A1\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.") : /* @__PURE__ */ React.createElement("table", { className: "w-full text-xs" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-[10px] text-slate-500 sticky top-0" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 w-10" }), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uC1A1\uAE08\uC77C"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-right" }, "\uAE08\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uAC70\uB798\uCC98"), /* @__PURE__ */ React.createElement("th", { className: "px-2 py-1.5 text-left" }, "\uBA54\uBAA8"))), /* @__PURE__ */ React.createElement("tbody", null, list.map((p) => {
     const mine = isMine(p);
+    const vname = p.manufacturer_id ? manufacturers.find((m) => m.id === p.manufacturer_id)?.name || "" : "";
     return /* @__PURE__ */ React.createElement("tr", { key: p.id, className: `border-t border-slate-100 hover:bg-slate-50 ${mine ? "bg-emerald-50" : ""}` }, /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-center" }, /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -7865,7 +7866,7 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
         onChange: (e) => toggle(p.id, e.target.checked),
         className: "cursor-pointer"
       }
-    )), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-700 whitespace-nowrap" }, p.tx_date), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap" }, fmt(p.amount)), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-600 break-words", title: p.memo }, p.memo || "\u2014"));
+    )), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-700 whitespace-nowrap" }, p.tx_date), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap" }, fmt(p.amount)), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-800", title: vname }, vname || /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: "px-2 py-1.5 text-slate-600 break-words", title: p.memo }, p.memo || /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014")));
   })))), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] text-slate-400 mt-2 shrink-0" }, "\u203B \uCCB4\uD06C\uD558\uBA74 \uADF8 \uC1A1\uAE08\uC774 \uC774 \uAC70\uB798\uCC98\uC5D0 \uBB36\uC785\uB2C8\uB2E4. \uB2E4\uB978 \uAC70\uB798\uCC98\uC5D0 \uBB36\uC778 \uAC83\uB3C4 \uCCB4\uD06C\uD558\uBA74 \uC774\uCABD\uC73C\uB85C \uC62E\uACA8\uC9D1\uB2C8\uB2E4.")));
 }
 function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
@@ -8121,6 +8122,17 @@ const parseCashTag = (memo) => {
   if (!m) return { tag: null, body: memo || "" };
   return { tag: m[1].trim(), body: m[2].trim().replace(/^—\s*/, "") };
 };
+const cashRowDisplay = (l) => {
+  if (l.counterparty || l.entry_type) {
+    return { tag: l.entry_type || "", counterparty: l.counterparty || "", body: l.memo || "" };
+  }
+  const { tag, body } = parseCashTag(l.memo);
+  const dashIdx = body.indexOf(" \u2014 ");
+  if (dashIdx > 0) {
+    return { tag: tag || "", counterparty: body.slice(0, dashIdx), body: body.slice(dashIdx + 3) };
+  }
+  return { tag: tag || "", counterparty: body, body: "" };
+};
 function CashBalanceTable({ logs, onReload, showToast }) {
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("all");
@@ -8148,7 +8160,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return logs.filter((l) => {
-      if (q && !(l.memo || "").toLowerCase().includes(q)) return false;
+      if (q && !((l.memo || "").toLowerCase().includes(q) || (l.counterparty || "").toLowerCase().includes(q))) return false;
       if (tagFilter !== "all") {
         const { tag } = parseCashTag(l.memo);
         if (tag !== tagFilter) return false;
@@ -8223,11 +8235,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
       title: "\uC720\uD615\uBCC4 \uADF8\uB8F9"
     },
     "\u{1F5C2} \uC720\uD615\uBCC4"
-  )), /* @__PURE__ */ React.createElement("span", null, search || tagFilter !== "all" ? `${filtered.length}\uAC74 / \uC804\uCCB4 ${logs.length}` : `\uC804\uCCB4 ${logs.length}\uAC74`)), /* @__PURE__ */ React.createElement("div", { className: "overflow-auto", style: { maxHeight: "calc(100vh - 280px)" } }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left w-28" }, "\uB0A0\uC9DC"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left w-32" }, "\uC720\uD615"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-right w-32" }, "\uC99D\uAC10"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-right w-32" }, "\uC794\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left" }, "\uB0B4\uC6A9"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-center w-16" }))), /* @__PURE__ */ React.createElement("tbody", null, viewMode === "time" ? /* @__PURE__ */ React.createElement(React.Fragment, null, filtered.map((l) => {
-    const { tag, body } = parseCashTag(l.memo);
+  )), /* @__PURE__ */ React.createElement("span", null, search || tagFilter !== "all" ? `${filtered.length}\uAC74 / \uC804\uCCB4 ${logs.length}` : `\uC804\uCCB4 ${logs.length}\uAC74`)), /* @__PURE__ */ React.createElement("div", { className: "overflow-auto", style: { maxHeight: "calc(100vh - 280px)" } }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left w-28" }, "\uB0A0\uC9DC"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left w-32" }, "\uC720\uD615"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-right w-32" }, "\uC99D\uAC10"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-right w-32" }, "\uC794\uC561"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left w-48" }, "\uAC70\uB798\uCC98"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-left" }, "\uBA54\uBAA8"), /* @__PURE__ */ React.createElement("th", { className: "px-4 py-2.5 text-center w-16" }))), /* @__PURE__ */ React.createElement("tbody", null, viewMode === "time" ? /* @__PURE__ */ React.createElement(React.Fragment, null, filtered.map((l) => {
+    const { tag, counterparty, body } = cashRowDisplay(l);
     const style = tag ? CASH_TAG_STYLE[tag] || { bg: "bg-slate-100", text: "text-slate-600" } : null;
-    return /* @__PURE__ */ React.createElement("tr", { key: l.id, className: "border-t border-slate-100 hover:bg-slate-50" }, /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-700 text-xs" }, l.log_date), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2" }, tag ? /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}` }, tag) : /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-slate-300" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: `px-4 py-2 text-right font-mono ${l.delta < 0 ? "text-red-600" : "text-emerald-600"}` }, l.delta > 0 ? "+" : "", l.delta.toLocaleString()), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-right font-mono text-slate-800" }, runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-600 text-xs" }, body || "\u2014", l.payment_batch_id && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[10px] text-slate-400" }, "[\uC77C\uAD04\uC9C0\uAE09]")), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(l), className: "text-xs text-red-500 hover:text-red-700" }, "\uC0AD\uC81C")));
-  }), filtered.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, className: "py-12 text-center text-slate-400 text-sm" }, search || tagFilter !== "all" ? "\uAC80\uC0C9 \uACB0\uACFC \uC5C6\uC74C" : "\uD1B5\uC7A5 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, grouped.map((g) => {
+    return /* @__PURE__ */ React.createElement("tr", { key: l.id, className: "border-t border-slate-100 hover:bg-slate-50" }, /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-700 text-xs whitespace-nowrap" }, l.log_date), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2" }, tag ? /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}` }, tag) : /* @__PURE__ */ React.createElement("span", { className: "text-[11px] text-slate-300" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: `px-4 py-2 text-right font-mono ${l.delta < 0 ? "text-red-600" : "text-emerald-600"}` }, l.delta > 0 ? "+" : "", l.delta.toLocaleString()), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-right font-mono text-slate-800" }, runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-800 text-xs" }, counterparty || /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-600 text-xs" }, body || /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014"), l.payment_batch_id && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[10px] text-slate-400" }, "[\uC77C\uAD04\uC9C0\uAE09]")), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(l), className: "text-xs text-red-500 hover:text-red-700" }, "\uC0AD\uC81C")));
+  }), filtered.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 7, className: "py-12 text-center text-slate-400 text-sm" }, search || tagFilter !== "all" ? "\uAC80\uC0C9 \uACB0\uACFC \uC5C6\uC74C" : "\uD1B5\uC7A5 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, grouped.map((g) => {
     const style = CASH_TAG_STYLE[g.tag] || { bg: "bg-slate-100", text: "text-slate-600" };
     const isCollapsed = !!collapsed[g.tag];
     const net = g.inSum - g.outSum;
@@ -8237,12 +8249,12 @@ function CashBalanceTable({ logs, onReload, showToast }) {
         className: "bg-slate-50 border-t-2 border-slate-300 cursor-pointer hover:bg-slate-100",
         onClick: () => setCollapsed((p) => ({ ...p, [g.tag]: !p[g.tag] }))
       },
-      /* @__PURE__ */ React.createElement("td", { colSpan: 6, className: "px-4 py-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-500 text-xs w-3 select-none" }, isCollapsed ? "\u25B6" : "\u25BC"), /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}` }, g.tag), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-500" }, g.rows.length, "\uAC74"), /* @__PURE__ */ React.createElement("span", { className: "ml-auto font-mono text-sm flex items-center gap-3" }, g.inSum > 0 && /* @__PURE__ */ React.createElement("span", { className: "text-emerald-700" }, "+", g.inSum.toLocaleString()), g.outSum > 0 && /* @__PURE__ */ React.createElement("span", { className: "text-red-700" }, "\u2212", g.outSum.toLocaleString()), /* @__PURE__ */ React.createElement("span", { className: `font-semibold ${net >= 0 ? "text-emerald-700" : "text-red-700"}` }, net >= 0 ? "\uC21C +" : "\uC21C \u2212", Math.abs(net).toLocaleString()))))
+      /* @__PURE__ */ React.createElement("td", { colSpan: 7, className: "px-4 py-2" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-500 text-xs w-3 select-none" }, isCollapsed ? "\u25B6" : "\u25BC"), /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}` }, g.tag), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-500" }, g.rows.length, "\uAC74"), /* @__PURE__ */ React.createElement("span", { className: "ml-auto font-mono text-sm flex items-center gap-3" }, g.inSum > 0 && /* @__PURE__ */ React.createElement("span", { className: "text-emerald-700" }, "+", g.inSum.toLocaleString()), g.outSum > 0 && /* @__PURE__ */ React.createElement("span", { className: "text-red-700" }, "\u2212", g.outSum.toLocaleString()), /* @__PURE__ */ React.createElement("span", { className: `font-semibold ${net >= 0 ? "text-emerald-700" : "text-red-700"}` }, net >= 0 ? "\uC21C +" : "\uC21C \u2212", Math.abs(net).toLocaleString()))))
     ), !isCollapsed && g.rows.map((l) => {
-      const { body } = parseCashTag(l.memo);
-      return /* @__PURE__ */ React.createElement("tr", { key: l.id, className: "border-t border-slate-100 hover:bg-slate-50" }, /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-700 text-xs" }, l.log_date), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-300" }, "\u2514")), /* @__PURE__ */ React.createElement("td", { className: `px-4 py-2 text-right font-mono ${l.delta < 0 ? "text-red-600" : "text-emerald-600"}` }, l.delta > 0 ? "+" : "", l.delta.toLocaleString()), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-right font-mono text-slate-400 text-xs" }, runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-600 text-xs" }, body || "\u2014", l.payment_batch_id && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[10px] text-slate-400" }, "[\uC77C\uAD04\uC9C0\uAE09]")), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(l), className: "text-xs text-red-500 hover:text-red-700" }, "\uC0AD\uC81C")));
+      const { counterparty, body } = cashRowDisplay(l);
+      return /* @__PURE__ */ React.createElement("tr", { key: l.id, className: "border-t border-slate-100 hover:bg-slate-50" }, /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-700 text-xs whitespace-nowrap" }, l.log_date), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-300" }, "\u2514")), /* @__PURE__ */ React.createElement("td", { className: `px-4 py-2 text-right font-mono ${l.delta < 0 ? "text-red-600" : "text-emerald-600"}` }, l.delta > 0 ? "+" : "", l.delta.toLocaleString()), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-right font-mono text-slate-400 text-xs" }, runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-800 text-xs" }, counterparty || /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-slate-600 text-xs" }, body || /* @__PURE__ */ React.createElement("span", { className: "text-slate-300" }, "\u2014"), l.payment_batch_id && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[10px] text-slate-400" }, "[\uC77C\uAD04\uC9C0\uAE09]")), /* @__PURE__ */ React.createElement("td", { className: "px-4 py-2 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: () => handleDelete(l), className: "text-xs text-red-500 hover:text-red-700" }, "\uC0AD\uC81C")));
     }));
-  }), grouped.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, className: "py-12 text-center text-slate-400 text-sm" }, search || tagFilter !== "all" ? "\uAC80\uC0C9 \uACB0\uACFC \uC5C6\uC74C" : "\uD1B5\uC7A5 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4")))))));
+  }), grouped.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 7, className: "py-12 text-center text-slate-400 text-sm" }, search || tagFilter !== "all" ? "\uAC80\uC0C9 \uACB0\uACFC \uC5C6\uC74C" : "\uD1B5\uC7A5 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4")))))));
 }
 function TypeBadge({ type }) {
   const map = {
@@ -9364,14 +9376,18 @@ async function dbSaveManualEntry(e) {
     await dbInsertCashBalance({
       log_date: e.date,
       delta: -amount,
-      memo: `[\uC9C0\uAE09] ${e.vendorName || ""}${e.memo ? " \u2014 " + e.memo : ""}`.trim()
+      counterparty: e.vendorName || null,
+      entry_type: "\uC9C0\uAE09",
+      memo: e.memo || null
     });
   } else if (t.key === "collect" && (e.expectedId || e.hospitalId)) {
     const tag = t.shortLabel || t.label;
     const cashId = await dbInsertCashBalance({
       log_date: e.date,
       delta: amount,
-      memo: `[${tag}]${e.hospitalName ? " " + e.hospitalName : ""}${e.memo ? " \u2014 " + e.memo : ""}`.trim()
+      counterparty: e.hospitalName || null,
+      entry_type: tag,
+      memo: e.memo || null
     });
     if (e.expectedId) {
       await dbUpdateExpectedRevenue(e.expectedId, {
@@ -9399,7 +9415,9 @@ async function dbSaveManualEntry(e) {
     await dbInsertCashBalance({
       log_date: e.date,
       delta,
-      memo: `[${tag}]${e.vendorName ? " " + e.vendorName : ""}${e.memo ? " \u2014 " + e.memo : ""}`.trim()
+      counterparty: e.vendorName || null,
+      entry_type: tag,
+      memo: e.memo || null
     });
   }
 }
