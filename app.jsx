@@ -12403,7 +12403,6 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
               <th className="px-3 py-2 text-right w-28">증가</th>
               <th className="px-3 py-2 text-right w-28">감소</th>
               <th className="px-3 py-2 text-right w-32">잔액</th>
-              <th className="px-3 py-2 text-center w-12"></th>
             </tr>
           </thead>
           <tbody>
@@ -12419,9 +12418,6 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
                 <td className="px-3 py-1.5 text-right font-mono text-amber-700 text-xs">{r.inc ? r.inc.toLocaleString() : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono text-emerald-600 text-xs">{r.dec ? r.dec.toLocaleString() : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono text-slate-700 text-xs font-semibold">{r.running.toLocaleString()}</td>
-                <td className="px-3 py-1.5 text-center">
-                  <button onClick={() => handleDelete(r)} className="text-xs text-red-500 hover:text-red-700">삭제</button>
-                </td>
               </tr>
             ))}
           </tbody>
