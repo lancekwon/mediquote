@@ -11924,7 +11924,7 @@ function TypeBadge({ type }) {
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}`}>{s.l}</span>;
 }
 function typeLabel(t) {
-  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '입금' })[t] || t;
+  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '세금계산서' })[t] || t;
 }
 
 function PurchaseAddModal({ balances, onClose, onSaved }) {
@@ -12242,8 +12242,25 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await dbLoadPayableTransactions({ manufacturerId });
-      setRows(data);
+      const [pt, ti] = await Promise.all([
+        dbLoadPayableTransactions({ manufacturerId }),
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at')
+          .eq('kind', 'purchase').eq('manufacturer_id', manufacturerId)
+          .order('issue_date', { ascending: false })
+          .then(r => r.data || []),
+      ]);
+      // tax_invoices 행을 payable과 같은 형태로 통합 (tx_type='tax_purchase')
+      const taxRows = ti.map(t => ({
+        id: 'ti-' + t.id,
+        _isTax: true,
+        manufacturer_id: manufacturerId,
+        tx_date: t.issue_date,
+        tx_type: 'tax_purchase',
+        amount: Number(t.amount) || 0,
+        memo: t.party_name || '세금계산서',
+        created_at: t.created_at,
+      }));
+      setRows([...pt, ...taxRows]);
     } finally {
       setLoading(false);
     }
@@ -12281,7 +12298,14 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
   const handleDelete = async (tx) => {
     if (!confirm(`이 거래를 삭제하시겠습니까?\n${tx.tx_date} / ${typeLabel(tx.tx_type)} / ${tx.amount.toLocaleString()}원`)) return;
     try {
-      await dbDeletePayableTransaction(tx.id);
+      if (tx._isTax) {
+        // tax_invoices 행 삭제 — id에 'ti-' prefix 있음
+        const realId = String(tx.id).replace(/^ti-/, '');
+        const { error } = await sb.from('tax_invoices').delete().eq('id', realId);
+        if (error) throw error;
+      } else {
+        await dbDeletePayableTransaction(tx.id);
+      }
       showToast && showToast('거래 삭제됨');
       load();
       onChanged && onChanged();

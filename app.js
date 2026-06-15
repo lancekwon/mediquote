@@ -8256,7 +8256,7 @@ function TypeBadge({ type }) {
   return /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}` }, s.l);
 }
 function typeLabel(t) {
-  return { opening: "\uC774\uC6D4", purchase: "\uB9E4\uC785", adjustment: "\uC870\uC815", cancel: "\uCDE8\uC18C", payment: "\uC785\uAE08" }[t] || t;
+  return { opening: "\uC774\uC6D4", purchase: "\uB9E4\uC785", adjustment: "\uC870\uC815", cancel: "\uCDE8\uC18C", payment: "\uC9C0\uAE09", tax_purchase: "\uC138\uAE08\uACC4\uC0B0\uC11C" }[t] || t;
 }
 function PurchaseAddModal({ balances, onClose, onSaved }) {
   const [vendorId, setVendorId] = useState("");
@@ -8500,8 +8500,21 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await dbLoadPayableTransactions({ manufacturerId });
-      setRows(data);
+      const [pt, ti] = await Promise.all([
+        dbLoadPayableTransactions({ manufacturerId }),
+        sb.from("tax_invoices").select("id, issue_date, amount, party_name, created_at").eq("kind", "purchase").eq("manufacturer_id", manufacturerId).order("issue_date", { ascending: false }).then((r) => r.data || [])
+      ]);
+      const taxRows = ti.map((t) => ({
+        id: "ti-" + t.id,
+        _isTax: true,
+        manufacturer_id: manufacturerId,
+        tx_date: t.issue_date,
+        tx_type: "tax_purchase",
+        amount: Number(t.amount) || 0,
+        memo: t.party_name || "\uC138\uAE08\uACC4\uC0B0\uC11C",
+        created_at: t.created_at
+      }));
+      setRows([...pt, ...taxRows]);
     } finally {
       setLoading(false);
     }
@@ -8536,7 +8549,13 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
     if (!confirm(`\uC774 \uAC70\uB798\uB97C \uC0AD\uC81C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?
 ${tx.tx_date} / ${typeLabel(tx.tx_type)} / ${tx.amount.toLocaleString()}\uC6D0`)) return;
     try {
-      await dbDeletePayableTransaction(tx.id);
+      if (tx._isTax) {
+        const realId = String(tx.id).replace(/^ti-/, "");
+        const { error } = await sb.from("tax_invoices").delete().eq("id", realId);
+        if (error) throw error;
+      } else {
+        await dbDeletePayableTransaction(tx.id);
+      }
       showToast && showToast("\uAC70\uB798 \uC0AD\uC81C\uB428");
       load();
       onChanged && onChanged();
