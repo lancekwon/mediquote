@@ -8256,7 +8256,7 @@ function TypeBadge({ type }) {
   return /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}` }, s.l);
 }
 function typeLabel(t) {
-  return { opening: "\uC774\uC6D4", purchase: "\uB9E4\uC785", adjustment: "\uC870\uC815", cancel: "\uCDE8\uC18C", payment: "\uC9C0\uAE09", tax_purchase: "\uC138\uAE08\uACC4\uC0B0\uC11C" }[t] || t;
+  return { opening: "\uC774\uC6D4", purchase: "\uB9E4\uC785", adjustment: "\uC870\uC815", cancel: "\uCDE8\uC18C", payment: "\uC9C0\uAE09", tax_purchase: "\uB9E4\uC785 \uACC4\uC0B0\uC11C" }[t] || t;
 }
 function PurchaseAddModal({ balances, onClose, onSaved }) {
   const [vendorId, setVendorId] = useState("");

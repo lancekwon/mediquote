@@ -11924,7 +11924,7 @@ function TypeBadge({ type }) {
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}`}>{s.l}</span>;
 }
 function typeLabel(t) {
-  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '세금계산서' })[t] || t;
+  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '매입 계산서' })[t] || t;
 }
 
 function PurchaseAddModal({ balances, onClose, onSaved }) {
