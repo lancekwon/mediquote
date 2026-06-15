@@ -11914,18 +11914,18 @@ function CashBalanceTable({ logs, onReload, showToast }) {
 
 function TypeBadge({ type }) {
   const map = {
-    opening:      { l: '이월',       c: 'bg-slate-100 text-slate-600' },
-    purchase:     { l: '매입',       c: 'bg-amber-100 text-amber-700' },
-    tax_purchase: { l: '매입 계산서', c: 'bg-amber-100 text-amber-700' },
-    adjustment:   { l: '조정',       c: 'bg-blue-100 text-blue-700' },
-    cancel:       { l: '취소',       c: 'bg-rose-100 text-rose-700' },
-    payment:      { l: '지급',       c: 'bg-emerald-100 text-emerald-700' },
+    opening:      { l: '이월',     c: 'bg-slate-100 text-slate-600' },
+    purchase:     { l: '매입',     c: 'bg-amber-100 text-amber-700' },
+    tax_purchase: { l: '매입계산서', c: 'bg-amber-100 text-amber-700' },
+    adjustment:   { l: '조정',     c: 'bg-blue-100 text-blue-700' },
+    cancel:       { l: '취소',     c: 'bg-rose-100 text-rose-700' },
+    payment:      { l: '지급',     c: 'bg-emerald-100 text-emerald-700' },
   };
   const s = map[type] || { l: type, c: 'bg-slate-100' };
-  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}`}>{s.l}</span>;
+  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${s.c}`}>{s.l}</span>;
 }
 function typeLabel(t) {
-  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '매입 계산서' })[t] || t;
+  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '매입계산서' })[t] || t;
 }
 
 function PurchaseAddModal({ balances, onClose, onSaved }) {
@@ -12399,7 +12399,7 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0">
             <tr>
               <th className="px-3 py-2 text-left w-28">날짜</th>
-              <th className="px-3 py-2 text-left w-16">유형</th>
+              <th className="px-3 py-2 text-left w-24">유형</th>
               <th className="px-3 py-2 text-left">적요</th>
               <th className="px-3 py-2 text-right w-28">증가</th>
               <th className="px-3 py-2 text-right w-28">감소</th>
