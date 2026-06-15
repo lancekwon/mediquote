@@ -4070,6 +4070,13 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         } catch (_) {
         }
         setContract((p) => ({ ...p, delivery_target_date: deliveryDate }));
+        if (lead?.id && deliveryDate !== lead.delivered_at) {
+          try {
+            await sb.from("leads").update({ delivered_at: deliveryDate }).eq("id", lead.id);
+          } catch (_) {
+          }
+          onLeadUpdate?.(lead.id, { delivered_at: deliveryDate });
+        }
       }
       const groups = {};
       sortedItems.forEach((it) => {
@@ -9869,7 +9876,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       list: list.sort((a, b) => (b.po_no || "").localeCompare(a.po_no || "")),
       total: list.length,
       issues: list.reduce((s, p) => s + p.issues, 0),
-      lastUpdated: list.map((p) => p.updated_at).filter(Boolean).sort().pop() || null
+      lastUpdated: list.map((p) => p.updated_at).filter(Boolean).sort().pop() || null,
+      // 병원별 그룹일 때만 contract.delivery_target_date 추출 — 가장 가까운 미래 또는 첫 번째
+      deliveryTargetDate: groupBy === "hospital" ? list.map((p) => p.ctr?.delivery_target_date).filter(Boolean).sort()[0] || null : null
     })).sort((a, b) => b.issues - a.issues || a.hospName.localeCompare(b.hospName));
   }, [filtered, groupBy]);
   const stats = useMemo(() => ({
@@ -10023,6 +10032,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         className: "w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-2 transition-colors text-left"
       },
       /* @__PURE__ */ React.createElement("span", { className: "font-semibold text-slate-800" }, groupBy === "vendor" ? "\u{1F3ED}" : "\u{1F3E5}", " ", g.hospName),
+      g.deliveryTargetDate && /* @__PURE__ */ React.createElement("span", { className: "text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold", title: "\uB0A9\uAE30\uC77C" }, "\u{1F4C5} ", g.deliveryTargetDate),
       /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-500" }, g.total, "\uAC1C \uBC1C\uC8FC"),
       g.lastUpdated && /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-400" }, "\xB7 \uB9C8\uC9C0\uB9C9 \uBCC0\uACBD ", fmtRelative(g.lastUpdated)),
       g.issues > 0 && /* @__PURE__ */ React.createElement("span", { className: "text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold" }, "\u26A0 \uC774\uC288 ", g.issues),

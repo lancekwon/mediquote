@@ -5971,11 +5971,15 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         try { await sb.from('hospitals').update({ address: hospitalAddress }).eq('id', hospitalRow.id); }
         catch (_) {}
       }
-      // 계약의 납기일 업데이트
+      // 계약의 납기일 업데이트 — lead.delivered_at도 양방향 동기화
       if (deliveryDate && deliveryDate !== contract.delivery_target_date) {
         try { await sb.from('contracts').update({ delivery_target_date: deliveryDate }).eq('id', contract.id); }
         catch (_) {}
         setContract(p => ({ ...p, delivery_target_date: deliveryDate }));
+        if (lead?.id && deliveryDate !== lead.delivered_at) {
+          try { await sb.from('leads').update({ delivered_at: deliveryDate }).eq('id', lead.id); } catch (_) {}
+          onLeadUpdate?.(lead.id, { delivered_at: deliveryDate });
+        }
       }
       // 정책: 1 PO = 1 model. 같은 거래처라도 모델이 다르면 별도 PO 발급.
       const groups = {};
@@ -14116,6 +14120,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       total: list.length,
       issues: list.reduce((s,p)=>s+p.issues, 0),
       lastUpdated: list.map(p => p.updated_at).filter(Boolean).sort().pop() || null,
+      // 병원별 그룹일 때만 contract.delivery_target_date 추출 — 가장 가까운 미래 또는 첫 번째
+      deliveryTargetDate: groupBy === 'hospital'
+        ? (list.map(p => p.ctr?.delivery_target_date).filter(Boolean).sort()[0] || null)
+        : null,
     })).sort((a,b) => (b.issues - a.issues) || a.hospName.localeCompare(b.hospName));
   }, [filtered, groupBy]);
 
@@ -14284,6 +14292,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-2 transition-colors text-left"
                 >
                   <span className="font-semibold text-slate-800">{groupBy === 'vendor' ? '🏭' : '🏥'} {g.hospName}</span>
+                  {g.deliveryTargetDate && (
+                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold" title="납기일">📅 {g.deliveryTargetDate}</span>
+                  )}
                   <span className="text-xs text-slate-500">{g.total}개 발주</span>
                   {g.lastUpdated && <span className="text-xs text-slate-400">· 마지막 변경 {fmtRelative(g.lastUpdated)}</span>}
                   {g.issues > 0 && <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold">⚠ 이슈 {g.issues}</span>}
