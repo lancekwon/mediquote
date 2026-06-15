@@ -11914,11 +11914,12 @@ function CashBalanceTable({ logs, onReload, showToast }) {
 
 function TypeBadge({ type }) {
   const map = {
-    opening:    { l: '이월',   c: 'bg-slate-100 text-slate-600' },
-    purchase:   { l: '매입',   c: 'bg-amber-100 text-amber-700' },
-    adjustment: { l: '조정',   c: 'bg-blue-100 text-blue-700' },
-    cancel:     { l: '취소',   c: 'bg-rose-100 text-rose-700' },
-    payment:    { l: '입금',   c: 'bg-emerald-100 text-emerald-700' },
+    opening:      { l: '이월',       c: 'bg-slate-100 text-slate-600' },
+    purchase:     { l: '매입',       c: 'bg-amber-100 text-amber-700' },
+    tax_purchase: { l: '매입 계산서', c: 'bg-amber-100 text-amber-700' },
+    adjustment:   { l: '조정',       c: 'bg-blue-100 text-blue-700' },
+    cancel:       { l: '취소',       c: 'bg-rose-100 text-rose-700' },
+    payment:      { l: '지급',       c: 'bg-emerald-100 text-emerald-700' },
   };
   const s = map[type] || { l: type, c: 'bg-slate-100' };
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}`}>{s.l}</span>;

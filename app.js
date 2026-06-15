@@ -8248,9 +8248,10 @@ function TypeBadge({ type }) {
   const map = {
     opening: { l: "\uC774\uC6D4", c: "bg-slate-100 text-slate-600" },
     purchase: { l: "\uB9E4\uC785", c: "bg-amber-100 text-amber-700" },
+    tax_purchase: { l: "\uB9E4\uC785 \uACC4\uC0B0\uC11C", c: "bg-amber-100 text-amber-700" },
     adjustment: { l: "\uC870\uC815", c: "bg-blue-100 text-blue-700" },
     cancel: { l: "\uCDE8\uC18C", c: "bg-rose-100 text-rose-700" },
-    payment: { l: "\uC785\uAE08", c: "bg-emerald-100 text-emerald-700" }
+    payment: { l: "\uC9C0\uAE09", c: "bg-emerald-100 text-emerald-700" }
   };
   const s = map[type] || { l: type, c: "bg-slate-100" };
   return /* @__PURE__ */ React.createElement("span", { className: `inline-block px-2 py-0.5 rounded text-xs font-medium ${s.c}` }, s.l);
