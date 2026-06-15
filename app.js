@@ -9463,6 +9463,11 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
     if (needVendor && !vendorId) return alert(`${curType.label}\uC740(\uB294) \uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574\uC57C \uD569\uB2C8\uB2E4.`);
     const vendor = balances.find((b) => b.manufacturer_id === vendorId);
     const vendorName = needVendor ? vendor?.manufacturer_name || "" : curType.freeForm ? vendorFreeText.trim() : "";
+    const dupKey = `${date}|${typeKey}|${needVendor ? vendorId : ""}|${amt}`;
+    const dupExists = pending.some(
+      (r) => `${r.date}|${r.typeKey}|${r.manufacturerId || ""}|${r.amount}` === dupKey
+    );
+    if (dupExists && !confirm("\uAC19\uC740 \uB0A0\uC9DC\xB7\uAC70\uB798\uCC98\xB7\uAE08\uC561\uC774 \uC774\uBBF8 \uC785\uB825\uB300\uAE30 \uC911\uC785\uB2C8\uB2E4.\n\uD55C \uBC88 \uB354 \uCD94\uAC00\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?")) return;
     setPending((p) => {
       const row = {
         id: `${Date.now()}-${p.length}`,

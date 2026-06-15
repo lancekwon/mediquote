@@ -13475,6 +13475,12 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
     const vendorName = needVendor
       ? (vendor?.manufacturer_name || '')
       : (curType.freeForm ? vendorFreeText.trim() : '');
+    // 중복 입력 방지 — 같은 날짜·유형·거래처·금액이 이미 입력대기에 있으면 확인
+    const dupKey = `${date}|${typeKey}|${needVendor ? vendorId : ''}|${amt}`;
+    const dupExists = pending.some(r =>
+      `${r.date}|${r.typeKey}|${r.manufacturerId||''}|${r.amount}` === dupKey
+    );
+    if (dupExists && !confirm('같은 날짜·거래처·금액이 이미 입력대기 중입니다.\n한 번 더 추가하시겠습니까?')) return;
     setPending(p => {
       const row = {
         id: `${Date.now()}-${p.length}`,
