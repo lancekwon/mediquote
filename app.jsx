@@ -11419,7 +11419,7 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ site: '', requester: '', contact: '', content: '' });
+  const [form, setForm] = useState({ site: '', requester: '', model_name: '', quantity: '', quote_price: '', content: '' });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('대기'); // 대기 | 전체 | 완료 | 보류
 
@@ -11432,17 +11432,19 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
   useEffect(() => { reload(); }, [reload]);
 
   const handleAdd = async () => {
-    if (!form.content.trim()) { alert('요청 내용을 입력하세요.'); return; }
+    if (!form.content.trim() && !form.model_name.trim()) { alert('모델명 또는 요청 내용을 입력하세요.'); return; }
     setSaving(true);
     try {
       await sb.from('order_requests').insert({
         site: form.site.trim() || null,
         requester: form.requester.trim() || null,
-        contact: form.contact.trim() || null,
+        model_name: form.model_name.trim() || null,
+        quantity: form.quantity ? Number(form.quantity) : null,
+        quote_price: form.quote_price ? Number(String(form.quote_price).replace(/[^0-9]/g, '')) : null,
         content: form.content.trim(),
         status: '대기',
       });
-      setForm({ site: '', requester: '', contact: '', content: '' });
+      setForm({ site: '', requester: '', model_name: '', quantity: '', quote_price: '', content: '' });
       reload();
     } catch (e) { alert('저장 실패: ' + (e.message || e)); }
     finally { setSaving(false); }
@@ -11475,7 +11477,7 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
     return rows.filter(r => {
       if (statusFilter !== '전체' && r.status !== statusFilter) return false;
       if (!q) return true;
-      return [r.site, r.content, r.requester, r.contact, r.memo].some(v => (v || '').toLowerCase().includes(q));
+      return [r.site, r.content, r.requester, r.model_name, r.memo].some(v => (v || '').toLowerCase().includes(q));
     });
   }, [rows, search, statusFilter]);
 
@@ -11496,13 +11498,20 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
                 className="flex-1 min-w-[200px] border border-slate-300 rounded px-3 py-2 text-sm" />
               <input value={form.requester} onChange={e => setForm(p => ({ ...p, requester: e.target.value }))}
                 placeholder="요청자 (선택)" className="w-36 border border-slate-300 rounded px-3 py-2 text-sm" />
-              <input value={form.contact} onChange={e => setForm(p => ({ ...p, contact: e.target.value }))}
-                placeholder="연락처 (선택)" className="w-36 border border-slate-300 rounded px-3 py-2 text-sm" />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <input value={form.model_name} onChange={e => setForm(p => ({ ...p, model_name: e.target.value }))}
+                placeholder="모델명" className="flex-1 min-w-[160px] border border-slate-300 rounded px-3 py-2 text-sm" />
+              <input value={form.quantity} onChange={e => setForm(p => ({ ...p, quantity: e.target.value.replace(/[^0-9]/g, '') }))}
+                placeholder="수량" className="w-24 border border-slate-300 rounded px-3 py-2 text-sm text-right" />
+              <input value={form.quote_price ? Number(form.quote_price).toLocaleString() : ''}
+                onChange={e => setForm(p => ({ ...p, quote_price: e.target.value.replace(/[^0-9]/g, '') }))}
+                placeholder="견적가격" className="w-36 border border-slate-300 rounded px-3 py-2 text-sm text-right tnum" />
             </div>
             <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))}
               onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd(); }}
-              placeholder="요청 내용 — 장비명/수량/거래처 등 자유롭게 (카톡 내용 붙여넣기 OK). Ctrl+Enter로 추가"
-              rows={3} className="w-full border border-slate-300 rounded px-3 py-2 text-sm resize-y" />
+              placeholder="추가 요청 내용 (선택) — 거래처·납기 등 자유롭게 (카톡 내용 붙여넣기 OK). Ctrl+Enter로 추가"
+              rows={2} className="w-full border border-slate-300 rounded px-3 py-2 text-sm resize-y" />
             <div className="flex justify-end">
               <button onClick={handleAdd} disabled={saving}
                 className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold disabled:opacity-50">추가</button>
@@ -11538,10 +11547,16 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
                   <span className={`px-2 py-0.5 rounded font-semibold ${STATUS_STYLE[r.status] || ''}`}>{r.status}</span>
                   {r.site && <span className="font-semibold text-slate-800">{r.site}</span>}
                   {r.requester && <span>· {r.requester}</span>}
-                  {r.contact && <span>· {r.contact}</span>}
                   <span className="ml-auto">{fmtDate(r.created_at)}</span>
                 </div>
-                <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{r.content}</div>
+                {(r.model_name || r.quantity || r.quote_price) && (
+                  <div className="text-sm text-slate-800 font-medium">
+                    {r.model_name || ''}
+                    {r.quantity ? <span className="font-normal text-slate-500"> · 수량 {r.quantity}</span> : ''}
+                    {r.quote_price ? <span className="font-normal text-slate-500"> · 견적 {Number(r.quote_price).toLocaleString()}원</span> : ''}
+                  </div>
+                )}
+                {r.content && <div className="text-sm text-slate-700 whitespace-pre-wrap break-words mt-0.5">{r.content}</div>}
                 {r.memo && <div className="mt-1 text-xs text-slate-500">메모: {r.memo}</div>}
                 <div className="flex items-center gap-1 mt-2 flex-wrap">
                   {r.status !== '완료' && <button onClick={() => setStatus(r.id, '완료')} className="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-500">완료</button>}
