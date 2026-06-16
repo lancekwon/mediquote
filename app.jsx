@@ -3636,6 +3636,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
   const [search, setSearch] = React.useState('');
   const [editingId, setEditingId] = React.useState(null);
   const [expandedId, setExpandedId] = React.useState(null);
+  const [catFilter, setCatFilter] = React.useState('all');
   const [deleteTarget, setDeleteTarget] = React.useState(null);
   const [deleteRefs, setDeleteRefs] = React.useState(null);
   const [deleteLoading, setDeleteLoading] = React.useState(false);
@@ -3677,7 +3678,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
     } finally { setDeletingNow(false); }
   };
   const [showAddForm, setShowAddForm] = React.useState(false);
-  const [form, setForm] = React.useState({ name:'', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
+  const [form, setForm] = React.useState({ name:'', category:'일반업체', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
   const [saving, setSaving] = React.useState(false);
 
   // 장비 DB의 vendor(거래처) 컬럼에서만 추출 — 제조사(manufacturer)는 별개 개념
@@ -3709,17 +3710,20 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return allMfrs;
-    return allMfrs.filter(m =>
-      m.name.toLowerCase().includes(q) ||
-      (m.contact_name || '').toLowerCase().includes(q) ||
-      (m.contact_phone || '').includes(q)
-    );
-  }, [allMfrs, search]);
+    return allMfrs.filter(m => {
+      if (catFilter !== 'all' && (m.category || '일반업체') !== catFilter) return false;
+      if (!q) return true;
+      return m.name.toLowerCase().includes(q) ||
+        (m.contact_name || '').toLowerCase().includes(q) ||
+        (m.contact_phone || '').includes(q);
+    });
+  }, [allMfrs, search, catFilter]);
 
   const startEdit = (m) => {
     setEditingId(m.id || '__new__' + m.name);
     setForm({
       name: m.name || '',
+      category: m.category || '일반업체',
       contact_name: m.contact_name || '',
       contact_phone: m.contact_phone || '',
       contact_email: m.contact_email || '',
@@ -3733,7 +3737,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
   const startAdd = () => {
     setShowAddForm(true);
     setEditingId('__new__');
-    setForm({ name:'', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
+    setForm({ name:'', category:'일반업체', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
   };
 
   // 거래처명 변경 시 연결된 vendor 컬럼만 cascade — 제조사(manufacturer)는 별개 개념이므로 건들지 않음
@@ -3832,6 +3836,13 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                 value={search} onChange={e => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/>
             </div>
+            <select value={catFilter} onChange={e=>setCatFilter(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="all">전체 카테고리</option>
+              <option value="병원">병원</option>
+              <option value="일반업체">일반업체</option>
+              <option value="기타">기타</option>
+            </select>
             <button onClick={startAdd}
               className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-700 shrink-0">
               + 새 거래처
@@ -3846,6 +3857,12 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><label className={labelCls}>거래처명 <span className="text-red-400">*</span></label>
                 <input value={form.name} onChange={e => setForm(p=>({...p, name:e.target.value}))} className={inputCls} placeholder="GEMSS Healthcare"/></div>
+              <div><label className={labelCls}>카테고리</label>
+                <select value={form.category} onChange={e => setForm(p=>({...p, category:e.target.value}))} className={inputCls}>
+                  <option value="일반업체">일반업체</option>
+                  <option value="병원">병원</option>
+                  <option value="기타">기타</option>
+                </select></div>
               <div><label className={labelCls}>담당자</label>
                 <input value={form.contact_name} onChange={e => setForm(p=>({...p, contact_name:e.target.value}))} className={inputCls}/></div>
               <div><label className={labelCls}>연락처</label>
@@ -3889,6 +3906,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                       <div className="flex items-center gap-2">
                         {m.vendor_code && <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-mono font-semibold rounded">{m.vendor_code}</span>}
                         <span className="font-semibold text-slate-800">{m.name}</span>
+                        {!m.notRegistered && <span className={`px-1.5 py-0.5 text-xs rounded ${(m.category||'일반업체')==='병원' ? 'bg-emerald-100 text-emerald-700' : m.category==='기타' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>{m.category || '일반업체'}</span>}
                         {m.notRegistered && <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">미등록</span>}
                         <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 text-xs rounded">장비 {mfrEquips.length}개</span>
                       </div>
@@ -3915,6 +3933,12 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                           <div className="grid grid-cols-2 gap-3 text-sm mb-4">
                             <div><label className={labelCls}>거래처명</label>
                               <input value={form.name} onChange={e => setForm(p=>({...p, name:e.target.value}))} className={inputCls}/></div>
+                            <div><label className={labelCls}>카테고리</label>
+                              <select value={form.category} onChange={e => setForm(p=>({...p, category:e.target.value}))} className={inputCls}>
+                                <option value="일반업체">일반업체</option>
+                                <option value="병원">병원</option>
+                                <option value="기타">기타</option>
+                              </select></div>
                             <div><label className={labelCls}>담당자</label>
                               <input value={form.contact_name} onChange={e => setForm(p=>({...p, contact_name:e.target.value}))} className={inputCls}/></div>
                             <div><label className={labelCls}>연락처</label>
@@ -13459,11 +13483,11 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
   const [vendors, setVendors] = useState([]);
   const [hospitals, setHospitals] = useState([]);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState(allowedKinds === 'both' ? defaultFilter : allowedKinds);
+  const [filter, setFilter] = useState('all');
   useEffect(() => {
     (async () => {
       if (allowedKinds === 'vendor' || allowedKinds === 'both') {
-        const { data } = await sb.from('manufacturers').select('id, vendor_code, name, contact_name, contact_phone').order('vendor_code');
+        const { data } = await sb.from('manufacturers').select('id, vendor_code, name, contact_name, contact_phone, category').order('vendor_code');
         setVendors(data || []);
       }
       if (allowedKinds === 'hospital' || allowedKinds === 'both') {
@@ -13474,21 +13498,21 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
   }, [allowedKinds]);
   const list = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const items = [];
-    if (filter === 'all' || filter === 'vendor') {
-      vendors.forEach(v => items.push({ kind: 'vendor', id: v.id, code: v.vendor_code, name: v.name, contact: v.contact_name, phone: v.contact_phone }));
+    let items = [];
+    if (allowedKinds === 'vendor' || allowedKinds === 'both') {
+      vendors.forEach(v => items.push({ kind: 'vendor', id: v.id, code: v.vendor_code, name: v.name, contact: v.contact_name, phone: v.contact_phone, category: v.category || '일반업체' }));
     }
-    if (filter === 'all' || filter === 'hospital') {
-      hospitals.forEach(h => items.push({ kind: 'hospital', id: h.id, code: h.hospital_code, name: h.name }));
+    if (allowedKinds === 'hospital' || allowedKinds === 'both') {
+      hospitals.forEach(h => items.push({ kind: 'hospital', id: h.id, code: h.hospital_code, name: h.name, category: '병원' }));
     }
-    if (!q) return items.slice(0, 200);
-    const filtered = items.filter(it =>
+    if (allowedKinds === 'both' && filter !== 'all') items = items.filter(it => it.category === filter);
+    if (q) items = items.filter(it =>
       (it.name||'').toLowerCase().includes(q) ||
       (it.code||'').toLowerCase().includes(q) ||
       (it.contact||'').toLowerCase().includes(q)
     );
-    return filtered.slice(0, 200);
-  }, [vendors, hospitals, search, filter]);
+    return items.slice(0, 200);
+  }, [vendors, hospitals, search, filter, allowedKinds]);
   return (
     <ModalShell title="거래처/병원 선택" onClose={onClose} wide z={60}>
       <div className="flex flex-col" style={{height:'520px'}}>
@@ -13498,7 +13522,7 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
             className="flex-1 border border-slate-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
           {allowedKinds === 'both' && (
             <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5 shrink-0">
-              {[{k:'all', l:'전체'}, {k:'vendor', l:'업체'}, {k:'hospital', l:'병원'}].map(t => (
+              {[{k:'all', l:'전체'}, {k:'병원', l:'병원'}, {k:'일반업체', l:'일반업체'}, {k:'기타', l:'기타'}].map(t => (
                 <button key={t.k} onClick={()=>setFilter(t.k)}
                   className={`px-2.5 py-1 text-xs rounded ${filter===t.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
               ))}
@@ -13520,19 +13544,11 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
                 <li key={it.kind + ':' + it.id}>
                   <button onClick={() => { onSelect(it); onClose(); }}
                     className="w-full text-left px-3 py-2 hover:bg-blue-50 rounded text-sm flex items-center gap-2">
-                    {it.kind === 'vendor' ? (
-                      <>
-                        <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">{it.code || '—'}</span>
-                        <span className="text-slate-800">{it.name}</span>
-                        {(it.contact || it.phone) && (
-                          <span className="text-xs text-slate-500 ml-auto truncate max-w-[180px]">{it.contact || ''}{it.contact && it.phone ? ' · ' : ''}{it.phone || ''}</span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-[10px] font-mono bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">{it.code || '병원'}</span>
-                        <span className="text-slate-800">{it.name}</span>
-                      </>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${it.category==='병원' ? 'bg-emerald-100 text-emerald-700' : it.category==='기타' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>{it.category}</span>
+                    {it.code && <span className="text-[10px] font-mono bg-slate-50 text-slate-400 px-1.5 py-0.5 rounded shrink-0">{it.code}</span>}
+                    <span className="text-slate-800">{it.name}</span>
+                    {(it.contact || it.phone) && (
+                      <span className="text-xs text-slate-500 ml-auto truncate max-w-[180px]">{it.contact || ''}{it.contact && it.phone ? ' · ' : ''}{it.phone || ''}</span>
                     )}
                   </button>
                 </li>
