@@ -11827,10 +11827,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
           <tr>
             <th className="px-4 py-2.5 text-left w-28">날짜</th>
-            <th className="px-4 py-2.5 text-left w-32">유형</th>
-            <th className="px-4 py-2.5 text-right w-32">증감</th>
+            <th className="px-4 py-2.5 text-left w-24">유형</th>
+            <th className="px-4 py-2.5 text-right w-32">출금</th>
+            <th className="px-4 py-2.5 text-right w-32">입금</th>
             <th className="px-4 py-2.5 text-right w-32">잔액</th>
-            <th className="px-4 py-2.5 text-left w-48">거래처</th>
+            <th className="px-4 py-2.5 text-left w-44">거래처</th>
             <th className="px-4 py-2.5 text-left">메모</th>
             <th className="px-4 py-2.5 text-center w-16"></th>
           </tr>
@@ -11849,8 +11850,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
                       ) : <span className="text-[11px] text-slate-300">—</span>}
                     </td>
-                    <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
+                    <td className="px-4 py-2 text-right font-mono text-red-600">
+                      {l.delta < 0 ? Math.abs(l.delta).toLocaleString() : ''}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-emerald-600">
+                      {l.delta > 0 ? l.delta.toLocaleString() : ''}
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-slate-800">
                       {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
@@ -11867,7 +11871,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={7} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+                <tr><td colSpan={8} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
               )}
             </>
           ) : (
@@ -11880,7 +11884,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                   <React.Fragment key={g.tag}>
                     <tr className="bg-slate-50 border-t-2 border-slate-300 cursor-pointer hover:bg-slate-100"
                       onClick={() => setCollapsed(p => ({...p, [g.tag]: !p[g.tag]}))}>
-                      <td colSpan={7} className="px-4 py-2">
+                      <td colSpan={8} className="px-4 py-2">
                         <div className="flex items-center gap-3">
                           <span className="text-slate-500 text-xs w-3 select-none">{isCollapsed ? '▶' : '▼'}</span>
                           <span className={`inline-block px-2.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}`}>{g.tag}</span>
@@ -11901,8 +11905,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                         <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-700 text-xs whitespace-nowrap">{l.log_date}</td>
                           <td className="px-4 py-2"><span className="text-[10px] text-slate-300">└</span></td>
-                          <td className={`px-4 py-2 text-right font-mono ${l.delta < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                            {l.delta > 0 ? '+' : ''}{l.delta.toLocaleString()}
+                          <td className="px-4 py-2 text-right font-mono text-red-600">
+                            {l.delta < 0 ? Math.abs(l.delta).toLocaleString() : ''}
+                          </td>
+                          <td className="px-4 py-2 text-right font-mono text-emerald-600">
+                            {l.delta > 0 ? l.delta.toLocaleString() : ''}
                           </td>
                           <td className="px-4 py-2 text-right font-mono text-slate-400 text-xs">
                             {runningById.has(l.id) ? runningById.get(l.id).toLocaleString() : '—'}
@@ -11922,7 +11929,7 @@ function CashBalanceTable({ logs, onReload, showToast }) {
                 );
               })}
               {grouped.length === 0 && (
-                <tr><td colSpan={7} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+                <tr><td colSpan={8} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
               )}
             </>
           )}
