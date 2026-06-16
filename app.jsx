@@ -1439,7 +1439,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onDashboard, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1459,6 +1459,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
     { label:'병원 관리',         onClick: onHospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: onManage,   icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: onPayables, icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
+    { label:'발주 요청함',      onClick: onOrderRequests, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
   ];
 
   const textFields = [
@@ -1562,6 +1563,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     { label:'병원 관리',         onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: nav?.payables,  icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
+    { label:'발주 요청함',      onClick: nav?.orderRequests, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
   ];
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
@@ -11411,6 +11413,153 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
 }
 
 /* ============================================================
+   ORDER REQUESTS (발주 요청함) PAGE — 현장/영업 요청 빠른 캡처 inbox
+   ============================================================ */
+function OrderRequestsPage({ onBack, user, onLogout, nav }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ site: '', requester: '', contact: '', content: '' });
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('대기'); // 대기 | 전체 | 완료 | 보류
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    const { data } = await sb.from('order_requests').select('*').order('created_at', { ascending: false });
+    setRows(data || []);
+    setLoading(false);
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  const handleAdd = async () => {
+    if (!form.content.trim()) { alert('요청 내용을 입력하세요.'); return; }
+    setSaving(true);
+    try {
+      await sb.from('order_requests').insert({
+        site: form.site.trim() || null,
+        requester: form.requester.trim() || null,
+        contact: form.contact.trim() || null,
+        content: form.content.trim(),
+        status: '대기',
+      });
+      setForm({ site: '', requester: '', contact: '', content: '' });
+      reload();
+    } catch (e) { alert('저장 실패: ' + (e.message || e)); }
+    finally { setSaving(false); }
+  };
+
+  const setStatus = async (id, status) => {
+    try {
+      await sb.from('order_requests').update({ status, processed_at: status === '완료' ? new Date().toISOString() : null }).eq('id', id);
+      reload();
+    } catch (e) { alert('변경 실패: ' + (e.message || e)); }
+  };
+  const updateMemo = async (id, memo) => {
+    try { await sb.from('order_requests').update({ memo: memo || null }).eq('id', id); reload(); }
+    catch (e) { alert('메모 저장 실패: ' + (e.message || e)); }
+  };
+  const handleDelete = async (id) => {
+    if (!confirm('이 요청을 삭제할까요?')) return;
+    try { await sb.from('order_requests').delete().eq('id', id); reload(); }
+    catch (e) { alert('삭제 실패: ' + (e.message || e)); }
+  };
+
+  const counts = useMemo(() => {
+    const c = { 대기: 0, 완료: 0, 보류: 0 };
+    rows.forEach(r => { if (c[r.status] != null) c[r.status]++; });
+    return c;
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (statusFilter !== '전체' && r.status !== statusFilter) return false;
+      if (!q) return true;
+      return [r.site, r.content, r.requester, r.contact, r.memo].some(v => (v || '').toLowerCase().includes(q));
+    });
+  }, [rows, search, statusFilter]);
+
+  const fmtDate = (s) => s ? new Date(s).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  const STATUS_STYLE = { '대기': 'bg-amber-100 text-amber-700', '완료': 'bg-emerald-100 text-emerald-700', '보류': 'bg-slate-200 text-slate-600' };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <AppHeader title="발주 요청함" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 w-full max-w-4xl mx-auto space-y-4">
+        {/* 빠른 입력 */}
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-sm font-semibold text-slate-700 mb-3">빠른 발주 요청 추가</div>
+          <div className="space-y-2">
+            <div className="flex gap-2 flex-wrap">
+              <input value={form.site} onChange={e => setForm(p => ({ ...p, site: e.target.value }))}
+                placeholder="현장/병원 (예: 아이비어린이병원)"
+                className="flex-1 min-w-[200px] border border-slate-300 rounded px-3 py-2 text-sm" />
+              <input value={form.requester} onChange={e => setForm(p => ({ ...p, requester: e.target.value }))}
+                placeholder="요청자 (선택)" className="w-36 border border-slate-300 rounded px-3 py-2 text-sm" />
+              <input value={form.contact} onChange={e => setForm(p => ({ ...p, contact: e.target.value }))}
+                placeholder="연락처 (선택)" className="w-36 border border-slate-300 rounded px-3 py-2 text-sm" />
+            </div>
+            <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd(); }}
+              placeholder="요청 내용 — 장비명/수량/거래처 등 자유롭게 (카톡 내용 붙여넣기 OK). Ctrl+Enter로 추가"
+              rows={3} className="w-full border border-slate-300 rounded px-3 py-2 text-sm resize-y" />
+            <div className="flex justify-end">
+              <button onClick={handleAdd} disabled={saving}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold disabled:opacity-50">추가</button>
+            </div>
+          </div>
+        </div>
+
+        {/* 필터/검색 */}
+        <div className="bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
+            {['대기', '전체', '완료', '보류'].map(s => (
+              <button key={s} onClick={() => setStatusFilter(s)}
+                className={`px-3 py-1 text-xs rounded ${statusFilter === s ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                {s}{s !== '전체' && counts[s] > 0 ? ` ${counts[s]}` : ''}
+              </button>
+            ))}
+          </div>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="검색"
+            className="flex-1 min-w-[180px] border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+          <span className="text-xs text-slate-500">{filtered.length}건</span>
+        </div>
+
+        {/* 목록 */}
+        {loading ? (
+          <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 text-sm">요청이 없습니다.</div>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(r => (
+              <div key={r.id} className={`bg-white border rounded-lg p-3 ${r.status === '완료' ? 'border-slate-100 opacity-60' : 'border-slate-200'}`}>
+                <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mb-1">
+                  <span className={`px-2 py-0.5 rounded font-semibold ${STATUS_STYLE[r.status] || ''}`}>{r.status}</span>
+                  {r.site && <span className="font-semibold text-slate-800">{r.site}</span>}
+                  {r.requester && <span>· {r.requester}</span>}
+                  {r.contact && <span>· {r.contact}</span>}
+                  <span className="ml-auto">{fmtDate(r.created_at)}</span>
+                </div>
+                <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{r.content}</div>
+                {r.memo && <div className="mt-1 text-xs text-slate-500">메모: {r.memo}</div>}
+                <div className="flex items-center gap-1 mt-2 flex-wrap">
+                  {r.status !== '완료' && <button onClick={() => setStatus(r.id, '완료')} className="px-2 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-500">완료</button>}
+                  {r.status !== '보류' && <button onClick={() => setStatus(r.id, '보류')} className="px-2 py-1 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300">보류</button>}
+                  {r.status !== '대기' && <button onClick={() => setStatus(r.id, '대기')} className="px-2 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50">대기로</button>}
+                  <button onClick={() => { const m = prompt('처리 메모', r.memo || ''); if (m !== null) updateMemo(r.id, m); }} className="px-2 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-50">메모</button>
+                  <button onClick={() => handleDelete(r.id)} className="px-2 py-1 text-xs text-rose-400 hover:text-rose-600 ml-auto">삭제</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    PAYABLES (외상매입금 관리) PAGE
    ============================================================ */
 function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
@@ -15302,6 +15451,7 @@ function App() {
     manage:    () => setView('manage'),
     home:       () => setView('home'),
     payables:  () => setView('payables'),
+    orderRequests: () => setView('order-requests'),
     poTracking: () => setView('po-tracking'),
     poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
   };
@@ -15320,6 +15470,9 @@ function App() {
     />;
   }
 
+  if (view === 'order-requests') {
+    return <OrderRequestsPage onBack={() => setView('home')} user={user} onLogout={handleLogout} nav={nav} />;
+  }
   if (view === 'payables') {
     return <PayablesPage
       onBack={() => setView('editor')}
@@ -15452,7 +15605,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onDashboard={() => setView('home')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>
