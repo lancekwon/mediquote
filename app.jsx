@@ -14544,9 +14544,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           <div className="text-sm text-slate-600 flex items-center gap-x-3 gap-y-1 flex-wrap">
             <span className="whitespace-nowrap">진행중 <span className="font-semibold text-slate-900">{activeSummary.poCount}</span>건</span>
             <span className="text-slate-300">·</span>
-            <span className="whitespace-nowrap">🏥 병원 <span className="font-semibold text-slate-900">{activeSummary.hospCount}</span></span>
+            <span className="whitespace-nowrap">병원 <span className="font-semibold text-slate-900">{activeSummary.hospCount}</span></span>
             <span className="text-slate-300">·</span>
-            <span className="whitespace-nowrap">🏭 거래처 <span className="font-semibold text-slate-900">{activeSummary.vendCount}</span></span>
+            <span className="whitespace-nowrap">거래처 <span className="font-semibold text-slate-900">{activeSummary.vendCount}</span></span>
           </div>
         </div>
         {/* 통계 카드 — 진행중 / 납품완료 */}
@@ -14576,9 +14576,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
             className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
           <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
             <button onClick={()=>setGroupBy('hospital')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${groupBy==='hospital'?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>🏥 병원별</button>
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${groupBy==='hospital'?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>병원별</button>
             <button onClick={()=>setGroupBy('vendor')}
-              className={`px-2.5 py-1 text-xs rounded transition-colors ${groupBy==='vendor'?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>🏭 거래처별</button>
+              className={`px-2.5 py-1 text-xs rounded transition-colors ${groupBy==='vendor'?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>거래처별</button>
           </div>
           <span className="text-xs text-slate-500">{filtered.length}건 / 전체 {enriched.length}</span>
           {!viewer && (
@@ -14618,7 +14618,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   onClick={()=>setExpandedGroups(p => ({ ...p, [g.hospName]: !p[g.hospName] }))}
                   className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-2 transition-colors text-left"
                 >
-                  <span className="font-semibold text-slate-800">{groupBy === 'vendor' ? '🏭' : '🏥'} {g.hospName}</span>
+                  <span className="font-semibold text-slate-800">{g.hospName}</span>
                   {g.deliveryTargetDate && (
                     <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold" title="납기일">📅 {g.deliveryTargetDate}</span>
                   )}
