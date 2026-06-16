@@ -6554,6 +6554,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       <th className="px-2 py-2 text-right w-28">매출공급가액</th>
                       <th className="px-2 py-2 text-right w-24">매입단가</th>
                       <th className="px-2 py-2 text-right w-28">매입공급가액</th>
+                      <th className="px-2 py-2 text-right w-28">마진</th>
                       <th className="px-2 py-2 text-center w-14">발주</th>
                       <th className="px-2 py-2 text-center w-14">입금</th>
                       <th className="px-2 py-2 text-center w-20">세금계산서</th>
@@ -6666,6 +6667,18 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                           </td>
                           <td className="px-2 py-1.5 text-right font-medium text-slate-800 tabular-nums">
                             {purAmt.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {(() => {
+                              const m = saleAmt - purAmt;
+                              const rate = saleAmt > 0 ? Math.round(m / saleAmt * 1000) / 10 : 0;
+                              return (
+                                <span className={`font-semibold ${m >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                  {m.toLocaleString()}
+                                  {saleAmt > 0 && <span className="text-[10px] text-slate-400 ml-1">{rate}%</span>}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="px-2 py-1.5 text-center"><IconPill on={it.ordered} icon={ICON.send} title={it.ordered ? `발주: ${it.ordered_at||''}` : '발주'}
                             onClick={() => setItem(it.key, { ordered: !it.ordered, ordered_at: !it.ordered ? (it.ordered_at||today()) : null })}/></td>
@@ -10632,7 +10645,7 @@ function TaxInvoiceTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0,10);
-  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', amount: '' });
+  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', amount: '', memo: '' });
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const reload = useCallback(async () => {
@@ -10655,8 +10668,9 @@ function TaxInvoiceTab() {
       await sb.from('tax_invoices').insert({
         kind: form.kind, issue_date: form.issue_date,
         party_name: form.party_name.trim(), amount: amt,
+        memo: form.memo.trim() || null,
       });
-      setForm(p => ({ ...p, party_name: '', amount: '' }));
+      setForm(p => ({ ...p, party_name: '', amount: '', memo: '' }));
       reload();
     } catch (e) { alert('저장 실패: '+(e.message||e)); }
   };
@@ -10683,7 +10697,7 @@ function TaxInvoiceTab() {
     return rows.filter(r => {
       if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
       if (!q) return true;
-      return (r.party_name||'').toLowerCase().includes(q) || (r.issue_date||'').includes(q) || String(r.amount||'').includes(q);
+      return (r.party_name||'').toLowerCase().includes(q) || (r.issue_date||'').includes(q) || String(r.amount||'').includes(q) || (r.memo||'').toLowerCase().includes(q);
     }).sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||''));
   }, [rows, search, kindFilter]);
 
@@ -10711,6 +10725,11 @@ function TaxInvoiceTab() {
             onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
             placeholder="합계금액"
             className="w-40 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
+          <input type="text" value={form.memo}
+            onChange={e=>setForm(p=>({...p, memo:e.target.value}))}
+            onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
+            placeholder="메모 (선택)"
+            className="w-48 border border-slate-300 rounded px-2 py-1 text-sm"/>
           <button onClick={handleAdd}
             className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
         </div>
@@ -10750,12 +10769,13 @@ function TaxInvoiceTab() {
                 <th className="px-3 py-2 text-left w-32">발급일자</th>
                 <th className="px-3 py-2 text-left">상호</th>
                 <th className="px-3 py-2 text-right w-40">합계금액</th>
+                <th className="px-3 py-2 text-left">메모</th>
                 <th className="px-3 py-2 text-center w-12"></th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-12 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
+                <tr><td colSpan={6} className="px-3 py-12 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
               ) : sorted.map(r => {
                 const matched = !!r.matched_payment_id;
                 return (
@@ -10770,6 +10790,7 @@ function TaxInvoiceTab() {
                   <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
                   <td className="px-3 py-1.5 text-slate-800">{r.party_name}</td>
                   <td className={`px-3 py-1.5 text-right tnum font-medium ${r.kind === 'sale' ? 'text-emerald-700' : 'text-rose-700'}`}>{fmt(r.amount)}</td>
+                  <td className="px-3 py-1.5 text-slate-500 text-xs">{r.memo || ''}</td>
                   <td className="px-3 py-1.5 text-center">
                     <button onClick={()=>handleDelete(r.id)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
                   </td>
