@@ -1439,6 +1439,22 @@ function LoginPage({ onLogin }) {
   );
 }
 
+// 발주 요청함 '대기' 건수 — 메뉴 뱃지용
+function useOrderRequestPending() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { count: c } = await sb.from('order_requests').select('id', { count: 'exact', head: true }).eq('status', '대기');
+        if (alive) setCount(c || 0);
+      } catch (_) {}
+    })();
+    return () => { alive = false; };
+  }, []);
+  return count;
+}
+
 function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
@@ -1450,6 +1466,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const pendingReqs = useOrderRequestPending();
   const menuItems = [
     { label:'홈',               onClick: onDashboard, icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { label:'영업 관리',         onClick: onLeads,    icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
@@ -1459,7 +1476,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
     { label:'병원 관리',         onClick: onHospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: onManage,   icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: onPayables, icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
-    { label:'발주 요청함',      onClick: onOrderRequests, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
+    { label:'발주 요청함',      onClick: onOrderRequests, badge: pendingReqs, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
   ];
 
   const textFields = [
@@ -1519,6 +1536,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon}/>
                 </svg>
                 {item.label}
+                {item.badge > 0 && <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold">{item.badge}</span>}
               </button>
             ))}
             <div className="border-t border-slate-100 mx-3 my-1"/>
@@ -1554,6 +1572,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+  const pendingReqs = useOrderRequestPending();
   const menuItems = [
     { label:'홈',               onClick: nav?.home,      icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { label:'영업 관리',         onClick: nav?.leads,     icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
@@ -1563,7 +1582,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     { label:'병원 관리',         onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: nav?.payables,  icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
-    { label:'발주 요청함',      onClick: nav?.orderRequests, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
+    { label:'발주 요청함',      onClick: nav?.orderRequests, badge: pendingReqs, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
   ];
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
@@ -1592,6 +1611,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon}/>
                   </svg>
                   {item.label}
+                  {item.badge > 0 && <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold">{item.badge}</span>}
                 </button>
               ))}
               <div className="border-t border-slate-100 mx-3 my-1"/>
