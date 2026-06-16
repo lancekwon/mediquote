@@ -4807,7 +4807,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                         <label className={labelCls.replace(/mb-1$/,'')}>매입가</label>
                         {editTarget?.id && (
                           <button type="button" onClick={() => setShowPriceHistory(editTarget)}
-                            className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold">📈 이력</button>
+                            className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold">이력</button>
                         )}
                       </div>
                       <input type="text" value={editForm.purchasePrice||''} onChange={e=>setEF('purchasePrice',e.target.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,','))} className={inputCls} placeholder="숫자 입력"/>
@@ -6465,15 +6465,15 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         </button>
         <button onClick={reloadFromQuote} disabled={loading || !quote}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors">
-          🔄 견적에서 다시 불러오기
+          견적에서 다시 불러오기
         </button>
         <button onClick={handleHospitalStatement} disabled={loading || !contract}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors">
-          📄 거래명세서 (병원용)
+          거래명세서 (병원용)
         </button>
         <button onClick={handleInternalStatement} disabled={loading || !contract}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-slate-700 text-white hover:bg-slate-600 disabled:opacity-50 transition-colors">
-          📋 거래명세서 (내부용)
+          거래명세서 (내부용)
         </button>
       </AppHeader>
 
@@ -6963,7 +6963,7 @@ function KakaoMessageModal({ vendor, text, onClose }) {
             <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded hover:bg-slate-50">닫기</button>
             <button onClick={handleCopy}
               className="px-5 py-2 text-sm bg-yellow-400 text-slate-900 rounded font-bold hover:bg-yellow-300">
-              📋 복사
+              복사
             </button>
           </div>
         </div>
@@ -7304,7 +7304,7 @@ function PoRevisionEditModal({ po, items, totalSale, mfrName, equipments = [], o
           <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded hover:bg-slate-50">취소</button>
           <button onClick={handleSave} disabled={saving}
             className={`px-5 py-2 text-sm rounded font-semibold text-white ${isDeficit ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} disabled:opacity-50`}>
-            {saving ? '저장 중...' : (isDeficit ? '⚠️ 적자 발주로 저장' : '리비전 저장')}
+            {saving ? '저장 중...' : (isDeficit ? '적자 발주로 저장' : '리비전 저장')}
           </button>
         </div>
       </div>
@@ -8154,7 +8154,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
                               }
                             }}
                               className="px-2.5 py-1 text-xs bg-teal-600 text-white rounded font-semibold hover:bg-teal-500 transition-colors whitespace-nowrap">
-                              🏥 {lead.hospital_id ? '병원 보기' : '관리 등록'}
+                              {lead.hospital_id ? '병원 보기' : '관리 등록'}
                             </button>
                           ) : (
                             <>
@@ -8178,7 +8178,7 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
                                   }
                                 }}
                                   className={`px-2.5 py-1 text-xs text-white rounded font-semibold whitespace-nowrap transition-colors ${lead.stage === '계약완료' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-amber-500 hover:bg-amber-400'}`}>
-                                  📦 {lead.stage === '계약완료' ? '발주 시작' : '발주 계획서'}
+                                  {lead.stage === '계약완료' ? '발주 시작' : '발주 계획서'}
                                 </button>
                               )}
                             </>
@@ -11116,8 +11116,8 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
                         {g.vendors.map(v => {
                           const settled = v.outflowRemaining === 0 && v.outflowTotal > 0;
                           const taxInfo = (v.mfrId && taxByVendor.get(v.mfrId)) || { count: 0, sum: 0, matchedCount: 0, matchedSum: 0 };
-                          const taxBtnLabel = taxInfo.count > 0 ? `✓ ${taxInfo.count}건` : '📋 조회';
-                          const payBtnLabel = v.sentTx.length > 0 ? `✓ ${v.sentTx.length}건` : '📋 조회';
+                          const taxBtnLabel = taxInfo.count > 0 ? `${taxInfo.count}건` : '조회';
+                          const payBtnLabel = v.sentTx.length > 0 ? `${v.sentTx.length}건` : '조회';
                           const taxBtnClass = taxInfo.count > 0
                             ? 'px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0'
                             : 'px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0';
@@ -11558,7 +11558,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             {[
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
-              { k: 'cashflow', l: '💰 자금 흐름' },
+              { k: 'cashflow', l: '자금 흐름' },
               { k: 'cash', l: '통장 출납' },
               { k: 'taxinv', l: '세금계산서' },
               { k: 'report', l: '리포트' },
@@ -11840,10 +11840,10 @@ function CashBalanceTable({ logs, onReload, showToast }) {
         <div className="flex items-center gap-0.5 border border-slate-200 rounded p-0.5 bg-white">
           <button onClick={() => setViewMode('time')}
             className={`px-2.5 py-1 text-xs rounded transition-colors ${viewMode === 'time' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
-            title="시간순">📋 시간순</button>
+            title="시간순">시간순</button>
           <button onClick={() => setViewMode('group')}
             className={`px-2.5 py-1 text-xs rounded transition-colors ${viewMode === 'group' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
-            title="유형별 그룹">🗂 유형별</button>
+            title="유형별 그룹">유형별</button>
         </div>
         <span>{(search || tagFilter !== 'all') ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}</span>
       </div>
