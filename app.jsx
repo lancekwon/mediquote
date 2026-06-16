@@ -11363,12 +11363,14 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
                   const mine = isMine(p);
                   const vname = p.manufacturer_id ? (manufacturers.find(m=>m.id===p.manufacturer_id)?.name || '') : '';
                   return (
-                    <tr key={p.id} className={`border-t border-slate-100 hover:bg-slate-50 ${mine ? 'bg-emerald-50' : ''}`}>
+                    <tr key={p.id} className={`border-t border-slate-100 hover:bg-slate-50 ${mine ? 'bg-emerald-50' : ''} ${!p.cash_log_id ? 'opacity-60' : ''}`}>
                       <td className="px-2 py-1.5 text-center">
                         <input type="checkbox" checked={mine} disabled={saving}
                           onChange={e => toggle(p.id, e.target.checked)} className="cursor-pointer"/>
                       </td>
-                      <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{p.tx_date}</td>
+                      <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{p.tx_date}
+                        {!p.cash_log_id && <span className="ml-1 text-[9px] text-amber-600" title="통장에 대응 출금이 없는 송금 (결산 entry 등)">통장無</span>}
+                      </td>
                       <td className="px-2 py-1.5 text-right tnum text-slate-800 whitespace-nowrap">{fmt(p.amount)}</td>
                       <td className="px-2 py-1.5 text-slate-800" title={vname}>{vname || <span className="text-slate-300">—</span>}</td>
                       <td className="px-2 py-1.5 text-slate-600 break-words" title={p.memo}>{p.memo || <span className="text-slate-300">—</span>}</td>
@@ -11792,8 +11794,10 @@ function CashBalanceTable({ logs, onReload, showToast }) {
       alert('이 기록은 일괄지급에 연결되어 있습니다. 외상 거래원장 탭에서 해당 지급을 삭제하세요.');
       return;
     }
-    if (!confirm('이 통장 기록을 삭제하시겠습니까?')) return;
+    if (!confirm('이 통장 기록을 삭제하시겠습니까? (연결된 거래처 송금 내역도 함께 삭제됩니다)')) return;
     try {
+      // cash_log_id로 연결된 송금(payable_transactions)도 같이 삭제 — 송금내역 모달과 어긋남 방지
+      await sb.from('payable_transactions').delete().eq('cash_log_id', row.id);
       await dbDeleteCashBalance(row.id);
       showToast('통장 기록 삭제됨');
       onReload();
@@ -13381,15 +13385,18 @@ async function dbSaveManualEntry(e) {
       amount, memo: e.memo || null,
     });
   } else if (t.key === 'payment') {
-    await dbInsertPayableTransaction({
-      manufacturer_id: e.manufacturerId, tx_date: e.date, tx_type: 'payment',
-      amount, memo: e.memo || null,
-    });
-    await dbInsertCashBalance({
+    // 통장 먼저 기록 → 그 id를 cash_log_id로 송금(payable)과 연결.
+    // (통장 삭제 시 연동 삭제 + 송금내역 모달과 어긋남 방지)
+    const cashId = await dbInsertCashBalance({
       log_date: e.date, delta: -amount,
       counterparty: e.vendorName || null,
       entry_type: '지급',
       memo: e.memo || null,
+    });
+    await dbInsertPayableTransaction({
+      manufacturer_id: e.manufacturerId, tx_date: e.date, tx_type: 'payment',
+      amount, memo: e.memo || null,
+      cash_log_id: cashId,
     });
   } else if (t.key === 'collect' && (e.expectedId || e.hospitalId)) {
     // 병원 매출 수금 — 통장 입금 + (예상매출 수금완료 또는 legacy receivable)
