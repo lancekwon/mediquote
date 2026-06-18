@@ -11634,6 +11634,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [hideZero, setHideZero] = useState(true);
+  const [catFilter, setCatFilter] = useState('all'); // all | 병원 | 일반업체 | 기타
 
   const [purchaseModal, setPurchaseModal] = useState(false);
   const [paymentModal, setPaymentModal] = useState(false);
@@ -11691,15 +11692,31 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     return m;
   }, [poTxs]);
 
+  // 거래처(매입) + 병원(매출)을 한 목록으로 — 카테고리 포함
+  const unifiedParties = useMemo(() => {
+    const mfrCat = new Map(manufacturers.map(m => [m.id, m.category || '일반업체']));
+    const items = [];
+    balances.forEach(b => items.push({
+      kind: 'vendor', id: b.manufacturer_id, name: b.manufacturer_name, code: b.vendor_code,
+      category: mfrCat.get(b.manufacturer_id) || '일반업체',
+      owe: b.balance || 0, due: 0, last_tx_date: b.last_tx_date,
+    }));
+    arBalances.forEach(a => items.push({
+      kind: 'hospital', id: a.hospital_id, name: a.hospital_name, code: null,
+      category: '병원', owe: 0, due: a.balance || 0, last_tx_date: a.last_tx_date,
+    }));
+    return items;
+  }, [balances, arBalances, manufacturers]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return balances.filter(b => {
-      if (hideZero && (!b.balance || b.balance <= 0)) return false;
+    return unifiedParties.filter(b => {
+      if (catFilter !== 'all' && b.category !== catFilter) return false;
+      if (hideZero && (b.owe || 0) <= 0 && (b.due || 0) <= 0) return false;
       if (!q) return true;
-      return vendorMatch(b.manufacturer_name, q) ||
-             (b.vendor_code || '').toLowerCase().includes(q);
+      return (b.name || '').toLowerCase().includes(q) || (b.code || '').toLowerCase().includes(q);
     });
-  }, [balances, search, hideZero]);
+  }, [unifiedParties, search, hideZero, catFilter]);
 
   const [sortKey, setSortKey] = useState('balance');
   const [sortDir, setSortDir] = useState('desc');
@@ -11714,7 +11731,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     arr.sort((a, b) => {
       let va, vb;
       if (sortKey === 'balance') {
-        va = a.balance || 0; vb = b.balance || 0;
+        va = a.owe || a.due || 0; vb = b.owe || b.due || 0;
       } else { // lastTx
         va = a.last_tx_date || ''; vb = b.last_tx_date || '';
       }
@@ -11793,6 +11810,12 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                   onChange={e => setSearch(e.target.value)}
                   className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"
                 />
+                <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5 bg-white">
+                  {['all','병원','일반업체','기타'].map(c => (
+                    <button key={c} type="button" onClick={() => setCatFilter(c)}
+                      className={`px-2.5 py-1 text-xs rounded ${catFilter===c ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{c==='all'?'전체':c}</button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => setHideZero(prev => !prev)}
@@ -11811,37 +11834,35 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                     <tr>
                       <th className="px-4 py-2.5 text-left">거래처명</th>
                       <th onClick={() => toggleSort('balance')}
-                          className={`px-4 py-2.5 text-right w-44 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'balance' ? 'text-blue-600' : ''}`}>
-                        <div>최종잔액 <span className="ml-1">{sortIcon('balance')}</span></div>
+                          className={`px-4 py-2.5 text-right w-36 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'balance' ? 'text-blue-600' : ''}`}>
+                        <div>줄 돈 (매입) <span className="ml-1">{sortIcon('balance')}</span></div>
                         <div className="text-[10px] text-slate-400 font-normal normal-case mt-0.5">{today} 기준</div>
                       </th>
+                      <th className="px-4 py-2.5 text-right w-36">받을 돈 (매출)</th>
                       <th onClick={() => toggleSort('lastTx')}
                           className={`px-4 py-2.5 text-center w-28 cursor-pointer select-none hover:bg-slate-100 ${sortKey === 'lastTx' ? 'text-blue-600' : ''}`}>
                         최근 거래 <span className="ml-1">{sortIcon('lastTx')}</span>
                       </th>
-                      <th className="px-4 py-2.5 text-left">최근 거래 내용</th>
                       <th className="px-4 py-2.5 text-center w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {sorted.map(b => {
-                      const lt = lastTxByMfr.get(b.manufacturer_id);
+                      const catCls = b.category === '병원' ? 'bg-emerald-100 text-emerald-700' : b.category === '기타' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600';
                       return (
-                      <tr key={b.manufacturer_id} className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer"
-                          onClick={() => setHistoryModal({ manufacturerId: b.manufacturer_id, name: b.manufacturer_name, vendorCode: b.vendor_code })}>
-                        <td className="px-4 py-2.5 text-slate-800 font-medium">{b.manufacturer_name}</td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${(b.balance || 0) > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
-                          {(b.balance || 0).toLocaleString()}
+                      <tr key={b.kind + ':' + b.id} className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer"
+                          onClick={() => setHistoryModal({ kind: b.kind, id: b.id, name: b.name, code: b.code, category: b.category })}>
+                        <td className="px-4 py-2.5 text-slate-800 font-medium">
+                          <span className={`mr-2 px-1.5 py-0.5 text-[10px] rounded align-middle ${catCls}`}>{b.category}</span>
+                          {b.name}
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${(b.owe || 0) > 0 ? 'text-slate-900' : 'text-slate-300'}`}>
+                          {b.owe ? b.owe.toLocaleString() : '—'}
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${(b.due || 0) > 0 ? 'text-blue-700' : 'text-slate-300'}`}>
+                          {b.due ? b.due.toLocaleString() : '—'}
                         </td>
                         <td className="px-4 py-2.5 text-center text-xs text-slate-500">{b.last_tx_date || '—'}</td>
-                        <td className="px-4 py-2.5 text-xs text-slate-600">
-                          {lt ? (
-                            <span className="flex items-center gap-1.5">
-                              <TypeBadge type={lt.tx_type} />
-                              <span className="truncate max-w-[260px]" title={lt.memo || ''}>{lt.memo || '—'}</span>
-                            </span>
-                          ) : <span className="text-slate-300">—</span>}
-                        </td>
                         <td className="px-4 py-2.5 text-center">
                           <span className="text-xs text-blue-500">상세 →</span>
                         </td>
@@ -11856,8 +11877,9 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                     <tfoot className="bg-slate-100 font-semibold">
                       <tr>
                         <td className="px-4 py-3">합 계</td>
-                        <td className="px-4 py-3 text-right">{filtered.reduce((s, b) => s + (b.balance || 0), 0).toLocaleString()}</td>
-                        <td colSpan={3}></td>
+                        <td className="px-4 py-3 text-right">{filtered.reduce((s, b) => s + (b.owe || 0), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right text-blue-700">{filtered.reduce((s, b) => s + (b.due || 0), 0).toLocaleString()}</td>
+                        <td colSpan={2}></td>
                       </tr>
                     </tfoot>
                   )}
@@ -11898,16 +11920,24 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           onSaved={(info) => { setPaymentModal(false); reload(); showToast(`일괄 입금 ${info.count}건 / ${info.total.toLocaleString()}원 처리됨`); }}
         />
       )}
-      {historyModal && (
-        <VendorHistoryModal
-          manufacturerId={historyModal.manufacturerId}
+      {historyModal && (historyModal.kind === 'hospital' ? (
+        <HospitalLedgerModal
+          hospitalId={historyModal.id}
           name={historyModal.name}
-          vendorCode={historyModal.vendorCode}
           onClose={() => setHistoryModal(null)}
           onChanged={reload}
           showToast={showToast}
         />
-      )}
+      ) : (
+        <VendorHistoryModal
+          manufacturerId={historyModal.id}
+          name={historyModal.name}
+          vendorCode={historyModal.code}
+          onClose={() => setHistoryModal(null)}
+          onChanged={reload}
+          showToast={showToast}
+        />
+      ))}
       {cashAddOpen && (
         <CashAddModal
           currentBalance={cashCurrent}
@@ -13556,6 +13586,80 @@ function VendorPickerModal({ onClose, onSelect, defaultFilter = 'vendor', allowe
             </ul>
           )}
         </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ============================================================
+   병원 매출 원장 모달 (매출계산서 + 수금) — 거래처 원장 양방향
+   ============================================================ */
+function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }) {
+  const [recv, setRecv] = useState([]);
+  const [tax, setTax] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [order, setOrder] = useState('asc');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [r, t] = await Promise.all([
+        sb.from('receivable_transactions').select('*').eq('hospital_id', hospitalId).then(x => x.data || []),
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at').eq('kind', 'sale').eq('hospital_id', hospitalId).then(x => x.data || []),
+      ]);
+      setRecv(r); setTax(t);
+    } finally { setLoading(false); }
+  }, [hospitalId]);
+  useEffect(() => { load(); }, [load]);
+
+  const sign = (ty) => (ty === 'collect' || ty === 'cancel') ? -1 : 1; // 매출/조정 +, 수금/취소 -
+  const ledgerAsc = useMemo(() => {
+    const asc = [...recv].sort((a, b) => (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
+    let running = 0;
+    return asc.map(r => { const s = sign(r.tx_type) * (Number(r.amount) || 0); running += s; return { ...r, inc: s > 0 ? s : 0, dec: s < 0 ? -s : 0, running }; });
+  }, [recv]);
+  const display = order === 'asc' ? ledgerAsc : [...ledgerAsc].reverse();
+  const summary = useMemo(() => {
+    let inv = 0, col = 0;
+    recv.forEach(r => { const a = Number(r.amount) || 0; if (sign(r.tx_type) > 0) inv += a; else col += a; });
+    return { inv, col, balance: inv - col };
+  }, [recv]);
+  const taxSum = useMemo(() => tax.reduce((s, t) => s + (Number(t.amount) || 0), 0), [tax]);
+  const fmtT = (ty) => ({ invoice: '매출', collect: '수금', adjustment: '조정', cancel: '취소' }[ty] || ty);
+
+  return (
+    <ModalShell title={`거래처 원장 — ${name}`} subtitle="병원 · 매출" onClose={onClose} wide>
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="bg-blue-50 border border-blue-200 rounded p-3"><div className="text-[10px] text-blue-700 mb-0.5">총 매출 (증가)</div><div className="text-base font-bold font-mono text-blue-800">{summary.inv.toLocaleString()}</div></div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded p-3"><div className="text-[10px] text-emerald-700 mb-0.5">총 수금 (감소)</div><div className="text-base font-bold font-mono text-emerald-800">{summary.col.toLocaleString()}</div></div>
+        <div className="bg-slate-100 border border-slate-300 rounded p-3"><div className="text-[10px] text-slate-500 mb-0.5">현재 미수금</div><div className={`text-base font-bold font-mono ${summary.balance < 0 ? 'text-red-600' : 'text-slate-900'}`}>{summary.balance.toLocaleString()}</div></div>
+      </div>
+      {taxSum > 0 && <div className="text-[11px] text-slate-500 mb-2">매출 세금계산서 {tax.length}건 · {taxSum.toLocaleString()}원 (참고)</div>}
+      <div className="flex items-center gap-2 mb-2">
+        <button onClick={() => setOrder(o => o === 'asc' ? 'desc' : 'asc')} className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50">{order === 'asc' ? '오래된순' : '최신순'}</button>
+      </div>
+      <div className="border border-slate-100 rounded overflow-auto" style={{ maxHeight: '420px' }}>
+        {loading ? <div className="p-8 text-center text-slate-400 text-sm">불러오는 중...</div> :
+          display.length === 0 ? <div className="p-8 text-center text-slate-400 text-sm">매출/수금 내역이 없습니다.</div> : (
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-[10px] text-slate-500 sticky top-0"><tr>
+                <th className="px-2 py-1.5 text-left">날짜</th><th className="px-2 py-1.5 text-center">유형</th><th className="px-2 py-1.5 text-left">적요</th>
+                <th className="px-2 py-1.5 text-right">증가</th><th className="px-2 py-1.5 text-right">감소</th><th className="px-2 py-1.5 text-right">미수금</th>
+              </tr></thead>
+              <tbody>
+                {display.map(r => (
+                  <tr key={r.id} className="border-t border-slate-100">
+                    <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{r.tx_date}</td>
+                    <td className="px-2 py-1.5 text-center">{fmtT(r.tx_type)}</td>
+                    <td className="px-2 py-1.5 text-slate-600 break-words">{r.memo || '—'}</td>
+                    <td className="px-2 py-1.5 text-right tnum text-blue-700">{r.inc ? r.inc.toLocaleString() : ''}</td>
+                    <td className="px-2 py-1.5 text-right tnum text-emerald-700">{r.dec ? r.dec.toLocaleString() : ''}</td>
+                    <td className="px-2 py-1.5 text-right tnum font-semibold">{r.running.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
       </div>
     </ModalShell>
   );
