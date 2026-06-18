@@ -11692,6 +11692,18 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     return m;
   }, [poTxs]);
 
+  // 거래처(manufacturer)에 발생한 매출 미수금 — receivable_transactions의 manufacturer_id 기준
+  const recvByMfr = useMemo(() => {
+    const m = new Map();
+    arTransactions.forEach(t => {
+      if (!t.manufacturer_id) return;
+      const a = Number(t.amount) || 0;
+      const s = (t.tx_type === 'collect' || t.tx_type === 'cancel') ? -a : a;
+      m.set(t.manufacturer_id, (m.get(t.manufacturer_id) || 0) + s);
+    });
+    return m;
+  }, [arTransactions]);
+
   // 거래처(매입) + 병원(매출)을 한 목록으로 — 카테고리 포함
   const unifiedParties = useMemo(() => {
     const mfrCat = new Map(manufacturers.map(m => [m.id, m.category || '일반업체']));
@@ -11699,14 +11711,14 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     balances.forEach(b => items.push({
       kind: 'vendor', id: b.manufacturer_id, name: b.manufacturer_name, code: b.vendor_code,
       category: mfrCat.get(b.manufacturer_id) || '일반업체',
-      owe: b.balance || 0, due: 0, last_tx_date: b.last_tx_date,
+      owe: b.balance || 0, due: recvByMfr.get(b.manufacturer_id) || 0, last_tx_date: b.last_tx_date,
     }));
     arBalances.forEach(a => items.push({
       kind: 'hospital', id: a.hospital_id, name: a.hospital_name, code: null,
       category: '병원', owe: 0, due: a.balance || 0, last_tx_date: a.last_tx_date,
     }));
     return items;
-  }, [balances, arBalances, manufacturers]);
+  }, [balances, arBalances, manufacturers, recvByMfr]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -12526,6 +12538,7 @@ function PaymentBatchModal({ balances, cashCurrent, poByMfr = {}, onClose, onSav
 
 function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChanged, showToast }) {
   const [rows, setRows] = useState([]);
+  const [saleRows, setSaleRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState('asc'); // 원장 기본 = 시간순(오래된→최신)
   const [from, setFrom] = useState('');
@@ -12534,12 +12547,15 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [pt, ti] = await Promise.all([
+      const [pt, ti, rt, sti] = await Promise.all([
         dbLoadPayableTransactions({ manufacturerId }),
         sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at')
           .eq('kind', 'purchase').eq('manufacturer_id', manufacturerId)
           .order('issue_date', { ascending: false })
           .then(r => r.data || []),
+        sb.from('receivable_transactions').select('*').eq('manufacturer_id', manufacturerId).then(r => r.data || []),
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at')
+          .eq('kind', 'sale').eq('manufacturer_id', manufacturerId).then(r => r.data || []),
       ]);
       // tax_invoices 행을 payable과 같은 형태로 통합 (tx_type='tax_purchase')
       const taxRows = ti.map(t => ({
@@ -12553,6 +12569,8 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         created_at: t.created_at,
       }));
       setRows([...pt, ...taxRows]);
+      const saleTaxRows = sti.map(t => ({ id: 'sti-' + t.id, tx_date: t.issue_date, tx_type: 'tax_sale', amount: Number(t.amount) || 0, memo: t.party_name || '매출 세금계산서', created_at: t.created_at }));
+      setSaleRows([...rt, ...saleTaxRows]);
     } finally {
       setLoading(false);
     }
@@ -12586,6 +12604,11 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
     rows.forEach(r => { if (r.tx_type === 'payment') totalPay += r.amount; else totalIn += r.amount; });
     return { totalIn, totalPay, balance: totalIn - totalPay, count: rows.length };
   }, [rows]);
+  const saleSummary = useMemo(() => {
+    let inv = 0, col = 0;
+    saleRows.forEach(r => { const a = Number(r.amount) || 0; if (r.tx_type === 'collect' || r.tx_type === 'cancel') col += a; else inv += a; });
+    return { inv, col, balance: inv - col, count: saleRows.length };
+  }, [saleRows]);
 
   const handleDelete = async (tx) => {
     if (!confirm(`이 거래를 삭제하시겠습니까?\n${tx.tx_date} / ${typeLabel(tx.tx_type)} / ${tx.amount.toLocaleString()}원`)) return;
@@ -12672,6 +12695,27 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
           <div className={`text-base font-bold font-mono ${summary.balance < 0 ? 'text-red-600' : 'text-slate-900'}`}>{summary.balance.toLocaleString()}</div>
         </div>
       </div>
+
+      {saleSummary.count > 0 && (
+        <div className="mb-3 border border-blue-200 rounded-lg overflow-hidden">
+          <div className="px-3 py-2 bg-blue-50 text-xs font-semibold text-blue-800 flex items-center gap-3 flex-wrap">
+            <span>매출 (이 거래처에 판매)</span>
+            <span className="ml-auto font-mono">매출 {saleSummary.inv.toLocaleString()} · 수금 {saleSummary.col.toLocaleString()} · 미수 {saleSummary.balance.toLocaleString()}</span>
+          </div>
+          <table className="w-full text-xs">
+            <tbody>
+              {[...saleRows].sort((a, b) => (a.tx_date < b.tx_date ? 1 : -1)).map(r => (
+                <tr key={r.id} className="border-t border-blue-50">
+                  <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{r.tx_date}</td>
+                  <td className="px-3 py-1.5 text-center text-slate-500">{r.tx_type === 'collect' ? '수금' : r.tx_type === 'tax_sale' ? '매출계산서' : r.tx_type === 'cancel' ? '취소' : '매출'}</td>
+                  <td className="px-3 py-1.5 text-slate-600 break-words">{r.memo || '—'}</td>
+                  <td className="px-3 py-1.5 text-right tnum">{(Number(r.amount) || 0).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* 필터 + 정렬 + 인쇄 */}
       <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -13690,6 +13734,8 @@ const ENTRY_TYPES = [
   { key: 'purchase', label: '매입 (외상 등록)',  needVendor: true,  cashDir: 0,  desc: '거래처에서 매입 — 외상 잔액 증가, 통장 무관' },
   { key: 'payment',  label: '거래처 송금',       needVendor: true,  cashDir: -1, desc: '거래처에 외상 갚기 — 외상 차감 + 통장 출금' },
   { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
+  { key: 'sale',     label: '매출 (외상 발생)',   needParty: true, cashDir: 0,  desc: '거래처/병원에 매출 — 미수금 증가, 통장 무관' },
+  { key: 'sale_collect', label: '매출 수금',      needParty: true, cashDir: +1, desc: '거래처/병원에서 수금 — 미수금 차감 + 통장 입금' },
   { key: 'platform', label: '수수료·광고 입금',  needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼·소개·판매 수수료 등 비-병원 매출 입금. 출처는 직접 입력' },
   { key: 'opex',     label: '운영비 (임대료·인건비·광고비·세금)', shortLabel: '운영비', needVendor: false, cashDir: -1, freeForm: true, desc: '임대료·인건비·광고비·세금·통신·카드·공과금 등 모든 운영 지출' },
   { key: 'advance',  label: '선지급',            needVendor: false, cashDir: -1, freeForm: true, desc: '미리 보내는 돈 (예치/보증금 등)' },
@@ -13751,6 +13797,24 @@ async function dbSaveManualEntry(e) {
         });
       } catch (_) { /* receivable_transactions 미존재 시 무시 */ }
     }
+  } else if (t.key === 'sale') {
+    // 거래처/병원에 매출 — 미수금 증가 (통장 무관)
+    // receivable_transactions의 tx_type CHECK는 collect/adjustment/cancel만 허용,
+    // 라이브 v_receivable_balance가 adjustment(+)로 미수를 집계하므로 매출 발생 = 'adjustment'
+    await dbInsertReceivableTransaction({
+      [e.partyKind === 'hospital' ? 'hospital_id' : 'manufacturer_id']: e.partyId,
+      tx_date: e.date, tx_type: 'adjustment', amount, memo: e.memo ? ('[매출] ' + e.memo) : '[매출]',
+    });
+  } else if (t.key === 'sale_collect') {
+    // 거래처/병원 수금 — 통장 입금 + 미수금 차감
+    const cashId = await dbInsertCashBalance({
+      log_date: e.date, delta: amount, counterparty: e.partyName || null,
+      entry_type: '수금', memo: e.memo || null,
+    });
+    await dbInsertReceivableTransaction({
+      [e.partyKind === 'hospital' ? 'hospital_id' : 'manufacturer_id']: e.partyId,
+      tx_date: e.date, tx_type: 'collect', amount, memo: e.memo || null, cash_log_id: cashId,
+    });
   } else {
     // collect(잡수입) / opex / advance / etc_in / etc_out / platform / payment(vendor없을때) — 통장만
     const tag = t.shortLabel || t.label;
@@ -13784,6 +13848,11 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
   const [expectedId, setExpectedId] = useState('');
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
+  // 매출(any party) — 거래처/병원 통합 선택
+  const [partyKind, setPartyKind] = useState('');
+  const [partyId, setPartyId] = useState('');
+  const [partyName, setPartyName] = useState('');
+  const [partyPickOpen, setPartyPickOpen] = useState(false);
 
   // 콤보박스 외부 클릭 시 닫기 (거래처/병원 둘 다)
   useEffect(() => {
@@ -13800,6 +13869,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
   const curType = ENTRY_TYPE_BY_KEY[typeKey];
   const needVendor = curType.needVendor;
   const needHospital = curType.needHospital === 'optional'; // 'collect' 유형만 true
+  const needParty = !!curType.needParty; // 매출/매출수금 — 거래처/병원 아무나
 
   const vendorOptions = useMemo(() => {
     const q = vendorSearch.trim().toLowerCase();
@@ -13837,9 +13907,11 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
     const amt = parseAmt(amount);
     if (!amt || amt <= 0) return alert('금액을 입력하세요.');
     if (needVendor && !vendorId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
+    if (needParty && !partyId) return alert(`${curType.label}은(는) 거래처/병원을 선택해야 합니다.`);
     const vendor = balances.find(b => b.manufacturer_id === vendorId);
     const vendorName = needVendor
       ? (vendor?.manufacturer_name || '')
+      : needParty ? partyName
       : (curType.freeForm ? vendorFreeText.trim() : '');
     // 중복 입력 방지 — 같은 날짜·유형·거래처·금액이 이미 입력대기에 있으면 확인
     const dupKey = `${date}|${typeKey}|${needVendor ? vendorId : ''}|${amt}`;
@@ -13855,6 +13927,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
         vendorName,
         amount: amt, memo: memo.trim(),
       };
+      if (needParty) { row.partyKind = partyKind; row.partyId = partyId; row.partyName = partyName; }
       // 수금 + 예상매출 선택 시 우선 사용 (자동으로 hospitalId/병원명 동기화됨)
       if (needHospital && expectedId) {
         row.expectedId = expectedId;
@@ -13924,6 +13997,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
           <div className="col-span-3">
             <label className="text-xs text-slate-500 mb-1 block">
               {needVendor ? <>거래처 <span className="text-red-400">*</span></>
+                : needParty ? <>거래처/병원 <span className="text-red-400">*</span></>
                 : needHospital ? <>병원 <span className="text-slate-300">(선택)</span></>
                 : <>거래처 <span className="text-slate-300">(불필요)</span></>}
             </label>
@@ -13931,6 +14005,11 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
               <button type="button" onClick={()=>setVendorPickOpen(true)}
                 className={`w-full ${inputCls} text-left bg-white hover:bg-slate-50 truncate`}>
                 {selectedVendor ? `${selectedVendor.manufacturer_name} (잔액 ${(selectedVendor.balance || 0).toLocaleString()})` : <span className="text-slate-400">거래처 선택 (클릭)</span>}
+              </button>
+            ) : needParty ? (
+              <button type="button" onClick={()=>setPartyPickOpen(true)}
+                className={`w-full ${inputCls} text-left bg-white hover:bg-slate-50 truncate`}>
+                {partyName ? partyName : <span className="text-slate-400">거래처/병원 선택 (클릭)</span>}
               </button>
             ) : needHospital ? (
               <div className="space-y-1">
@@ -14084,6 +14163,13 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
           defaultFilter="vendor"
           onClose={()=>setVendorPickOpen(false)}
           onSelect={(it)=>setVendorId(it.id)}
+        />
+      )}
+      {partyPickOpen && (
+        <VendorPickerModal
+          allowedKinds="both"
+          onClose={()=>setPartyPickOpen(false)}
+          onSelect={(it)=>{ setPartyKind(it.kind); setPartyId(it.id); setPartyName(it.name); }}
         />
       )}
     </div>
