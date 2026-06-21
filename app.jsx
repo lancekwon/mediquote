@@ -10974,6 +10974,9 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const [payTx, setPayTx] = useState([]);      // 우리 → 거래처 송금
   const [taxInv, setTaxInv] = useState([]);    // 세금계산서 (매입)
   const [balances, setBalances] = useState([]); // v_payable_balance — 거래처별 줄 돈
+  const [cashLog, setCashLog] = useState([]);   // cash_balance_log — 발주 외 매출 집계용
+  const [exFrom, setExFrom] = useState('');
+  const [exTo, setExTo] = useState('');
   const [loading, setLoading] = useState(true);
   const [openHosps, setOpenHosps] = useState({}); // hospName → bool
   const [selectingTaxFor, setSelectingTaxFor] = useState(null);  // 세금계산서 선택 모달 { id, name }
@@ -10982,18 +10985,20 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poRes, recvRes, payRes, tiRes, balRes] = await Promise.all([
+      const [poRes, recvRes, payRes, tiRes, balRes, cashRes] = await Promise.all([
         sb.from('purchase_orders').select('id, po_no, contract_id, manufacturer_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)').eq('is_active', true),
         sb.from('receivable_transactions').select('*').eq('tx_type', 'collect').order('tx_date', { ascending: true }),
         sb.from('payable_transactions').select('*').eq('tx_type', 'payment').order('tx_date', { ascending: true }),
         sb.from('tax_invoices').select('id, manufacturer_id, issue_date, amount, party_name, matched_payment_id, confirmed').eq('kind', 'purchase').order('issue_date', { ascending: false }),
         dbLoadPayableBalances(),
+        dbLoadCashBalanceLog({ limit: 3000 }),
       ]);
       setPos(poRes.data || []);
       setRecvTx(recvRes.data || []);
       setPayTx(payRes.data || []);
       setTaxInv(tiRes.data || []);
       setBalances(balRes || []);
+      setCashLog(cashRes || []);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -11082,6 +11087,21 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
     owe: vendorRows.reduce((s, r) => s + Math.max(0, r.balance), 0),
     warnCount: vendorRows.filter(r => r.warn).length,
   }), [vendorRows]);
+
+  // ===== 발주 외 매출 (광고·수수료·기타 수입) — 거래 입력에서 들어온 통장 입금 모아보기 =====
+  const EXTRA_INCOME_TYPES = ['광고 매출', '수수료', '잡수입'];
+  const extraRows = useMemo(() => {
+    return cashLog
+      .filter(c => (c.delta || 0) > 0 && EXTRA_INCOME_TYPES.includes(c.entry_type))
+      .filter(c => (!exFrom && !exTo) ? true : ((!exFrom || (c.log_date || '') >= exFrom) && (!exTo || (c.log_date || '') <= exTo)))
+      .sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
+  }, [cashLog, exFrom, exTo]);
+  const extraByType = useMemo(() => {
+    const m = { '광고 매출': 0, '수수료': 0, '잡수입': 0 };
+    extraRows.forEach(c => { m[c.entry_type] = (m[c.entry_type] || 0) + (c.delta || 0); });
+    return m;
+  }, [extraRows]);
+  const extraTotal = useMemo(() => extraRows.reduce((s, c) => s + (c.delta || 0), 0), [extraRows]);
 
   // 병원별 그룹
   const byHosp = useMemo(() => {
@@ -11209,114 +11229,82 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
       <div>
-        <div className="text-sm font-semibold text-slate-700">🏭 거래처별 매입 정합성 — 세금계산서 vs 실제 지급</div>
-        <div className="text-xs text-slate-500 mt-0.5">거래처가 끊은 세금계산서와 통장에서 나간 지급을 비교합니다. <span className="text-rose-600 font-semibold">⚠️ = 지급이 매입보다 많음</span> (계산서 누락·오발급·대신지급 의심).</div>
+        <div className="text-sm font-semibold text-slate-700">💰 발주 외 매출 — 광고·수수료·기타 수입</div>
+        <div className="text-xs text-slate-500 mt-0.5">장비 발주(병원 매출)와 무관한 수입을 모아 봅니다. 입력은 「거래 입력」 탭에서 <b>광고 매출 · 수수료 · 잡수입</b> 유형으로 하세요 — 여기는 보기 전용입니다.</div>
+      </div>
+
+      {/* 기간 */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-slate-500">기간</span>
+        <input type="date" value={exFrom} onChange={e => setExFrom(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-sm" />
+        <span className="text-xs text-slate-400">~</span>
+        <input type="date" value={exTo} onChange={e => setExTo(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-sm" />
+        {(exFrom || exTo) && <button onClick={() => { setExFrom(''); setExTo(''); }} className="text-xs text-slate-500 hover:text-slate-700">전체</button>}
+        <span className="ml-auto text-xs text-slate-400">{(exFrom || exTo) ? '선택 기간' : '전체 기간'} 기준</span>
       </div>
 
       {/* 합계 카드 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-amber-200 p-4">
-          <div className="text-[11px] font-semibold text-amber-700 mb-1">📄 세금계산서(매입) 합</div>
-          <div className="text-xl font-bold text-amber-700 tnum">{fmt(vendorTotals.tax)}</div>
+        <div className="bg-white rounded-xl border border-teal-200 p-4">
+          <div className="text-[11px] font-semibold text-teal-700 mb-1">📢 광고 매출</div>
+          <div className="text-xl font-bold text-teal-700 tnum">{fmt(extraByType['광고 매출'])}</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-[11px] font-semibold text-slate-600 mb-1">💸 지급 합 (통장)</div>
-          <div className="text-xl font-bold text-slate-700 tnum">{fmt(vendorTotals.paid)}</div>
+        <div className="bg-white rounded-xl border border-cyan-200 p-4">
+          <div className="text-[11px] font-semibold text-cyan-700 mb-1">🤝 수수료</div>
+          <div className="text-xl font-bold text-cyan-700 tnum">{fmt(extraByType['수수료'])}</div>
         </div>
-        <div className="bg-white rounded-xl border border-rose-200 p-4">
-          <div className="text-[11px] font-semibold text-rose-700 mb-1">📤 줄 돈 (미지급 합)</div>
-          <div className="text-xl font-bold text-rose-700 tnum">{fmt(vendorTotals.owe)}</div>
+        <div className="bg-white rounded-xl border border-lime-200 p-4">
+          <div className="text-[11px] font-semibold text-lime-700 mb-1">🧾 기타 수입</div>
+          <div className="text-xl font-bold text-lime-700 tnum">{fmt(extraByType['잡수입'])}</div>
         </div>
-        <div className={`bg-white rounded-xl border p-4 ${vendorTotals.warnCount > 0 ? 'border-rose-300' : 'border-emerald-200'}`}>
-          <div className="text-[11px] font-semibold text-slate-600 mb-1">⚠️ 점검 필요 (과지급)</div>
-          <div className={`text-xl font-bold tnum ${vendorTotals.warnCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{vendorTotals.warnCount}곳</div>
+        <div className="bg-white rounded-xl border border-slate-300 p-4">
+          <div className="text-[11px] font-semibold text-slate-600 mb-1">합계</div>
+          <div className="text-xl font-bold text-slate-800 tnum">{fmt(extraTotal)}</div>
         </div>
       </div>
 
-      {/* 거래처별 점검 표 */}
+      {/* 목록 */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
             <tr>
-              <th className="px-3 py-2.5 text-left">거래처</th>
-              <th className="px-3 py-2.5 text-right w-32">📄 세금계산서</th>
-              <th className="px-3 py-2.5 text-right w-32">💸 지급</th>
-              <th className="px-3 py-2.5 text-right w-32">줄 돈</th>
-              <th className="px-3 py-2.5 text-center w-32">점검</th>
-              <th className="px-3 py-2.5 text-center w-32">맞춰보기</th>
+              <th className="px-3 py-2.5 text-left w-28">날짜</th>
+              <th className="px-3 py-2.5 text-left w-28">유형</th>
+              <th className="px-3 py-2.5 text-left">출처</th>
+              <th className="px-3 py-2.5 text-right w-32">금액</th>
+              <th className="px-3 py-2.5 text-left">메모</th>
             </tr>
           </thead>
           <tbody>
-            {vendorRows.length === 0 ? (
-              <tr><td colSpan={6} className="py-10 text-center text-slate-400 text-sm">거래처 매입 내역이 없습니다.</td></tr>
-            ) : vendorRows.map(r => (
-              <tr key={r.mfrId} className={`border-t border-slate-100 ${r.warn ? 'bg-rose-50/40' : ''}`}>
-                <td className="px-3 py-2 text-slate-800 font-medium">
-                  {r.code && <span className="mr-1.5 px-1 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-mono rounded">{r.code}</span>}
-                  {r.name}
-                </td>
-                <td className="px-3 py-2 text-right tnum text-amber-700">{r.taxSum ? fmt(r.taxSum) : <span className="text-slate-300">없음</span>}</td>
-                <td className="px-3 py-2 text-right tnum text-slate-700">{r.paid ? fmt(r.paid) : <span className="text-slate-300">—</span>}</td>
-                <td className={`px-3 py-2 text-right tnum font-semibold ${r.balance < 0 ? 'text-rose-600' : r.balance > 0 ? 'text-slate-900' : 'text-slate-300'}`}>{r.balance ? r.balance.toLocaleString()+'원' : '0'}</td>
-                <td className="px-3 py-2 text-center">
-                  {r.warn
-                    ? <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded text-[11px] font-semibold whitespace-nowrap">⚠️ 지급 &gt; 매입</span>
-                    : r.balance > 0
-                      ? <span className="text-[11px] text-slate-400">미지급</span>
-                      : <span className="text-[11px] text-emerald-600">정산됨</span>}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {r.mfrId ? (
-                    <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => setSelectingTaxFor({ id: r.mfrId, name: r.name })}
-                        className="px-2 py-0.5 border border-amber-300 text-amber-700 hover:bg-amber-50 rounded text-[10px] font-semibold">📄 {r.taxCount || 0}</button>
-                      <button onClick={() => setSelectingPayFor({ id: r.mfrId, name: r.name })}
-                        className="px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold">💸 {r.payCount || 0}</button>
-                    </div>
-                  ) : <span className="text-slate-300 text-[10px]">—</span>}
-                </td>
-              </tr>
-            ))}
+            {extraRows.length === 0 ? (
+              <tr><td colSpan={5} className="py-10 text-center text-slate-400 text-sm">
+                발주 외 매출 기록이 없습니다.<br/>
+                <span className="text-xs">「거래 입력」에서 <b>광고 매출 · 수수료 · 잡수입</b> 유형으로 입력하면 여기 모입니다.</span>
+              </td></tr>
+            ) : extraRows.map(c => {
+              const st = CASH_TAG_STYLE[c.entry_type] || { bg: 'bg-slate-100', text: 'text-slate-600' };
+              return (
+                <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{c.log_date}</td>
+                  <td className="px-3 py-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${st.bg} ${st.text}`}>{c.entry_type === '잡수입' ? '기타 수입' : c.entry_type}</span></td>
+                  <td className="px-3 py-2 text-slate-800">{c.counterparty || '—'}</td>
+                  <td className="px-3 py-2 text-right tnum font-semibold text-emerald-700">+{fmt(c.delta)}</td>
+                  <td className="px-3 py-2 text-slate-500 text-xs">{c.memo || ''}</td>
+                </tr>
+              );
+            })}
           </tbody>
-          {vendorRows.length > 0 && (
+          {extraRows.length > 0 && (
             <tfoot className="bg-slate-100 font-semibold text-sm">
               <tr>
-                <td className="px-3 py-2.5">합계 ({vendorRows.length})</td>
-                <td className="px-3 py-2.5 text-right tnum text-amber-700">{fmt(vendorTotals.tax)}</td>
-                <td className="px-3 py-2.5 text-right tnum text-slate-700">{fmt(vendorTotals.paid)}</td>
-                <td className="px-3 py-2.5 text-right tnum text-rose-700">{fmt(vendorTotals.owe)}</td>
-                <td colSpan={2}></td>
+                <td className="px-3 py-2.5" colSpan={3}>합계 ({extraRows.length}건)</td>
+                <td className="px-3 py-2.5 text-right tnum text-emerald-700">+{fmt(extraTotal)}</td>
+                <td></td>
               </tr>
             </tfoot>
           )}
         </table>
       </div>
-
-      <div className="text-xs text-slate-400 text-center pt-1 pb-2">
-        ※ 줄 돈 = 이월 + 세금계산서(매입) − 지급. 음수(⚠️)는 매입보다 더 보낸 것 — 거래처가 계산서를 누락했거나 대신지급한 경우입니다.<br/>
-        선지급·프로젝트성 출금은 외상이 아니므로 「통장 출납」 탭에서 확인하세요. (병원 매출 흐름은 추후 추가 예정)
-      </div>
-
-      {selectingTaxFor && (
-        <TaxSelectModal
-          mfrId={selectingTaxFor.id}
-          mfrName={selectingTaxFor.name}
-          allTaxInv={taxInv}
-          manufacturers={manufacturers}
-          onClose={() => setSelectingTaxFor(null)}
-          onChanged={reload}
-        />
-      )}
-      {selectingPayFor && (
-        <PaymentSelectModal
-          mfrId={selectingPayFor.id}
-          mfrName={selectingPayFor.name}
-          allPayTx={payTx}
-          manufacturers={manufacturers}
-          onClose={() => setSelectingPayFor(null)}
-          onChanged={reload}
-        />
-      )}
     </div>
   );
 }
@@ -11871,7 +11859,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             {[
               { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
-              { k: 'cashflow', l: '자금 흐름' },
+              { k: 'cashflow', l: '발주 외 매출' },
               { k: 'cash', l: '통장 출납' },
               { k: 'taxinv', l: '세금계산서' },
               { k: 'report', l: '리포트' },
@@ -12063,6 +12051,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
 // 통장 메모 prefix → 유형 배지 스타일 (거래입력 8유형과 일치)
 const CASH_TAG_STYLE = {
   '병원 입금':       { bg:'bg-emerald-100', text:'text-emerald-700' },
+  '광고 매출':       { bg:'bg-teal-100',    text:'text-teal-700' },
+  '수수료':          { bg:'bg-cyan-100',    text:'text-cyan-700' },
   '수수료·광고 입금': { bg:'bg-teal-100',   text:'text-teal-700' },
   '잡수입':          { bg:'bg-lime-100',    text:'text-lime-700' },
   '거래처 송금':     { bg:'bg-blue-100',    text:'text-blue-700' },
@@ -13828,7 +13818,8 @@ const ENTRY_TYPES = [
   { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
   { key: 'sale',     label: '매출 (외상 발생)',   needParty: true, cashDir: 0,  desc: '거래처/병원에 매출 — 미수금 증가, 통장 무관' },
   { key: 'sale_collect', label: '매출 수금',      needParty: true, cashDir: +1, desc: '거래처/병원에서 수금 — 미수금 차감 + 통장 입금' },
-  { key: 'platform', label: '수수료·광고 입금',  needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼·소개·판매 수수료 등 비-병원 매출 입금. 출처는 직접 입력' },
+  { key: 'ad',  label: '광고 매출', needVendor: false, cashDir: +1, freeForm: true, desc: '광고 수익 입금 (발주 외 매출). 출처는 직접 입력' },
+  { key: 'fee', label: '수수료',    needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼·소개·판매 수수료 입금 (발주 외 매출). 출처는 직접 입력' },
   { key: 'opex',     label: '운영비 (임대료·인건비·광고비·세금)', shortLabel: '운영비', needVendor: false, cashDir: -1, freeForm: true, desc: '임대료·인건비·광고비·세금·통신·카드·공과금 등 모든 운영 지출' },
   { key: 'advance',  label: '선지급',            needVendor: false, cashDir: -1, freeForm: true, desc: '미리 보내는 돈 (예치/보증금 등)' },
   { key: 'etc_in',   label: '잡수입',            needVendor: false, cashDir: +1, freeForm: true, desc: '환불·세금환급·기타 비분류 입금' },
@@ -14351,6 +14342,8 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
     const TAGS = {
       '거래처 송금': 'payment',
       '병원 입금': 'collect',
+      '광고 매출': 'ad',
+      '수수료': 'fee',
       '수수료·광고 입금': 'platform',
       '운영비': 'opex',
       '선지급': 'advance',
@@ -14457,7 +14450,9 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
           <tbody>
             {[
               { key:'collect',  label:'병원 입금',           color:'text-emerald-700' },
-              { key:'platform', label:'수수료·광고 입금',    color:'text-teal-700' },
+              { key:'ad',       label:'광고 매출',           color:'text-teal-700' },
+              { key:'fee',      label:'수수료',              color:'text-cyan-700' },
+              { key:'platform', label:'수수료·광고 입금(구)', color:'text-teal-700' },
               { key:'etc_in',   label:'잡수입',              color:'text-emerald-600' },
               { key:'payment',  label:'거래처 송금',         color:'text-blue-700' },
               { key:'opex',     label:'운영비 (임대·인건·광고·세금)', color:'text-amber-700' },
