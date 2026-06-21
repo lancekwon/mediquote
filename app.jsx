@@ -11799,7 +11799,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
     const q = search.trim().toLowerCase();
     return unifiedParties.filter(b => {
       if (catFilter !== 'all' && b.category !== catFilter) return false;
-      if (hideZero && (b.owe || 0) <= 0 && (b.due || 0) <= 0) return false;
+      // 잔액 0원 제외 — 단, 받을돈 마이너스(선수금)는 의미가 있으므로 남긴다
+      if (hideZero && (b.owe || 0) <= 0 && (b.due || 0) === 0) return false;
       if (!q) return true;
       return (b.name || '').toLowerCase().includes(q) || (b.code || '').toLowerCase().includes(q);
     });
@@ -11946,8 +11947,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                         <td className={`px-4 py-2.5 text-right font-semibold ${(b.owe || 0) > 0 ? 'text-slate-900' : 'text-slate-300'}`}>
                           {b.owe ? b.owe.toLocaleString() : '—'}
                         </td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${(b.due || 0) > 0 ? 'text-blue-700' : 'text-slate-300'}`}>
-                          {b.due ? b.due.toLocaleString() : '—'}
+                        <td className={`px-4 py-2.5 text-right font-semibold ${(b.due || 0) > 0 ? 'text-blue-700' : (b.due || 0) < 0 ? 'text-violet-600' : 'text-slate-300'}`}>
+                          {b.due ? b.due.toLocaleString() + ((b.due || 0) < 0 ? ' (선수금)' : '') : '—'}
                         </td>
                         <td className="px-4 py-2.5 text-center text-xs text-slate-500">{b.last_tx_date || '—'}</td>
                         <td className="px-4 py-2.5 text-center">
@@ -11986,9 +11987,6 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           )}
         </div>
 
-        <div className="text-xs text-slate-400 text-center mt-4">
-          정기 지급일: 매주 수요일 / 금요일 (안내용. 자동 지급은 수동 일괄 입금으로 처리)
-        </div>
       </div>
 
       {purchaseModal && (
