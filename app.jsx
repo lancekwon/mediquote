@@ -11973,6 +11973,11 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                   )}
                 </table>
               </div>
+              <div className="px-4 py-3 border-t border-slate-100 bg-amber-50/40 text-[11px] text-slate-500 leading-relaxed">
+                💡 잔액이 <span className="text-rose-600 font-semibold">(−)</span>인 곳은 점검 대상입니다 —
+                <b className="text-rose-700"> 줄 돈 (−)</b> = 매입보다 더 보냄 → 거래처에서 <b>세금계산서를 못 받았는지</b> 확인 ·
+                <b className="text-violet-700"> 받을 돈 (−)</b>(선수금) = 판 것보다 더 받음 → 우리가 <b>세금계산서를 안 발행했는지</b> 확인
+              </div>
             </div>
           ) : tab === 'entry' ? (
             <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} expectedRev={expectedRev} onReload={reload} showToast={showToast} />
