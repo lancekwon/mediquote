@@ -35,9 +35,12 @@ for r in rows[7:]:
     })
 
 # ----- 2. 거래처 마스터 -----
-req = urllib.request.Request(f'{SB_URL}/rest/v1/manufacturers?select=id,name,vendor_code',
+req = urllib.request.Request(f'{SB_URL}/rest/v1/manufacturers?select=id,name,vendor_code,aliases',
     headers={'apikey': SB_KEY, 'Authorization': f'Bearer {SB_KEY}'})
 mfrs = json.loads(urllib.request.urlopen(req).read())
+# 별칭(계좌주명/약칭) 전처리: 쉼표 구분 → 정규화 목록
+for m in mfrs:
+    m['_aliases'] = [a.strip() for a in (m.get('aliases') or '').split(',') if a.strip()]
 
 BANKS = ['우리','신한','기업','하나','농협','국민','스타뱅','카카오','케이','새마을','수협','부산','대구','광주','전북','경남','SC','씨티','한화생','삼성']
 def norm(s):
@@ -60,6 +63,12 @@ def match_vendor(name, memo):
             mn = norm(m['name'])
             if cc and (cc in mn or mn in cc):
                 return m['name']
+            # 별칭(계좌주명/약칭) 대조 — 사람이름·약칭으로 찍히는 통장 표시 매칭률↑
+            for al in m['_aliases']:
+                an = norm(al)
+                if len(an) < 2: continue
+                if cc == an or cc in an or an in cc:
+                    return m['name']
     return ''
 
 OPEX_KW = ['부가세','세금','국세','지방세','세무','공과','전기','통신','KT','SKT','ＳＫＴ','보험','카드','수수료','이자','대출','임대','월세','급여','상여','광고','renta','렌탈','입출통지','기장','업무비']

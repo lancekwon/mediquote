@@ -1,3 +1,4 @@
 .vercel
 node_modules
 sql/_imported_tax_invoice_ids.json
+sql/_*.json

@@ -3850,7 +3850,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
     } finally { setDeletingNow(false); }
   };
   const [showAddForm, setShowAddForm] = React.useState(false);
-  const [form, setForm] = React.useState({ name:'', category:'일반업체', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
+  const [form, setForm] = React.useState({ name:'', category:'일반업체', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', aliases:'', notes:'' });
   const [saving, setSaving] = React.useState(false);
 
   // 장비 DB의 vendor(거래처) 컬럼에서만 추출 — 제조사(manufacturer)는 별개 개념
@@ -3902,6 +3902,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
       lead_time_days: m.lead_time_days || 14,
       payment_terms: m.payment_terms || '',
       bank_info: m.bank_info || '',
+      aliases: m.aliases || '',
       notes: m.notes || '',
     });
   };
@@ -3909,7 +3910,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
   const startAdd = () => {
     setShowAddForm(true);
     setEditingId('__new__');
-    setForm({ name:'', category:'일반업체', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', notes:'' });
+    setForm({ name:'', category:'일반업체', contact_name:'', contact_phone:'', contact_email:'', lead_time_days:14, payment_terms:'', bank_info:'', aliases:'', notes:'' });
   };
 
   // 거래처명 변경 시 연결된 vendor 컬럼만 cascade — 제조사(manufacturer)는 별개 개념이므로 건들지 않음
@@ -4047,6 +4048,8 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                 <input value={form.payment_terms} onChange={e => setForm(p=>({...p, payment_terms:e.target.value}))} className={inputCls} placeholder="납품 후 30일"/></div>
               <div className="col-span-2"><label className={labelCls}>계좌정보</label>
                 <input value={form.bank_info} onChange={e => setForm(p=>({...p, bank_info:e.target.value}))} className={inputCls} placeholder="국민은행 000-00-000000"/></div>
+              <div className="col-span-2"><label className={labelCls}>계좌주/별칭 <span className="text-slate-400 font-normal">(쉼표로 구분 — 통장 자동매칭용)</span></label>
+                <input value={form.aliases} onChange={e => setForm(p=>({...p, aliases:e.target.value}))} className={inputCls} placeholder="오명근, 엠케이, MK베드"/></div>
               <div className="col-span-2"><label className={labelCls}>비고</label>
                 <textarea value={form.notes} onChange={e => setForm(p=>({...p, notes:e.target.value}))} className={inputCls} rows={2}/></div>
             </div>
@@ -4123,6 +4126,8 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                               <input value={form.payment_terms} onChange={e => setForm(p=>({...p, payment_terms:e.target.value}))} className={inputCls}/></div>
                             <div className="col-span-2"><label className={labelCls}>계좌정보</label>
                               <input value={form.bank_info} onChange={e => setForm(p=>({...p, bank_info:e.target.value}))} className={inputCls}/></div>
+                            <div className="col-span-2"><label className={labelCls}>계좌주/별칭 <span className="text-slate-400 font-normal">(쉼표로 구분 — 통장 자동매칭용)</span></label>
+                              <input value={form.aliases} onChange={e => setForm(p=>({...p, aliases:e.target.value}))} className={inputCls} placeholder="오명근, 엠케이, MK베드"/></div>
                             <div className="col-span-2"><label className={labelCls}>비고</label>
                               <textarea value={form.notes} onChange={e => setForm(p=>({...p, notes:e.target.value}))} className={inputCls} rows={2}/></div>
                           </div>
@@ -4141,6 +4146,7 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
                             <div><span className="text-slate-500">리드타임 </span><span className="font-medium text-slate-800">{m.lead_time_days ? m.lead_time_days + '일' : '-'}</span></div>
                             <div><span className="text-slate-500">결제조건 </span><span className="font-medium text-slate-800">{m.payment_terms || '-'}</span></div>
                             <div><span className="text-slate-500">계좌 </span><span className="font-medium text-slate-800">{m.bank_info || '-'}</span></div>
+                            {m.aliases && <div className="col-span-2"><span className="text-slate-500">계좌주/별칭 </span><span className="font-medium text-slate-800">{m.aliases}</span></div>}
                             {m.notes && <div className="col-span-2"><span className="text-slate-500">비고 </span><span className="font-medium text-slate-800">{m.notes}</span></div>}
                           </div>
                         </>
@@ -6332,83 +6338,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
       const refreshed = await dbLoadPurchaseOrders(contract.id);
       setPos(refreshed.filter(p => p.is_active !== false));
 
-      // 외상매입금 자동 동기화 — 차액 누적 방식 (audit trail 보존)
-      const today = new Date().toISOString().split('T')[0];
-      const syncResults = { firstPurchase: [], adjusted: [], unchanged: [], skipped: [], failed: [] };
-      const freshMfrs = await dbLoadManufacturers();
-
-      for (const { vendor, model, items } of Object.values(groups)) {
-        const po = refreshed.find(p =>
-          p.manufacturer_name === vendor &&
-          p.is_active !== false &&
-          (p.purchase_order_items || []).some(it => (it.model_name || it.item_name) === model)
-        );
-        if (!po) continue;
-
-        let mfrId = po.manufacturer_id;
-        if (!mfrId) {
-          const found = freshMfrs.find(m => m.name === vendor);
-          mfrId = found?.id || null;
-        }
-
-        // 외상매입금 = 세금계산서(taxInvoiced) 받은 품목의 매입가 합 (A안 — 매입 확정 시점)
-        const taxItems = items.filter(it => it.taxInvoiced);
-        const taxAmtBase = taxItems.reduce((s, it) => s + (Number(it.purchasePrice) || 0) * (Number(it.quantity) || 1), 0);
-        const taxAmt = vatIncluded ? Math.round(taxAmtBase * 1.1) : taxAmtBase;
-
-        if (!mfrId) {
-          if (taxAmt > 0) {
-            console.warn(`외상매입 skip — 거래처 미등록: ${vendor} (PO ${po.po_no})`);
-            syncResults.skipped.push({ vendor, amount: taxAmt });
-          }
-          continue;
-        }
-
-        try {
-          if (taxAmt > 0) {
-            const taxDate = taxItems.map(i => i.tax_invoiced_at).filter(Boolean).sort().pop() || today;
-            const summary = taxItems.slice(0, 3).map(i => `${i.itemName}${i.quantity > 1 ? `×${i.quantity}` : ''}`).join(', ')
-                          + (taxItems.length > 3 ? ` 외 ${taxItems.length - 3}건` : '');
-            const baseMemo = `세금계산서 ${po.po_no || ''} (${summary})`.trim();
-            // 차액 트랜잭션 (첫 매입이면 'purchase', 변경이면 'adjustment')
-            const result = await dbAdjustPayableForPo({
-              poId: po.id, manufacturerId: mfrId, txDate: taxDate,
-              newAmount: taxAmt,
-              memo: baseMemo,
-            });
-            if (result === null) {
-              syncResults.unchanged.push({ vendor, amount: taxAmt });
-            } else if (result.txType === 'purchase') {
-              syncResults.firstPurchase.push({ vendor, amount: result.diff });
-              console.log(`외상매입 신규: ${vendor} +${result.diff.toLocaleString()}원`);
-            } else {
-              syncResults.adjusted.push({ vendor, diff: result.diff });
-              console.log(`외상매입 조정: ${vendor} ${result.diff > 0 ? '+' : ''}${result.diff.toLocaleString()}원`);
-            }
-          }
-          // taxAmt === 0: 세금계산서 미수령 — 외상 미발생. 취소는 별도 [발주 취소] 액션으로
-        } catch (syncErr) {
-          console.error('payable sync failed for vendor', vendor, syncErr);
-          syncResults.failed.push({ vendor, error: syncErr.message || String(syncErr) });
-        }
-      }
-
-      let summaryMsg = '발주 계획서가 저장되었습니다.';
-      if (syncResults.firstPurchase.length > 0) {
-        const total = syncResults.firstPurchase.reduce((s, r) => s + r.amount, 0);
-        summaryMsg += `\n신규 발주 외상 등록: ${syncResults.firstPurchase.length}개 거래처, 합계 ${total.toLocaleString()}원`;
-      }
-      if (syncResults.adjusted.length > 0) {
-        summaryMsg += `\n변경 조정 트랜잭션: ${syncResults.adjusted.map(r => `${r.vendor} ${r.diff > 0 ? '+' : ''}${r.diff.toLocaleString()}`).join(', ')}`;
-      }
-      if (syncResults.skipped.length > 0) {
-        summaryMsg += `\n⚠ 거래처 미등록으로 skip: ${syncResults.skipped.map(r => r.vendor).join(', ')}`;
-      }
-      if (syncResults.failed.length > 0) {
-        summaryMsg += `\n❌ 동기화 실패: ${syncResults.failed.map(r => r.vendor).join(', ')}`;
-      }
+      // 외상매입(줄 돈)은 「매입매출 관리 > 세금계산서」 탭으로 일원화함.
+      // 발주계획서 저장은 줄 돈(payable)에 더 이상 반영하지 않는다 — 이중계상 방지.
+      // 📄(세금계산서) 아이콘은 "이 품목 세금계산서 받음" 표시 용도로만 유지되며(tax_invoiced 컬럼),
+      // 실제 매입 금액은 세금계산서 탭에서 입력해야 거래처 외상에 잡힌다.
       setDirty(false);
-      alert(summaryMsg);
+      alert('발주 계획서가 저장되었습니다.\n\n※ 매입(줄 돈)은 「매입매출 관리 > 세금계산서」 탭에서 입력하세요.');
     } catch (e) {
       console.error(e);
       alert('저장 중 오류: ' + (e.message || e));
@@ -6427,7 +6362,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     }
     const reason = prompt(`[${vendor}] 발주를 취소합니다.\n취소 사유를 입력하세요 (선택사항):`);
     if (reason === null) return; // 사용자가 취소 버튼
-    if (!confirm(`정말 [${vendor}] 발주를 취소하시겠습니까?\n\n외상매입금에 -금액 트랜잭션이 추가되어 잔액이 차감되고,\n발주서는 비활성화됩니다 (히스토리는 보존).`)) return;
+    if (!confirm(`정말 [${vendor}] 발주를 취소하시겠습니까?\n\n발주서는 비활성화됩니다 (히스토리는 보존).\n매입(줄 돈)은 「매입매출 관리 > 세금계산서」 탭에서 관리하세요.`)) return;
     try {
       const today = new Date().toISOString().split('T')[0];
       let result = null;
@@ -13910,7 +13845,8 @@ function ModalShell({ title, subtitle, onClose, children, wide, z = 50 }) {
    거래 입력 탭 — 한 줄씩 입력 → 누적 → 일괄 저장
    ============================================================ */
 const ENTRY_TYPES = [
-  { key: 'purchase', label: '매입 (외상 등록)',  needVendor: true,  cashDir: 0,  desc: '거래처에서 매입 — 외상 잔액 증가, 통장 무관' },
+  // '매입 (외상 등록)' 유형 제거 — 매입(줄 돈)은 「매입매출 관리 > 세금계산서」 탭으로 일원화(이중계상 방지).
+  // dbSaveManualEntry의 purchase 분기·표시 코드는 과거 호환용으로 남겨둠(신규 입력은 불가).
   { key: 'payment',  label: '거래처 송금',       needVendor: true,  cashDir: -1, desc: '거래처에 외상 갚기 — 외상 차감 + 통장 출금' },
   { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
   { key: 'sale',     label: '매출 (외상 발생)',   needParty: true, cashDir: 0,  desc: '거래처/병원에 매출 — 미수금 증가, 통장 무관' },
@@ -14884,7 +14820,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [kakaoModal, setKakaoModal] = useState(null); // { vendor, text }
 
   const handleCancel = async (p) => {
-    if (!confirm(`발주 [${p.po_no}] 를 취소할까요?\n거래처: ${p.manufacturer_name}\n금액: ${(p.total_amount||0).toLocaleString()}원\n\n외상매입에 등록된 금액이 있으면 자동 정산됩니다.`)) return;
+    if (!confirm(`발주 [${p.po_no}] 를 취소할까요?\n거래처: ${p.manufacturer_name}\n금액: ${(p.total_amount||0).toLocaleString()}원\n\n발주서만 비활성화됩니다. 매입(줄 돈)은 「매입매출 관리 > 세금계산서」 탭에서 관리하세요.`)) return;
     try {
       const today = new Date().toISOString().slice(0,10);
       if (p.manufacturer_id) {
@@ -15352,7 +15288,7 @@ function PoNoteModal({ po, user, notes = [], onClose, onChanged }) {
   );
 }
 
-/* ========== 발주 빠른 수정 모달 — 매입가·수량만, 외상 차액 자동 조정 ========== */
+/* ========== 발주 빠른 수정 모달 — 매입가·수량만 (외상매입은 세금계산서 탭으로 일원화) ========== */
 function PoQuickEditModal({ po, user, onClose, onSaved }) {
   const [vendor, setVendor] = useState(po.manufacturer_name || '');
   const [items, setItems] = useState((po.purchase_order_items || []).map(it => ({
@@ -15399,17 +15335,8 @@ function PoQuickEditModal({ po, user, onClose, onSaved }) {
       }
       await dbUpdatePurchaseOrder(po.id, headerPatch);
 
-      // 3. 세금계산서 ✅ 품목 합산이 바뀌었으면 외상매입 차액 조정
-      if (taxedNewTotal > 0 && po.manufacturer_id) {
-        try {
-          await dbAdjustPayableForPo({
-            poId: po.id, manufacturerId: po.manufacturer_id,
-            txDate: new Date().toISOString().slice(0,10),
-            newAmount: taxedNewTotal,
-            memo: `발주 수정 — ${po.po_no}`,
-          });
-        } catch (_) {}
-      }
+      // 3. (제거됨) 외상매입은 「매입매출 관리 > 세금계산서」 탭으로 일원화 —
+      //    발주 수정은 줄 돈(payable)에 반영하지 않는다 (이중계상 방지).
 
       // 4. 변경 사항 메모 자동 추가
       if (changes.length > 0) {
@@ -15498,7 +15425,7 @@ function PoQuickEditModal({ po, user, onClose, onSaved }) {
         </div>
         {taxedNewTotal > 0 && (
           <div className="text-[10px] text-slate-400 mt-2">
-            * 세금계산서 ✅ 품목 합계 {taxedNewTotal.toLocaleString()}원이 외상매입금에 자동 반영됩니다 (이미 등록된 금액과의 차액만 조정)
+            * 세금계산서 ✅ 품목 합계 {taxedNewTotal.toLocaleString()}원. 매입(줄 돈)은 「매입매출 관리 &gt; 세금계산서」 탭에서 입력하세요. (발주 화면은 외상에 반영하지 않음)
           </div>
         )}
       </div>
