@@ -10973,6 +10973,7 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const [recvTx, setRecvTx] = useState([]);    // 병원 → 우리 입금
   const [payTx, setPayTx] = useState([]);      // 우리 → 거래처 송금
   const [taxInv, setTaxInv] = useState([]);    // 세금계산서 (매입)
+  const [balances, setBalances] = useState([]); // v_payable_balance — 거래처별 줄 돈
   const [loading, setLoading] = useState(true);
   const [openHosps, setOpenHosps] = useState({}); // hospName → bool
   const [selectingTaxFor, setSelectingTaxFor] = useState(null);  // 세금계산서 선택 모달 { id, name }
@@ -10981,16 +10982,18 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poRes, recvRes, payRes, tiRes] = await Promise.all([
+      const [poRes, recvRes, payRes, tiRes, balRes] = await Promise.all([
         sb.from('purchase_orders').select('id, po_no, contract_id, manufacturer_id, manufacturer_name, vendor_name, hospital_name, total_amount, sale_amount, purchase_order_items(id, model_name, item_name, quantity, unit_price, sale_price, ordered, paid, tax_invoiced, delivered)').eq('is_active', true),
         sb.from('receivable_transactions').select('*').eq('tx_type', 'collect').order('tx_date', { ascending: true }),
         sb.from('payable_transactions').select('*').eq('tx_type', 'payment').order('tx_date', { ascending: true }),
         sb.from('tax_invoices').select('id, manufacturer_id, issue_date, amount, party_name, matched_payment_id, confirmed').eq('kind', 'purchase').order('issue_date', { ascending: false }),
+        dbLoadPayableBalances(),
       ]);
       setPos(poRes.data || []);
       setRecvTx(recvRes.data || []);
       setPayTx(payRes.data || []);
       setTaxInv(tiRes.data || []);
+      setBalances(balRes || []);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -11035,6 +11038,50 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
     });
     return m;
   }, [taxInv]);
+
+  // ===== 매입 측 거래처 정합성 점검 (세금계산서 vs 실제 지급) =====
+  // 거래처별 세금계산서(매입) 전체 합 — 확정 여부 무관 (줄 돈 잔액과 같은 기준)
+  const taxAllByVendor = useMemo(() => {
+    const m = new Map();
+    taxInv.forEach(t => {
+      if (!t.manufacturer_id) return;
+      const v = m.get(t.manufacturer_id) || { count: 0, sum: 0 };
+      v.count++; v.sum += Number(t.amount) || 0;
+      m.set(t.manufacturer_id, v);
+    });
+    return m;
+  }, [taxInv]);
+  // 거래처별 송금 건수 — 전체 (버튼 라벨용)
+  const payCountByVendor = useMemo(() => {
+    const m = new Map();
+    payTx.forEach(t => { if (t.manufacturer_id) m.set(t.manufacturer_id, (m.get(t.manufacturer_id) || 0) + 1); });
+    return m;
+  }, [payTx]);
+  // 거래처별 점검 행 — v_payable_balance(줄 돈) 기준 + 세금계산서/지급
+  const vendorRows = useMemo(() => {
+    return balances.map(b => {
+      const tax = taxAllByVendor.get(b.manufacturer_id) || { count: 0, sum: 0 };
+      const balance = b.balance || 0;
+      return {
+        mfrId: b.manufacturer_id, name: b.manufacturer_name, code: b.vendor_code,
+        taxSum: tax.sum, taxCount: tax.count,
+        paid: b.total_payment || 0,
+        balance,
+        payCount: payCountByVendor.get(b.manufacturer_id) || 0,
+        warn: balance < 0,   // 과지급 — 계산서 누락/대신지급 의심
+      };
+    }).filter(r => r.taxSum || r.paid || r.balance)
+      .sort((a, b) => {
+        if (a.warn !== b.warn) return a.warn ? -1 : 1;
+        return a.warn ? (a.balance - b.balance) : (b.balance - a.balance);
+      });
+  }, [balances, taxAllByVendor, payCountByVendor]);
+  const vendorTotals = useMemo(() => ({
+    tax: vendorRows.reduce((s, r) => s + r.taxSum, 0),
+    paid: vendorRows.reduce((s, r) => s + r.paid, 0),
+    owe: vendorRows.reduce((s, r) => s + Math.max(0, r.balance), 0),
+    warnCount: vendorRows.filter(r => r.warn).length,
+  }), [vendorRows]);
 
   // 병원별 그룹
   const byHosp = useMemo(() => {
@@ -11156,184 +11203,98 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   };
 
   if (loading) return <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>;
-  if (pos.length === 0) return <div className="p-12 text-center text-slate-400 text-sm">활성 발주가 없습니다.</div>;
 
   const fmt = (n) => (n || 0).toLocaleString() + '원';
 
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
-      {/* 전체 합산 카드 — 합계만 (단순) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="bg-white rounded-xl border border-emerald-200 p-5 flex flex-col justify-center">
-          <div className="text-xs font-semibold text-emerald-700 mb-2">📥 들어올 돈 (전체 매출)</div>
-          <div className="text-2xl font-bold text-emerald-600 tnum">{fmt(grand.incomeTotal)}</div>
+      <div>
+        <div className="text-sm font-semibold text-slate-700">🏭 거래처별 매입 정합성 — 세금계산서 vs 실제 지급</div>
+        <div className="text-xs text-slate-500 mt-0.5">거래처가 끊은 세금계산서와 통장에서 나간 지급을 비교합니다. <span className="text-rose-600 font-semibold">⚠️ = 지급이 매입보다 많음</span> (계산서 누락·오발급·대신지급 의심).</div>
+      </div>
+
+      {/* 합계 카드 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white rounded-xl border border-amber-200 p-4">
+          <div className="text-[11px] font-semibold text-amber-700 mb-1">📄 세금계산서(매입) 합</div>
+          <div className="text-xl font-bold text-amber-700 tnum">{fmt(vendorTotals.tax)}</div>
         </div>
-        <div className="bg-white rounded-xl border border-rose-200 p-5 flex flex-col justify-center">
-          <div className="text-xs font-semibold text-rose-700 mb-2">📤 나갈 돈 (전체 매입, 미정산)</div>
-          <div className="text-2xl font-bold text-rose-600 tnum">{fmt(grand.outflowRemaining)}</div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-[11px] font-semibold text-slate-600 mb-1">💸 지급 합 (통장)</div>
+          <div className="text-xl font-bold text-slate-700 tnum">{fmt(vendorTotals.paid)}</div>
         </div>
-        <div className={`bg-gradient-to-br ${grand.net >= 0 ? 'from-blue-50 to-emerald-50 border-blue-200' : 'from-rose-50 to-amber-50 border-rose-200'} rounded-xl border p-5 flex flex-col justify-center`}>
-          <div className="text-xs font-semibold text-slate-600 mb-2">순 자금 포지션</div>
-          <div className={`text-2xl font-bold tnum ${grand.net >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
-            {grand.net >= 0 ? '+' : ''}{fmt(grand.net)}
-          </div>
+        <div className="bg-white rounded-xl border border-rose-200 p-4">
+          <div className="text-[11px] font-semibold text-rose-700 mb-1">📤 줄 돈 (미지급 합)</div>
+          <div className="text-xl font-bold text-rose-700 tnum">{fmt(vendorTotals.owe)}</div>
+        </div>
+        <div className={`bg-white rounded-xl border p-4 ${vendorTotals.warnCount > 0 ? 'border-rose-300' : 'border-emerald-200'}`}>
+          <div className="text-[11px] font-semibold text-slate-600 mb-1">⚠️ 점검 필요 (과지급)</div>
+          <div className={`text-xl font-bold tnum ${vendorTotals.warnCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{vendorTotals.warnCount}곳</div>
         </div>
       </div>
 
-      {/* 병원별 디테일 */}
-      <div className="space-y-3">
-        <div className="text-sm font-semibold text-slate-700 mt-2">🏥 병원별 자금 흐름</div>
-        {hospEntries.map(g => {
-          const isOpen = !!openHosps[g.hosp];
-          return (
-            <div key={g.hosp} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <button onClick={()=>setOpenHosps(p => ({...p, [g.hosp]: !p[g.hosp]}))}
-                className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-3 text-left transition-colors">
-                <span className="font-semibold text-slate-800">🏥 {g.hosp}</span>
-                <span className="text-xs text-slate-500">{g.poCount}개 발주</span>
-                <span className="ml-auto flex items-center gap-4 text-sm tnum">
-                  <span className="text-emerald-600">📥 {fmt(g.incomeTotal)}</span>
-                  <span className="text-rose-600">📤 {fmt(g.outflowRemaining)}</span>
-                  <span className={`font-bold ${g.net >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>= {g.net >= 0 ? '+' : ''}{fmt(g.net)}</span>
-                  <span className="text-slate-400 text-xs">{isOpen ? '▼' : '▶'}</span>
-                </span>
-              </button>
-              {isOpen && (
-                <div className="p-4 space-y-3 bg-slate-50/50">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {/* 들어올 돈: 매출 + 입금 누적 + 추가 폼 */}
-                    <div className="bg-white rounded-lg border border-emerald-100 p-3">
-                      <div className="text-[11px] font-semibold text-emerald-700 mb-2">📥 들어올 돈</div>
-                      <div className="flex justify-between text-sm font-semibold mb-2">
-                        <span className="text-emerald-700">💵 매출금액 (전체)</span>
-                        <span className="tnum text-emerald-700">{fmt(g.incomeTotal)}</span>
-                      </div>
-                      {g.incomes.length > 0 && (
-                        <div className="space-y-1 text-xs border-t border-slate-100 pt-2">
-                          {g.incomes.map((tx, i) => (
-                            <div key={tx.id} className="flex justify-between">
-                              <span className="text-slate-500">{i+1}차 입금 · {tx.tx_date}</span>
-                              <span className="tnum text-slate-700">+{fmt(tx.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm font-bold border-t border-emerald-200 pt-2 mt-2">
-                        <span className={g.incomeRemaining > 0 ? 'text-emerald-700' : 'text-slate-400 line-through'}>= 받을 돈</span>
-                        <span className={`tnum ${g.incomeRemaining > 0 ? 'text-emerald-700' : 'text-slate-400 line-through'}`}>{fmt(g.incomeRemaining)}</span>
-                      </div>
-                      <div className="flex gap-1 mt-3 pt-2 border-t border-slate-100">
-                        <input type="date" value={getCI(g.hosp).date}
-                          onChange={e => setCI(g.hosp, { date: e.target.value })}
-                          className="border border-slate-200 rounded px-2 py-1 text-xs"/>
-                        <input type="text" placeholder="금액" value={getCI(g.hosp).amount}
-                          onChange={e => setCI(g.hosp, { amount: e.target.value.replace(/[^0-9]/g,'') })}
-                          className="flex-1 border border-slate-200 rounded px-2 py-1 text-xs tnum text-right"/>
-                        <button onClick={() => addCollect(g.hospId, g.hosp)}
-                          className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-xs font-semibold">+ 입금</button>
-                      </div>
+      {/* 거래처별 점검 표 */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+              <th className="px-3 py-2.5 text-left">거래처</th>
+              <th className="px-3 py-2.5 text-right w-32">📄 세금계산서</th>
+              <th className="px-3 py-2.5 text-right w-32">💸 지급</th>
+              <th className="px-3 py-2.5 text-right w-32">줄 돈</th>
+              <th className="px-3 py-2.5 text-center w-32">점검</th>
+              <th className="px-3 py-2.5 text-center w-32">맞춰보기</th>
+            </tr>
+          </thead>
+          <tbody>
+            {vendorRows.length === 0 ? (
+              <tr><td colSpan={6} className="py-10 text-center text-slate-400 text-sm">거래처 매입 내역이 없습니다.</td></tr>
+            ) : vendorRows.map(r => (
+              <tr key={r.mfrId} className={`border-t border-slate-100 ${r.warn ? 'bg-rose-50/40' : ''}`}>
+                <td className="px-3 py-2 text-slate-800 font-medium">
+                  {r.code && <span className="mr-1.5 px-1 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-mono rounded">{r.code}</span>}
+                  {r.name}
+                </td>
+                <td className="px-3 py-2 text-right tnum text-amber-700">{r.taxSum ? fmt(r.taxSum) : <span className="text-slate-300">없음</span>}</td>
+                <td className="px-3 py-2 text-right tnum text-slate-700">{r.paid ? fmt(r.paid) : <span className="text-slate-300">—</span>}</td>
+                <td className={`px-3 py-2 text-right tnum font-semibold ${r.balance < 0 ? 'text-rose-600' : r.balance > 0 ? 'text-slate-900' : 'text-slate-300'}`}>{r.balance ? r.balance.toLocaleString()+'원' : '0'}</td>
+                <td className="px-3 py-2 text-center">
+                  {r.warn
+                    ? <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded text-[11px] font-semibold whitespace-nowrap">⚠️ 지급 &gt; 매입</span>
+                    : r.balance > 0
+                      ? <span className="text-[11px] text-slate-400">미지급</span>
+                      : <span className="text-[11px] text-emerald-600">정산됨</span>}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {r.mfrId ? (
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setSelectingTaxFor({ id: r.mfrId, name: r.name })}
+                        className="px-2 py-0.5 border border-amber-300 text-amber-700 hover:bg-amber-50 rounded text-[10px] font-semibold">📄 {r.taxCount || 0}</button>
+                      <button onClick={() => setSelectingPayFor({ id: r.mfrId, name: r.name })}
+                        className="px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold">💸 {r.payCount || 0}</button>
                     </div>
-                    {/* 나갈 돈: 매입 + 송금 합계 */}
-                    <div className="bg-white rounded-lg border border-rose-100 p-3">
-                      <div className="text-[11px] font-semibold text-rose-700 mb-2">📤 나갈 돈</div>
-                      <div className="flex justify-between text-sm font-semibold mb-1">
-                        <span className="text-rose-700">💵 매입금액 (전체)</span>
-                        <span className="tnum text-rose-700">{fmt(g.outflowTotal)}</span>
-                      </div>
-                      <div className="flex justify-between text-xs mb-1 text-amber-600">
-                        <span>📄 세금계산서 받음</span>
-                        <span className="tnum">{fmt(g.outflowInvoiced)}</span>
-                      </div>
-                      {g.totalSentOut > 0 && (
-                        <div className="flex justify-between text-xs mb-1 text-slate-500">
-                          <span>✅ 송금 누적</span>
-                          <span className="tnum">−{fmt(g.totalSentOut)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm font-bold border-t border-rose-200 pt-2 mt-2">
-                        <span className={g.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-400 line-through'}>= 줄 돈</span>
-                        <span className={`tnum ${g.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-400 line-through'}`}>{fmt(g.outflowRemaining)}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-2 pt-2 border-t border-slate-100">
-                        ※ 송금은 아래 거래처별 표에서 [확인] 버튼으로 처리
-                      </div>
-                    </div>
-                  </div>
-                  {/* 거래처별 매입 상세 + 확인 버튼 */}
-                  <div className="bg-white rounded-lg border border-slate-100 overflow-hidden">
-                    <div className="px-3 py-2 bg-slate-50 text-[11px] font-semibold text-slate-600 border-b border-slate-100">🏭 거래처별 매입 분포</div>
-                    <table className="w-full text-xs">
-                      <thead className="bg-white text-slate-500 text-[10px] uppercase border-b border-slate-100">
-                        <tr>
-                          <th className="px-3 py-2 text-left">거래처</th>
-                          <th className="px-3 py-2 text-right w-32">💵 매입금액</th>
-                          <th className="px-3 py-2 text-right w-48">📄 세금계산서</th>
-                          <th className="px-3 py-2 text-right w-48">송금 내역</th>
-                          <th className="px-3 py-2 text-right w-32">미정산</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.vendors.map(v => {
-                          const settled = v.outflowRemaining === 0 && v.outflowTotal > 0;
-                          const taxInfo = (v.mfrId && taxByVendor.get(v.mfrId)) || { count: 0, sum: 0, matchedCount: 0, matchedSum: 0 };
-                          const taxBtnLabel = taxInfo.count > 0 ? `${taxInfo.count}건` : '조회';
-                          const payBtnLabel = v.sentTx.length > 0 ? `${v.sentTx.length}건` : '조회';
-                          const taxBtnClass = taxInfo.count > 0
-                            ? 'px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0'
-                            : 'px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0';
-                          const payBtnClass = v.sentTx.length > 0
-                            ? 'px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded text-[10px] font-semibold shrink-0'
-                            : 'px-2 py-0.5 border border-slate-300 text-slate-600 hover:bg-slate-50 rounded text-[10px] font-semibold shrink-0';
-                          return (
-                            <tr key={v.vendor} className={`border-t border-slate-100 ${settled ? 'opacity-60' : ''}`}>
-                              <td className={`px-3 py-1.5 text-slate-800 ${settled ? 'line-through' : ''}`}>{v.vendor} <span className="text-slate-400">({v.poCount})</span></td>
-                              <td className={`px-3 py-1.5 text-right tnum text-rose-700 font-medium ${settled ? 'line-through' : ''}`}>{fmt(v.outflowTotal)}</td>
-                              {/* 세금계산서 — 사용자가 묶은 것만 + [조회/확인] */}
-                              <td className="px-3 py-1.5 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  {taxInfo.count > 0
-                                    ? <span className="text-[11px] text-amber-700 font-medium tnum">{fmt(taxInfo.sum)}</span>
-                                    : <span className="text-slate-300 text-[10px]">없음</span>}
-                                  {v.mfrId && (
-                                    <button onClick={() => setSelectingTaxFor({ id: v.mfrId, name: v.vendor })}
-                                      className={taxBtnClass}>{taxBtnLabel}</button>
-                                  )}
-                                </div>
-                              </td>
-                              {/* 송금 내역 — 사용자가 묶은 것만 + [조회/확인] */}
-                              <td className="px-3 py-1.5 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  {v.sentTx.length === 0 ? (
-                                    <span className="text-slate-300 text-[10px]">없음</span>
-                                  ) : (
-                                    <div className="flex flex-col items-end gap-0.5 text-[10px] text-slate-600">
-                                      {v.sentTx.map((tx, i) => (
-                                        <div key={tx.id}>{i+1}차 {tx.tx_date} · <span className="tnum">{fmt(tx.amount)}</span></div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {v.mfrId && (
-                                    <button onClick={() => setSelectingPayFor({ id: v.mfrId, name: v.vendor })}
-                                      className={payBtnClass}>{payBtnLabel}</button>
-                                  )}
-                                </div>
-                              </td>
-                              <td className={`px-3 py-1.5 text-right tnum font-semibold ${v.outflowRemaining > 0 ? 'text-rose-700' : 'text-slate-300'}`}>{v.outflowRemaining > 0 ? fmt(v.outflowRemaining) : '완료'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+                  ) : <span className="text-slate-300 text-[10px]">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {vendorRows.length > 0 && (
+            <tfoot className="bg-slate-100 font-semibold text-sm">
+              <tr>
+                <td className="px-3 py-2.5">합계 ({vendorRows.length})</td>
+                <td className="px-3 py-2.5 text-right tnum text-amber-700">{fmt(vendorTotals.tax)}</td>
+                <td className="px-3 py-2.5 text-right tnum text-slate-700">{fmt(vendorTotals.paid)}</td>
+                <td className="px-3 py-2.5 text-right tnum text-rose-700">{fmt(vendorTotals.owe)}</td>
+                <td colSpan={2}></td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
       </div>
 
-      <div className="text-xs text-slate-400 text-center pt-2 pb-2">
-        ※ 활성 발주(is_active=true)의 매입/매출 단가만 집계합니다. 세금계산서·송금은 독립 체크박스 (중복 가산).
+      <div className="text-xs text-slate-400 text-center pt-1 pb-2">
+        ※ 줄 돈 = 이월 + 세금계산서(매입) − 지급. 음수(⚠️)는 매입보다 더 보낸 것 — 거래처가 계산서를 누락했거나 대신지급한 경우입니다.<br/>
+        선지급·프로젝트성 출금은 외상이 아니므로 「통장 출납」 탭에서 확인하세요. (병원 매출 흐름은 추후 추가 예정)
       </div>
 
       {selectingTaxFor && (
@@ -12019,7 +11980,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'taxinv' ? (
             <TaxInvoiceTab />
           ) : tab === 'report' ? (
-            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} cashCurrent={cashCurrent} />
+            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} cashCurrent={cashCurrent} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} />
           )}
@@ -14294,7 +14255,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
-function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], cashCurrent = null }) {
+function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], manufacturers = [], cashCurrent = null }) {
   // 기본: 오늘부터 최근 한 달
   const defaultRange = useMemo(() => {
     const today = new Date();
@@ -14341,6 +14302,33 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
     return { purchase, payment, cashIn, cashOut, totalBalance, totalOverpaidAp,
              totalReceivable, totalInvoice, totalCollected, arCollectInRange, netPosition };
   }, [fTx, fCash, balances, expectedRev, from, to]);
+
+  // 실제 미수금 — 거래처 원장 탭과 동일 기준(실제 입력한 매출·수금). 병원(arBalances) + 거래처(arTransactions)
+  const arReal = useMemo(() => {
+    const mfrName = new Map(manufacturers.map(m => [m.id, m.name]));
+    const parties = [];
+    arBalances.forEach(a => {
+      const bal = a.balance || 0;
+      if (bal !== 0) parties.push({ kind: '병원', name: a.hospital_name || '(병원)', balance: bal });
+    });
+    const byMfr = new Map();
+    arTransactions.forEach(t => {
+      if (!t.manufacturer_id) return;
+      const a = Number(t.amount) || 0;
+      const s = (t.tx_type === 'collect' || t.tx_type === 'cancel') ? -a : a;
+      byMfr.set(t.manufacturer_id, (byMfr.get(t.manufacturer_id) || 0) + s);
+    });
+    byMfr.forEach((bal, id) => {
+      if (bal !== 0) parties.push({ kind: '거래처', name: mfrName.get(id) || '(거래처)', balance: bal });
+    });
+    const realReceivable = parties.reduce((s, p) => s + Math.max(0,  p.balance), 0); // 받을 돈(양수만)
+    const realAdvance    = parties.reduce((s, p) => s + Math.max(0, -p.balance), 0); // 선수금(미리 받음)
+    const rank = parties.filter(p => p.balance > 0).sort((a, b) => b.balance - a.balance).slice(0, 12);
+    return { realReceivable, realAdvance, rank };
+  }, [arBalances, arTransactions, manufacturers]);
+  // 예상 매출(참고용) — 별도 지표
+  const expectedTotal = useMemo(() => expectedRev.reduce((s, r) => s + (r.amount || 0), 0), [expectedRev]);
+  const netPositionReal = arReal.realReceivable - summary.totalBalance;
 
   // 유형별 요약 (cash 메모 prefix 파싱 → 12유형 분류)
   const byType = useMemo(() => {
@@ -14492,16 +14480,19 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       </div>
 
 
-      {/* 순 자금 포지션 — 받을 돈 − 줄 돈 */}
-      <div className={`rounded-xl border p-5 ${summary.netPosition >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
+      {/* 순 자금 포지션 — 받을 돈 − 줄 돈 (거래처 원장 탭과 동일 기준) */}
+      <div className={`rounded-xl border p-5 ${netPositionReal >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <div className="text-xs text-slate-500 mb-1">순 자금 포지션 (받을 − 줄)</div>
-            <div className={`text-2xl font-bold font-mono ${summary.netPosition >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-              {summary.netPosition >= 0 ? '+' : ''}{summary.netPosition.toLocaleString()}원
+            <div className={`text-2xl font-bold font-mono ${netPositionReal >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {netPositionReal >= 0 ? '+' : ''}{netPositionReal.toLocaleString()}원
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              미수금 {summary.totalReceivable.toLocaleString()} − 외상매입 {summary.totalBalance.toLocaleString()}
+              받을 돈 {arReal.realReceivable.toLocaleString()} − 외상매입 {summary.totalBalance.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              선수금(미리 받음) {arReal.realAdvance.toLocaleString()} · 예상 매출(참고) {expectedTotal.toLocaleString()}
             </div>
           </div>
         </div>
@@ -14536,7 +14527,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
           </table>
         </div>
 
-        {/* 미수금 순위 (예상매출 미수, 대상별, 상위 12) */}
+        {/* 미수금 순위 — 실제 받을 돈(병원+거래처), 양수만 상위 12 */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700">미수금 순위 (상위 12)</div>
           <table className="w-full text-sm">
@@ -14544,29 +14535,24 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
               <tr>
                 <th className="px-3 py-2 text-left w-8">#</th>
                 <th className="px-3 py-2 text-left">대상</th>
-                <th className="px-3 py-2 text-center w-16">회차</th>
                 <th className="px-3 py-2 text-right w-32">미수금</th>
               </tr>
             </thead>
             <tbody>
-              {outstandingRank.length === 0 ? (
-                <tr><td colSpan={4} className="py-6 text-center text-slate-400 text-sm">미수금 없음 (모두 수금 완료)</td></tr>
-              ) : outstandingRank.map((r, i) => {
-                const m = (typeof REVENUE_KIND_META !== 'undefined' && REVENUE_KIND_META[r.kind]) || { label: r.kind, color: 'bg-slate-100 text-slate-600' };
-                return (
-                  <tr key={`${r.kind}-${r.target_name}-${i}`} className="border-t border-slate-100">
-                    <td className="px-3 py-1.5 text-slate-400 text-xs">{i + 1}</td>
-                    <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${m.color}`}>{m.label}</span>
-                        <span className="text-slate-800">{r.target_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-1.5 text-center text-xs text-slate-500">{r.count}</td>
-                    <td className="px-3 py-1.5 text-right font-mono text-xs font-semibold text-rose-700">{r.amount.toLocaleString()}</td>
-                  </tr>
-                );
-              })}
+              {arReal.rank.length === 0 ? (
+                <tr><td colSpan={3} className="py-6 text-center text-slate-400 text-sm">미수금 없음 (모두 수금 완료)</td></tr>
+              ) : arReal.rank.map((r, i) => (
+                <tr key={`${r.kind}-${r.name}-${i}`} className="border-t border-slate-100">
+                  <td className="px-3 py-1.5 text-slate-400 text-xs">{i + 1}</td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${r.kind === '병원' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{r.kind}</span>
+                      <span className="text-slate-800">{r.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-mono text-xs font-semibold text-rose-700">{r.balance.toLocaleString()}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
