@@ -3652,7 +3652,7 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
       try {
         const [pi, po, ph] = await Promise.all([
           sb.from('purchase_order_items').select('equipment_id, model_name, manufacturer, unit_price, quantity, po_id, ordered_at, created_at').not('equipment_id', 'is', null).then(r => r.data || []),
-          sb.from('purchase_orders').select('id, vendor_name, manufacturer_name, ordered_at, created_at').then(r => r.data || []),
+          sb.from('purchase_orders').select('id, vendor_name, manufacturer_name, hospital_name, ordered_at, created_at').then(r => r.data || []),
           sb.from('equipment_price_history').select('equipment_id, price, recorded_at, vendor, po_no, po_id').then(r => r.data || []),
         ]);
         setPoItems(pi); setPos(po); setHist(ph);
@@ -3671,14 +3671,14 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
       const date = (po.ordered_at || po.created_at || it.ordered_at || it.created_at || '').slice(0, 10);
       const vendor = po.vendor_name || po.manufacturer_name || it.manufacturer || '';
       if (!events.has(it.equipment_id)) events.set(it.equipment_id, []);
-      events.get(it.equipment_id).push({ price: Number(it.unit_price), qty: Number(it.quantity) || 0, date, vendor, src: '발주' });
+      events.get(it.equipment_id).push({ price: Number(it.unit_price), qty: Number(it.quantity) || 0, date, vendor, site: po.hospital_name || '', src: '발주' });
       if (it.po_id) covered.add(it.equipment_id + '|' + it.po_id);
     });
     hist.forEach(h => {
       if (!h.equipment_id || !(Number(h.price) > 0)) return;
       if (h.po_id && covered.has(h.equipment_id + '|' + h.po_id)) return;
       if (!events.has(h.equipment_id)) events.set(h.equipment_id, []);
-      events.get(h.equipment_id).push({ price: Number(h.price), qty: 0, date: (h.recorded_at || '').slice(0, 10), vendor: h.vendor || '', src: '이력' });
+      events.get(h.equipment_id).push({ price: Number(h.price), qty: 0, date: (h.recorded_at || '').slice(0, 10), vendor: h.vendor || '', site: (poMap.get(h.po_id) || {}).hospital_name || '', src: '이력' });
     });
     const out = [];
     events.forEach((evs, eqId) => {
@@ -3784,7 +3784,7 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
             <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">횟수/수량</div><div className="font-bold text-slate-800">{detail.count}회/{detail.totalQty}</div></div>
           </div>
           <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[10px] text-slate-500"><tr><th className="px-2 py-1.5 text-left">날짜</th><th className="px-2 py-1.5 text-right">단가</th><th className="px-2 py-1.5 text-center">수량</th><th className="px-2 py-1.5 text-left">거래처</th><th className="px-2 py-1.5 text-center">출처</th></tr></thead>
+            <thead className="bg-slate-50 text-[10px] text-slate-500"><tr><th className="px-2 py-1.5 text-left">날짜</th><th className="px-2 py-1.5 text-right">단가</th><th className="px-2 py-1.5 text-center">수량</th><th className="px-2 py-1.5 text-left">거래처</th><th className="px-2 py-1.5 text-left">납품처</th><th className="px-2 py-1.5 text-center">출처</th></tr></thead>
             <tbody>
               {detail.events.map((ev, i) => (
                 <tr key={i} className="border-t border-slate-100">
@@ -3792,6 +3792,7 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
                   <td className="px-2 py-1.5 text-right tnum font-medium">{fmt(ev.price)}</td>
                   <td className="px-2 py-1.5 text-center text-slate-500">{ev.qty || '—'}</td>
                   <td className="px-2 py-1.5 text-slate-600">{ev.vendor || '—'}</td>
+                  <td className="px-2 py-1.5 text-slate-600">{ev.site || '—'}</td>
                   <td className="px-2 py-1.5 text-center text-[10px] text-slate-400">{ev.src}</td>
                 </tr>
               ))}
