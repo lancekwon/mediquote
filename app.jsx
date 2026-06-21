@@ -6773,7 +6773,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       <th className="px-2 py-2 text-center w-8">No</th>
                       <th className="px-2 py-2 text-left w-24">PO번호</th>
                       <th className="px-2 py-2 text-left w-32">거래처</th>
-                      <th className="px-2 py-2 text-left">모델명/제조사</th>
+                      <th className="px-2 py-2 text-left whitespace-nowrap" style={{minWidth:'210px'}}>모델명 / 제조사</th>
                       <th className="px-2 py-2 text-center w-14">수량</th>
                       <th className="px-2 py-2 text-right w-24">매출단가</th>
                       <th className="px-2 py-2 text-right w-28">매출공급가액</th>
@@ -6854,11 +6854,11 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                               </button>
                             )}
                           </td>
-                          <td className="px-2 py-1.5">
+                          <td className="px-2 py-1.5 align-top" style={{minWidth:'210px'}}>
                             {it.poItemId ? (
                               <>
-                                <div className="text-slate-800">{it.modelName || it.itemName || '—'}</div>
-                                {it.manufacturer && <div className="text-[10px] text-slate-400 truncate">{it.manufacturer}</div>}
+                                <div className="text-slate-800 whitespace-nowrap">{it.modelName || it.itemName || '—'}</div>
+                                {it.manufacturer && <div className="text-[10px] text-slate-400 whitespace-nowrap">{it.manufacturer}</div>}
                               </>
                             ) : (
                               <>
