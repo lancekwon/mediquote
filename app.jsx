@@ -3632,6 +3632,177 @@ function HospitalManageTab() {
   );
 }
 
+/* ============================================================
+   매입가 현황 탭 — 장비별 구매 활동 분석 (최소/평균/최근/횟수/거래처)
+   소스: purchase_order_items(equipment_id) + purchase_orders(날짜·거래처) + equipment_price_history(보완)
+   ============================================================ */
+function EquipmentPurchasePriceTab({ equips = [] }) {
+  const [poItems, setPoItems] = React.useState([]);
+  const [pos, setPos] = React.useState([]);
+  const [hist, setHist] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+  const [sortKey, setSortKey] = React.useState('latestDate');
+  const [sortDir, setSortDir] = React.useState('desc');
+  const [detail, setDetail] = React.useState(null);
+
+  React.useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [pi, po, ph] = await Promise.all([
+          sb.from('purchase_order_items').select('equipment_id, model_name, manufacturer, unit_price, quantity, po_id, ordered_at, created_at').not('equipment_id', 'is', null).then(r => r.data || []),
+          sb.from('purchase_orders').select('id, vendor_name, manufacturer_name, ordered_at, created_at').then(r => r.data || []),
+          sb.from('equipment_price_history').select('equipment_id, price, recorded_at, vendor, po_no, po_id').then(r => r.data || []),
+        ]);
+        setPoItems(pi); setPos(po); setHist(ph);
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const eqMap = React.useMemo(() => new Map(equips.map(e => [e.id, e])), [equips]);
+
+  const rows = React.useMemo(() => {
+    const poMap = new Map(pos.map(p => [p.id, p]));
+    const events = new Map(); const covered = new Set();
+    poItems.forEach(it => {
+      if (!it.equipment_id || !(Number(it.unit_price) > 0)) return;
+      const po = poMap.get(it.po_id) || {};
+      const date = (po.ordered_at || po.created_at || it.ordered_at || it.created_at || '').slice(0, 10);
+      const vendor = po.vendor_name || po.manufacturer_name || it.manufacturer || '';
+      if (!events.has(it.equipment_id)) events.set(it.equipment_id, []);
+      events.get(it.equipment_id).push({ price: Number(it.unit_price), qty: Number(it.quantity) || 0, date, vendor, src: '발주' });
+      if (it.po_id) covered.add(it.equipment_id + '|' + it.po_id);
+    });
+    hist.forEach(h => {
+      if (!h.equipment_id || !(Number(h.price) > 0)) return;
+      if (h.po_id && covered.has(h.equipment_id + '|' + h.po_id)) return;
+      if (!events.has(h.equipment_id)) events.set(h.equipment_id, []);
+      events.get(h.equipment_id).push({ price: Number(h.price), qty: 0, date: (h.recorded_at || '').slice(0, 10), vendor: h.vendor || '', src: '이력' });
+    });
+    const out = [];
+    events.forEach((evs, eqId) => {
+      const e = eqMap.get(eqId);
+      const prices = evs.map(x => x.price);
+      const sorted = [...evs].sort((a, b) => (a.date < b.date ? 1 : -1));
+      const latest = sorted[0];
+      out.push({
+        eqId, model: e ? (e.model && e.model.name) || e.itemName || '(모델명 없음)' : '(삭제된 장비)', mfr: e ? (e.model && e.model.manufacturer) || '' : '',
+        count: evs.length, totalQty: evs.reduce((s, x) => s + x.qty, 0),
+        min: Math.min(...prices), max: Math.max(...prices),
+        avg: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
+        latestPrice: latest.price, latestDate: latest.date,
+        vendors: [...new Set(evs.map(x => x.vendor).filter(Boolean))],
+        events: sorted,
+      });
+    });
+    return out;
+  }, [poItems, pos, hist, eqMap]);
+
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let a = q ? rows.filter(r => (r.model + ' ' + r.mfr + ' ' + r.vendors.join(' ')).toLowerCase().includes(q)) : rows;
+    a = [...a].sort((x, y) => {
+      let vx, vy;
+      if (sortKey === 'latestDate' || sortKey === 'model') { vx = x[sortKey] || ''; vy = y[sortKey] || ''; }
+      else { vx = x[sortKey] || 0; vy = y[sortKey] || 0; }
+      const c = vx < vy ? -1 : vx > vy ? 1 : 0; return sortDir === 'asc' ? c : -c;
+    });
+    return a;
+  }, [rows, search, sortKey, sortDir]);
+
+  const toggleSort = (k) => { if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(k); setSortDir('desc'); } };
+  const sortIcon = (k) => sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+  const fmt = n => (n || 0).toLocaleString();
+  const exportCsv = () => {
+    const head = ['모델', '제조사', '최근매입가', '최근일', '최소', '평균', '최대', '구매횟수', '총수량', '거래처'];
+    const esc = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+    const lines = [head.map(esc).join(',')].concat(filtered.map(r => [r.model, r.mfr, r.latestPrice, r.latestDate, r.min, r.avg, r.max, r.count, r.totalQty, r.vendors.join(';')].map(esc).join(',')));
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = url; a.download = '장비별_매입가_' + new Date().toISOString().slice(0, 10) + '.csv'; a.click(); URL.revokeObjectURL(url);
+  };
+
+  const Th = ({ k, children, cls = '' }) => (
+    <th onClick={() => toggleSort(k)} className={`px-3 py-2 cursor-pointer select-none hover:bg-slate-100 whitespace-nowrap ${sortKey === k ? 'text-blue-600' : ''} ${cls}`}>{children}{sortIcon(k)}</th>
+  );
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="모델·제조사·거래처 검색"
+            className="w-full pl-3 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <span className="text-xs text-slate-500">{filtered.length}개 장비 (구매 데이터 있는 것만)</span>
+        <button onClick={exportCsv} className="px-3 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-500 shrink-0">엑셀 내보내기</button>
+      </div>
+      {loading ? (
+        <div className="p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
+      ) : filtered.length === 0 ? (
+        <div className="p-12 text-center text-slate-400 text-sm">구매(발주/매입가) 데이터가 있는 장비가 없습니다.</div>
+      ) : (
+        <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 320px)' }}>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
+              <tr>
+                <Th k="model" cls="text-left">모델 / 제조사</Th>
+                <Th k="latestPrice" cls="text-right">최근 매입가</Th>
+                <Th k="latestDate" cls="text-center">최근일</Th>
+                <Th k="min" cls="text-right">최소</Th>
+                <Th k="avg" cls="text-right">평균</Th>
+                <Th k="max" cls="text-right">최대</Th>
+                <Th k="count" cls="text-center">횟수</Th>
+                <Th k="totalQty" cls="text-center">총수량</Th>
+                <th className="px-3 py-2 text-left">거래처</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.eqId} className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer" onClick={() => setDetail(r)}>
+                  <td className="px-3 py-2"><div className="font-medium text-slate-800">{r.model}</div><div className="text-[11px] text-slate-400">{r.mfr}</div></td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-900 tnum">{fmt(r.latestPrice)}</td>
+                  <td className="px-3 py-2 text-center text-xs text-slate-500">{r.latestDate || '—'}</td>
+                  <td className="px-3 py-2 text-right tnum text-slate-600">{fmt(r.min)}</td>
+                  <td className="px-3 py-2 text-right tnum text-slate-600">{fmt(r.avg)}</td>
+                  <td className="px-3 py-2 text-right tnum text-slate-600">{fmt(r.max)}</td>
+                  <td className="px-3 py-2 text-center text-slate-600">{r.count}</td>
+                  <td className="px-3 py-2 text-center text-slate-600">{r.totalQty || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500 truncate max-w-[200px]" title={r.vendors.join(', ')}>{r.vendors.join(', ') || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {detail && (
+        <ModalShell title={`${detail.model} — 구매 내역`} subtitle={`${detail.mfr} · 최근 ${fmt(detail.latestPrice)} (${detail.latestDate})`} onClose={() => setDetail(null)}>
+          <div className="grid grid-cols-4 gap-2 mb-3 text-center">
+            <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">최소</div><div className="font-bold text-slate-800 tnum">{fmt(detail.min)}</div></div>
+            <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">평균</div><div className="font-bold text-slate-800 tnum">{fmt(detail.avg)}</div></div>
+            <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">최대</div><div className="font-bold text-slate-800 tnum">{fmt(detail.max)}</div></div>
+            <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">횟수/수량</div><div className="font-bold text-slate-800">{detail.count}회/{detail.totalQty}</div></div>
+          </div>
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-[10px] text-slate-500"><tr><th className="px-2 py-1.5 text-left">날짜</th><th className="px-2 py-1.5 text-right">단가</th><th className="px-2 py-1.5 text-center">수량</th><th className="px-2 py-1.5 text-left">거래처</th><th className="px-2 py-1.5 text-center">출처</th></tr></thead>
+            <tbody>
+              {detail.events.map((ev, i) => (
+                <tr key={i} className="border-t border-slate-100">
+                  <td className="px-2 py-1.5 text-slate-600 whitespace-nowrap">{ev.date || '—'}</td>
+                  <td className="px-2 py-1.5 text-right tnum font-medium">{fmt(ev.price)}</td>
+                  <td className="px-2 py-1.5 text-center text-slate-500">{ev.qty || '—'}</td>
+                  <td className="px-2 py-1.5 text-slate-600">{ev.vendor || '—'}</td>
+                  <td className="px-2 py-1.5 text-center text-[10px] text-slate-400">{ev.src}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
 function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEquipChange }) {
   const [search, setSearch] = React.useState('');
   const [editingId, setEditingId] = React.useState(null);
@@ -4264,6 +4435,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
     { id:'list',    label:'장비 목록',        icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { id:'register',label:'장비 등록',        icon:'M12 4v16m8-8H4' },
     { id:'catmgr',  label:'카테고리·품목 관리', icon:'M4 6h16M4 12h16M4 18h7' },
+    { id:'purchaseprice', label:'매입가 현황', icon:'M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z' },
     { id:'mfrmgr',  label:'거래처 관리',       icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { id:'hospmgr', label:'병원 관리',         icon:'M9 12h6m-3 -3v6m-9 1V7a4 4 0 014-4h10a4 4 0 014 4v6a4 4 0 01-4 4H7l-4 4z' },
   ];
@@ -4688,6 +4860,11 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
             </div>
           </div>
         </div>
+      )}
+
+      {/* ═══════════════ 매입가 현황 탭 ═══════════════ */}
+      {activeTab === 'purchaseprice' && (
+        <EquipmentPurchasePriceTab equips={equips} />
       )}
 
       {/* ═══════════════ 거래처 관리 탭 ═══════════════ */}
@@ -6046,6 +6223,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         const itemContact = items.find(i => i.vendorContactName || i.vendorContactPhone);
         const today = new Date().toISOString().split('T')[0];
         const poItems = items.map(it => ({
+          equipment_id: it.equipmentId || null,
           item_name: it.itemName, model_name: it.modelName,
           manufacturer: it.manufacturer || vendor,
           quantity: Number(it.quantity)||1, unit_price: Number(it.purchasePrice)||0,
