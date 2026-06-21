@@ -3712,7 +3712,7 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
   }, [rows, search, sortKey, sortDir]);
 
   const toggleSort = (k) => { if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(k); setSortDir('desc'); } };
-  const sortIcon = (k) => sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+  const sortIcon = (k) => sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ' ↕';
   const fmt = n => (n || 0).toLocaleString();
   const exportCsv = () => {
     const head = ['모델', '제조사', '최근매입가', '최근일', '최소', '평균', '최대', '구매횟수', '총수량', '거래처'];
