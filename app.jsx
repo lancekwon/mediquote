@@ -11964,11 +11964,24 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                   {sorted.length > 0 && (
                     <tfoot className="bg-slate-100 font-semibold">
                       <tr>
-                        <td className="px-4 py-3">합 계</td>
-                        <td className="px-4 py-3 text-right">{filtered.reduce((s, b) => s + (b.owe || 0), 0).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right text-blue-700">{filtered.reduce((s, b) => s + (b.due || 0), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3">합 계 (외상·미수)</td>
+                        <td className="px-4 py-3 text-right">{filtered.reduce((s, b) => s + Math.max(0, b.owe || 0), 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right text-blue-700">{filtered.reduce((s, b) => s + Math.max(0, b.due || 0), 0).toLocaleString()}</td>
                         <td colSpan={2}></td>
                       </tr>
+                      {(() => {
+                        const overpaid = filtered.reduce((s, b) => s + Math.max(0, -(b.owe || 0)), 0);
+                        const advance  = filtered.reduce((s, b) => s + Math.max(0, -(b.due || 0)), 0);
+                        if (overpaid <= 0 && advance <= 0) return null;
+                        return (
+                          <tr className="text-[11px] font-normal text-slate-500 border-t border-slate-200">
+                            <td className="px-4 py-1.5">└ 점검 대상 (별도)</td>
+                            <td className="px-4 py-1.5 text-right text-rose-600">{overpaid > 0 ? '과지급 −' + overpaid.toLocaleString() : ''}</td>
+                            <td className="px-4 py-1.5 text-right text-violet-600">{advance > 0 ? '선수금 −' + advance.toLocaleString() : ''}</td>
+                            <td colSpan={2}></td>
+                          </tr>
+                        );
+                      })()}
                     </tfoot>
                   )}
                 </table>
