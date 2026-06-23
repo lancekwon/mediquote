@@ -10801,7 +10801,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
 /* ============================================================
    TAX INVOICE TAB — 매출/매입 세금계산서 (엑셀형 입력)
    ============================================================ */
-function TaxInvoiceTab() {
+function TaxInvoiceTab({ onChanged }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0,10);
@@ -10834,6 +10834,7 @@ function TaxInvoiceTab() {
       });
       setForm(p => ({ ...p, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '' }));
       reload();
+      onChanged && onChanged(true); // 거래처 원장 잔액도 갱신
     } catch (e) { alert('저장 실패: '+(e.message||e)); }
   };
 
@@ -10842,6 +10843,7 @@ function TaxInvoiceTab() {
     try {
       await sb.from('tax_invoices').delete().eq('id', id);
       reload();
+      onChanged && onChanged(true); // 거래처 원장 잔액도 갱신
     } catch (e) { alert('삭제 실패: '+(e.message||e)); }
   };
 
@@ -11714,8 +11716,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
 
   const [poTxs, setPoTxs] = useState([]); // po_id가 있는 매입 트랜잭션 (발주 기반)
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [b, t, c, p, ab, at, hosp, ctr, er] = await Promise.all([
         dbLoadPayableBalances(),
@@ -11741,7 +11743,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       console.error(e);
       showToast('데이터 로드 실패: ' + (e.message || e), 'error');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -11866,7 +11868,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               { k: 'taxinv', l: '세금계산서' },
               { k: 'report', l: '리포트' },
             ].map(t => (
-              <button key={t.k} onClick={() => setTab(t.k)}
+              <button key={t.k} onClick={() => { setTab(t.k); if (t.k === 'balance' || t.k === 'report' || t.k === 'cashflow') reload(true); }}
                 className={`px-5 py-3 text-sm font-medium transition-colors ${tab === t.k ? 'border-b-2 border-blue-500 text-blue-600 bg-blue-50' : 'text-slate-600 hover:bg-slate-50'}`}>
                 {t.l}
               </button>
@@ -11987,7 +11989,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'cashflow' ? (
             <CashflowTab contracts={contracts} hospitals={hospitals} manufacturers={manufacturers} />
           ) : tab === 'taxinv' ? (
-            <TaxInvoiceTab />
+            <TaxInvoiceTab onChanged={reload} />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} cashCurrent={cashCurrent} />
           ) : (
