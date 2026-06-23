@@ -2485,17 +2485,15 @@ function CategorySection({ category, collapsed, onToggle, onUpdateItem, onDelete
    ============================================================ */
 function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatIncluded, setVatIncluded, onPdfPreview, onSave, onRevisionSave, saving, currentQuoteNo }) {
   const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
-  // VAT 별도: finalAmt에 10% 가산 / VAT 포함: finalAmt를 역산하여 공급가·부가세 분리
-  const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
-  const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
+  // 장비 단가 = VAT 포함 가정. 합계도 VAT 포함이므로 finalAmt 그대로가 최종금액.
 
   return (
     <aside className="w-72 bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-y-auto">
       {/* Header */}
       <div className="bg-slate-900 text-white px-4 py-3">
         <div className="text-xs font-semibold tracking-widest text-slate-400 uppercase mb-0.5">견적 요약</div>
-        <div className="text-xl font-bold tnum">{supplyAmt.toLocaleString('ko-KR')}<span className="text-sm font-normal text-slate-300 ml-1">원</span></div>
-        <div className="text-xs text-slate-400 mt-0.5">{vatIncluded ? '공급가 (부가세 역산)' : '최종 제안 금액 (VAT 별도)'}</div>
+        <div className="text-xl font-bold tnum">{s.finalAmt.toLocaleString('ko-KR')}<span className="text-sm font-normal text-slate-300 ml-1">원</span></div>
+        <div className="text-xs text-slate-400 mt-0.5">최종 금액 (VAT 포함)</div>
       </div>
 
       <div className="p-4 flex flex-col gap-4 flex-1">
@@ -2573,53 +2571,11 @@ function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatInclud
           )}
         </div>
 
-        {/* 최종 금액 */}
+        {/* 최종 금액 — 장비 단가가 VAT 포함이므로 finalAmt 그대로 표시 */}
         <div className="border-t-2 border-slate-800 pt-3">
-          {vatIncluded ? (
-            /* VAT 포함 역산 표시 */
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">VAT 포함 합계 (고정)</span>
-                <span className="text-sm font-bold tnum text-blue-700">{s.finalAmt.toLocaleString('ko-KR')}원</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500">공급가 (÷1.1, 내림)</span>
-                <span className="font-semibold tnum text-slate-800">{supplyAmt.toLocaleString('ko-KR')}원</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500">부가세 (10%)</span>
-                <span className="font-semibold tnum text-slate-600">{vatAmt.toLocaleString('ko-KR')}원</span>
-              </div>
-            </div>
-          ) : (
-            /* VAT 별도 표시 */
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-start">
-                <span className="text-sm font-bold text-slate-800">최종 제안 금액</span>
-                <div className="text-lg font-bold tnum text-slate-900">{s.finalAmt.toLocaleString('ko-KR')}원</div>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500">부가세 (10%)</span>
-                <span className="font-semibold tnum text-slate-600">{Math.floor(s.finalAmt * 0.1).toLocaleString('ko-KR')}원</span>
-              </div>
-              <div className="flex justify-between items-center text-xs border-t border-slate-200 pt-1.5 mt-0.5">
-                <span className="font-semibold text-slate-700">VAT 포함 합계</span>
-                <span className="font-bold tnum text-blue-700">{Math.floor(s.finalAmt * 1.1).toLocaleString('ko-KR')}원</span>
-              </div>
-            </div>
-          )}
-
-          {/* VAT 토글 */}
-          <div className="mt-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setVatIncluded(p=>!p)}
-                className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${vatIncluded ? 'bg-blue-600' : 'bg-slate-300'}`}
-              >
-                <span className={`inline-block w-4 h-4 bg-white rounded-full shadow transform transition-transform mt-0.5 ${vatIncluded ? 'translate-x-4.5' : 'translate-x-0.5'}`} style={{marginLeft: vatIncluded?'19px':'2px'}}/>
-              </button>
-              <span className="text-xs text-slate-600">VAT {vatIncluded ? '포함 (역산)' : '별도'}</span>
-            </div>
+          <div className="flex justify-between items-start">
+            <span className="text-sm font-bold text-slate-800">최종 금액 (VAT 포함)</span>
+            <div className="text-lg font-bold tnum text-blue-700">{s.finalAmt.toLocaleString('ko-KR')}원</div>
           </div>
         </div>
 
@@ -2794,8 +2750,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
   const [tab, setTab] = useState('summary');
   const logoBase64 = DW_LOGO_BASE64;
   const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
-  const supplyAmt = vatIncluded ? Math.floor(s.finalAmt / 1.1) : s.finalAmt;
-  const vatAmt    = vatIncluded ? (s.finalAmt - supplyAmt) : 0;
+  // 장비 단가 = VAT 포함 가정. finalAmt 그대로가 최종금액.
 
   const handlePrint = () => {
     const printWin = window.open('', '_blank', 'width=900,height=700');
@@ -2965,7 +2920,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
             <div class="cover-summary-label">총 제안 품목 : ${s.activeItems}종 (주요 의료기기, 소모품 일체)</div>
             <div class="cover-summary-sublabel">금액 (VAT 포함 합계)</div>
           </div>
-          <div class="cover-summary-amt">${vatIncluded?s.finalAmt.toLocaleString('ko-KR'):Math.floor(s.finalAmt*1.1).toLocaleString('ko-KR')}원</div>
+          <div class="cover-summary-amt">${s.finalAmt.toLocaleString('ko-KR')}원</div>
         </div>
         <div class="cover-bottom">
           <div class="cover-bottom-box">
@@ -3003,7 +2958,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         <div class="row"><span>공급가액 합계</span><span style="font-variant-numeric:tabular-nums">${s.grossSum.toLocaleString('ko-KR')}원</span></div>
         ${s.discountSum>0?`<div class="row"><span>품목별 할인</span><span>−${s.discountSum.toLocaleString('ko-KR')}원</span></div>`:''}
         ${s.globalAmt>0?`<div class="row"><span>전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})</span><span>−${s.globalAmt.toLocaleString('ko-KR')}원</span></div>`:''}
-        <div class="row final"><span>최종 금액 (VAT 포함)</span><span style="font-variant-numeric:tabular-nums">${(vatIncluded?s.finalAmt:Math.floor(s.finalAmt*1.1)).toLocaleString('ko-KR')}원</span></div>
+        <div class="row final"><span>최종 금액 (VAT 포함)</span><span style="font-variant-numeric:tabular-nums">${s.finalAmt.toLocaleString('ko-KR')}원</span></div>
       </div>
       <div class="footer">본 견적서는 ${quoteInfo.validity}까지 유효합니다. · ${quoteInfo.hospital} 귀중</div>
     </div>
@@ -3167,30 +3122,17 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                   {[
                     ['공급가액 합계', s_all.grossSum.toLocaleString('ko-KR')+'원'],
                     ...(s_all.discountSum>0?[['품목별 할인', '−'+s_all.discountSum.toLocaleString('ko-KR')+'원']]:[]),
-                    [`전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})`, '−'+s_all.globalAmt.toLocaleString('ko-KR')+'원'],
-                    ...(vatIncluded
-                      ? [
-                          ['공급가 (역산 ÷1.1)', Math.floor(s_all.finalAmt/1.1).toLocaleString('ko-KR')+'원'],
-                          ['부가세 (10%)', (s_all.finalAmt-Math.floor(s_all.finalAmt/1.1)).toLocaleString('ko-KR')+'원'],
-                        ]
-                      : [
-                          ['부가세 (10%)', Math.floor(s_all.finalAmt*0.1).toLocaleString('ko-KR')+'원'],
-                        ]
-                    ),
+                    ...(s_all.globalAmt>0?[[`전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})`, '−'+s_all.globalAmt.toLocaleString('ko-KR')+'원']]:[]),
                   ].map(([k,v]) => (
                     <div key={k} className="flex justify-between py-1 text-slate-300 text-xs">
                       <span>{k}</span><span className="tnum">{v}</span>
                     </div>
                   ))}
-                  <div className="flex justify-between pt-3 mt-2 border-t border-slate-600 font-bold text-sm">
-                    <span>{vatIncluded ? '최종 제안 금액 (공급가)' : '최종 제안 금액'}</span>
-                    <span className="tnum">{vatIncluded ? Math.floor(s_all.finalAmt/1.1).toLocaleString('ko-KR') : s_all.finalAmt.toLocaleString('ko-KR')}원</span>
+                  <div className="flex justify-between pt-3 mt-2 border-t border-slate-500 font-bold text-base text-blue-300">
+                    <span>최종 금액 (VAT 포함)</span>
+                    <span className="tnum">{s_all.finalAmt.toLocaleString('ko-KR')}원</span>
                   </div>
-                  <div className="flex justify-between pt-2 mt-1 border-t border-slate-500 font-bold text-base text-blue-300">
-                    <span>VAT 포함 합계</span>
-                    <span className="tnum">{vatIncluded ? s_all.finalAmt.toLocaleString('ko-KR') : Math.floor(s_all.finalAmt*1.1).toLocaleString('ko-KR')}원</span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1">VAT {vatIncluded?'포함 (역산)':'별도'} · 유효기간 {quoteInfo.validity}까지</div>
+                  <div className="text-xs text-slate-400 mt-1">유효기간 {quoteInfo.validity}까지</div>
                 </div>
               </div>
             )}
