@@ -10236,6 +10236,11 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
                                     onClick={() => onLoad(row)}
                                     className="px-3 py-1.5 text-xs bg-slate-900 text-white rounded font-semibold hover:bg-slate-700 transition-colors whitespace-nowrap"
                                   >불러오기</button>
+                                  <button
+                                    onClick={() => setConfirmId(row.id)}
+                                    className="px-2 py-1.5 text-xs border border-slate-200 text-slate-400 rounded hover:border-rose-300 hover:text-rose-600 transition-colors whitespace-nowrap"
+                                    title="견적 삭제"
+                                  >삭제</button>
                                 </div>
                               </td>
                             </tr>
@@ -10246,6 +10251,40 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
                     </div>{/* overflow-x-auto */}
                   </div>
                 )}
+
+                {/* 견적 삭제 확인 모달 */}
+                {confirmId && (() => {
+                  const target = filteredRows.find(r => r.id === confirmId);
+                  if (!target) return null;
+                  const linked = !!target.contract || !!target.lead_id;
+                  return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" onClick={() => setConfirmId(null)}>
+                      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">⚠</div>
+                          <div className="text-base font-bold text-slate-800">견적 삭제</div>
+                        </div>
+                        <div className="text-sm text-slate-600 mb-4 leading-relaxed">
+                          이 견적을 삭제할까요?
+                          <div className="mt-2 p-2.5 bg-slate-50 rounded border border-slate-200 text-xs">
+                            <div><span className="text-slate-400">견적번호 </span><span className="font-mono font-semibold text-slate-800">{target.quoteNo}</span></div>
+                            <div><span className="text-slate-400">병원 </span><span className="font-medium text-slate-800">{target.hospital || '—'}</span></div>
+                            {target.finalAmt != null && <div><span className="text-slate-400">금액 </span><span className="font-semibold tnum">{target.finalAmt.toLocaleString('ko-KR')}원</span></div>}
+                          </div>
+                          {linked && (
+                            <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                              ⚠ 이 견적은 {target.contract ? '계약' : ''}{target.contract && target.lead_id ? '·' : ''}{target.lead_id ? '리드' : ''}와 연결되어 있습니다. 견적만 삭제되며 연결된 데이터는 남습니다.
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setConfirmId(null)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
+                          <button onClick={() => handleDelete(confirmId)} className="px-5 py-2 text-sm bg-rose-600 text-white rounded-lg font-semibold hover:bg-rose-500">삭제</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
