@@ -12146,10 +12146,11 @@ function CashBalanceTable({ logs, onReload, showToast }) {
       alert('이 기록은 일괄지급에 연결되어 있습니다. 외상 거래원장 탭에서 해당 지급을 삭제하세요.');
       return;
     }
-    if (!confirm('이 통장 기록을 삭제하시겠습니까? (연결된 거래처 송금 내역도 함께 삭제됩니다)')) return;
+    if (!confirm('이 통장 기록을 삭제하시겠습니까? (연결된 거래처 송금·병원 수금 내역도 함께 삭제됩니다)')) return;
     try {
-      // cash_log_id로 연결된 송금(payable_transactions)도 같이 삭제 — 송금내역 모달과 어긋남 방지
+      // cash_log_id로 연결된 송금(payable)·수금(receivable) 둘 다 삭제 — 거래처 원장과 어긋남 방지
       await sb.from('payable_transactions').delete().eq('cash_log_id', row.id);
+      await sb.from('receivable_transactions').delete().eq('cash_log_id', row.id);
       await dbDeleteCashBalance(row.id);
       showToast('통장 기록 삭제됨');
       onReload();
