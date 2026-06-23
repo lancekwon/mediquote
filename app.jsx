@@ -1735,16 +1735,12 @@ function ProductDetailModal({ modelId, modelName, manufacturer, catName, catColo
               </div>
             </div>
 
-            {/* A/S & Warranty */}
+            {/* A/S */}
             <div>
-              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">보증 및 A/S</div>
-              <div className="grid grid-cols-2 gap-3">
-                {[['A/S 기간', asP, 'bg-emerald-50 border-emerald-200 text-emerald-800'], ['제품 보증', warranty, 'bg-blue-50 border-blue-200 text-blue-800']].map(([label, val, cls]) => (
-                  <div key={label} className={`rounded-lg border p-3 ${cls}`}>
-                    <div className="text-xs opacity-70 mb-0.5">{label}</div>
-                    <div className="font-bold text-sm">{val}</div>
-                  </div>
-                ))}
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">A/S</div>
+              <div className="rounded-lg border p-3 bg-emerald-50 border-emerald-200 text-emerald-800">
+                <div className="text-xs opacity-70 mb-0.5">A/S 기간</div>
+                <div className="font-bold text-sm">{asP}</div>
               </div>
             </div>
           </div>
@@ -2826,18 +2822,16 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       const pSpecs    = (dbE?.spec?.specs?.length ? dbE.spec.specs : foundSpec.specs) || [];
       const pCert     = dbE?.spec?.cert ? (typeof dbE.spec.cert==='string'?dbE.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE.spec.cert) : (foundSpec.cert||[]);
       const pAs       = dbE?.spec?.as       || foundSpec.as       || '';
-      const pWarranty = dbE?.spec?.warranty || foundSpec.warranty || '';
+      const pNotes    = dbE?.model?.notes   || '';
       const pImage    = dbE?.image || i.image || null;
-      return { ...i, pDesc, pSpecs, pCert, pAs, pWarranty, pImage };
+      return { ...i, pDesc, pSpecs, pCert, pAs, pNotes, pImage };
     });
     const escape = (s) => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const rows = enriched.map(i => {
       const specLines = (i.pSpecs || []).slice(0, 4).map(s => `${escape(s.l)} : ${escape(s.v)}`).join('<br/>');
       const noteParts = [];
-      if (i.manufacturer) noteParts.push(escape(i.manufacturer));
-      if (i.pWarranty)    noteParts.push(`보증 ${escape(i.pWarranty)}`);
-      if (i.pAs)          noteParts.push(`A/S ${escape(i.pAs)}`);
-      if (i.pCert && i.pCert.length) noteParts.push(i.pCert.slice(0,2).map(escape).join(' · '));
+      if (i.pAs)    noteParts.push(`A/S ${escape(i.pAs)}`);
+      if (i.pNotes) noteParts.push(escape(i.pNotes));
       const note = noteParts.join('<br/>');
       const img = i.pImage
         ? `<img src="${i.pImage}" alt="${escape(i.itemName)}" style="max-width:80px;max-height:80px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto"/>`
@@ -3229,7 +3223,6 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                     const iOrigin   = dbE2?.spec?.origin   || spec.origin;
                     const iCert     = dbE2?.spec?.cert ? (typeof dbE2.spec.cert==='string'?dbE2.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE2.spec.cert) : spec.cert;
                     const iAs       = dbE2?.spec?.as       || spec.as;
-                    const iWarranty = dbE2?.spec?.warranty || spec.warranty;
                     return (
                       <div key={item.id} className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                         {/* Card header */}
@@ -3297,15 +3290,9 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
                                 </table>
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5">
-                                <div className="text-xs text-emerald-600 mb-0.5">A/S 기간</div>
-                                <div className="font-bold text-sm text-emerald-800">{iAs}</div>
-                              </div>
-                              <div className="rounded-lg border border-blue-200 bg-blue-50 p-2.5">
-                                <div className="text-xs text-blue-600 mb-0.5">제품 보증</div>
-                                <div className="font-bold text-sm text-blue-800">{iWarranty}</div>
-                              </div>
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2.5">
+                              <div className="text-xs text-emerald-600 mb-0.5">A/S 기간</div>
+                              <div className="font-bold text-sm text-emerald-800">{iAs}</div>
                             </div>
                           </div>
                         </div>
@@ -4510,7 +4497,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                       <th className="px-3 py-2.5 text-right text-slate-500 font-semibold w-28">판매이익</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-32">담당자</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">A/S</th>
-                      <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">보증</th>
                       <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-36">작업</th>
                     </tr>
                   </thead>
@@ -4553,7 +4539,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                           })()}
                         </td>
                         <td className="px-3 py-2.5 text-slate-500">{e.spec?.as||'—'}</td>
-                        <td className="px-3 py-2.5 text-slate-500">{e.spec?.warranty||'—'}</td>
                         <td className="px-3 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             <button onClick={()=>openEdit(e)} className="px-2.5 py-1 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 rounded font-medium transition-colors whitespace-nowrap">수정</button>
@@ -4748,7 +4733,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   <div><label className={labelCls}>제조국가</label><input type="text" value={regForm.origin} onChange={e=>setRF('origin',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>인증</label><input type="text" placeholder="예: 의료기기 2등급" value={regForm.cert} onChange={e=>setRF('cert',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>A/S 기간</label><input type="text" placeholder="예: 2년" value={regForm.as} onChange={e=>setRF('as',e.target.value)} className={inputCls}/></div>
-                  <div><label className={labelCls}>검사주기</label><input type="text" placeholder="예: 1년" value={regForm.warranty} onChange={e=>setRF('warranty',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>홈페이지</label><input type="text" placeholder="예: https://gemss.co.kr" value={regForm.homepage} onChange={e=>setRF('homepage',e.target.value)} className={inputCls}/></div>
                 </div>
                 <div className="flex justify-end pt-2 border-t border-slate-100">
@@ -5049,7 +5033,6 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className={labelCls}>A/S 기간</label><input type="text" value={editForm.as} onChange={e=>setEF('as',e.target.value)} className={inputCls}/></div>
-                    <div><label className={labelCls}>검사주기</label><input type="text" value={editForm.warranty} onChange={e=>setEF('warranty',e.target.value)} className={inputCls}/></div>
                   </div>
                   <div><label className={labelCls}>홈페이지</label><input type="text" placeholder="https://..." value={editForm.homepage||''} onChange={e=>setEF('homepage',e.target.value)} className={inputCls}/></div>
                   <div><label className={labelCls}>기타 특이사항</label><input type="text" value={editForm.notes} onChange={e=>setEF('notes',e.target.value)} className={inputCls}/></div>
@@ -6405,7 +6388,6 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     const rows = items.map((it, i) => {
       const eq = equipments.find(e => e.id === it.equipmentId);
       const asPeriod = eq?.spec?.as || '';
-      const warranty = eq?.spec?.warranty || '';
       const unitPrice = vatIncluded ? Math.round(it.salePrice * 1.1) : it.salePrice;
       const amount = unitPrice * it.quantity;
       return `<tr>
@@ -6417,7 +6399,6 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         <td class="r">${unitPrice.toLocaleString('ko-KR')}</td>
         <td class="r">${amount.toLocaleString('ko-KR')}</td>
         <td class="c">${asPeriod || '-'}</td>
-        <td class="c">${warranty || '-'}</td>
         <td class="c">${it.delivered_at || ''}</td>
       </tr>`;
     }).join('');
@@ -6451,7 +6432,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           <th style="width:32px">No</th><th>품목</th><th style="width:130px">모델명</th>
           <th style="width:100px">제조사</th><th style="width:40px">수량</th>
           <th style="width:90px">단가</th><th style="width:100px">금액</th>
-          <th style="width:60px">A/S</th><th style="width:60px">보증</th><th style="width:80px">납품일</th>
+          <th style="width:60px">A/S</th><th style="width:80px">납품일</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
