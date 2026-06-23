@@ -12663,7 +12663,8 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         created_at: t.created_at,
       }));
       setRows([...pt, ...taxRows]);
-      const saleTaxRows = sti.map(t => ({ id: 'sti-' + t.id, tx_date: t.issue_date, tx_type: 'tax_sale', amount: Number(t.amount) || 0, memo: t.party_name || '매출 세금계산서', created_at: t.created_at }));
+      // 매출 세금계산서 6/1 이후만 집계(목록 recvByMfr와 동일 기준 — 5/29 이전은 이월 포함)
+      const saleTaxRows = sti.filter(t => (t.issue_date || '') > '2026-05-29').map(t => ({ id: 'sti-' + t.id, tx_date: t.issue_date, tx_type: 'tax_sale', amount: Number(t.amount) || 0, memo: t.party_name || '매출 세금계산서', created_at: t.created_at }));
       setSaleRows([...rt, ...saleTaxRows]);
     } finally {
       setLoading(false);
@@ -13751,19 +13752,26 @@ function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }
   useEffect(() => { load(); }, [load]);
 
   const sign = (ty) => (ty === 'collect' || ty === 'cancel') ? -1 : 1; // 매출/조정 +, 수금/취소 -
+  const fmtT = (ty) => ({ invoice: '매출', collect: '수금', adjustment: '조정', cancel: '취소' }[ty] || ty);
+  const CUT = '2026-05-29'; // 5/29 이전 매출계산서는 이월에 포함 → 집계 제외(아카이브)
+  // 원장 = receivable_transactions + 매출 세금계산서(6/1 이후) — 목록 받을돈과 동일 기준
   const ledgerAsc = useMemo(() => {
-    const asc = [...recv].sort((a, b) => (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
+    const items = [
+      ...recv.map(r => ({ id: r.id, tx_date: r.tx_date, type: fmtT(r.tx_type), s: sign(r.tx_type) * (Number(r.amount) || 0), memo: r.memo, created_at: r.created_at })),
+      ...tax.filter(t => (t.issue_date || '') > CUT).map(t => ({ id: 'tax-' + t.id, tx_date: t.issue_date, type: '매출(계산서)', s: (Number(t.amount) || 0), memo: t.party_name || '매출 세금계산서', created_at: t.created_at })),
+    ];
+    items.sort((a, b) => (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
     let running = 0;
-    return asc.map(r => { const s = sign(r.tx_type) * (Number(r.amount) || 0); running += s; return { ...r, inc: s > 0 ? s : 0, dec: s < 0 ? -s : 0, running }; });
-  }, [recv]);
+    return items.map(r => { running += r.s; return { ...r, inc: r.s > 0 ? r.s : 0, dec: r.s < 0 ? -r.s : 0, running }; });
+  }, [recv, tax]);
   const display = order === 'asc' ? ledgerAsc : [...ledgerAsc].reverse();
   const summary = useMemo(() => {
     let inv = 0, col = 0;
-    recv.forEach(r => { const a = Number(r.amount) || 0; if (sign(r.tx_type) > 0) inv += a; else col += a; });
+    ledgerAsc.forEach(r => { if (r.s > 0) inv += r.s; else col += -r.s; });
     return { inv, col, balance: inv - col };
-  }, [recv]);
-  const taxSum = useMemo(() => tax.reduce((s, t) => s + (Number(t.amount) || 0), 0), [tax]);
-  const fmtT = (ty) => ({ invoice: '매출', collect: '수금', adjustment: '조정', cancel: '취소' }[ty] || ty);
+  }, [ledgerAsc]);
+  const archiveTax = useMemo(() => tax.filter(t => (t.issue_date || '') <= CUT), [tax]);
+  const archiveSum = useMemo(() => archiveTax.reduce((s, t) => s + (Number(t.amount) || 0), 0), [archiveTax]);
 
   return (
     <ModalShell title={`거래처 원장 — ${name}`} subtitle="병원 · 매출" onClose={onClose} wide>
@@ -13772,7 +13780,7 @@ function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }
         <div className="bg-emerald-50 border border-emerald-200 rounded p-3"><div className="text-[10px] text-emerald-700 mb-0.5">총 수금 (감소)</div><div className="text-base font-bold font-mono text-emerald-800">{summary.col.toLocaleString()}</div></div>
         <div className="bg-slate-100 border border-slate-300 rounded p-3"><div className="text-[10px] text-slate-500 mb-0.5">현재 미수금</div><div className={`text-base font-bold font-mono ${summary.balance < 0 ? 'text-red-600' : 'text-slate-900'}`}>{summary.balance.toLocaleString()}</div></div>
       </div>
-      {taxSum > 0 && <div className="text-[11px] text-slate-500 mb-2">매출 세금계산서 {tax.length}건 · {taxSum.toLocaleString()}원 (참고)</div>}
+      {archiveSum > 0 && <div className="text-[11px] text-slate-400 mb-2">※ 5/29 이전 매출계산서 {archiveTax.length}건 · {archiveSum.toLocaleString()}원은 이월에 포함(집계 제외, 아카이브)</div>}
       <div className="flex items-center gap-2 mb-2">
         <button onClick={() => setOrder(o => o === 'asc' ? 'desc' : 'asc')} className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50">{order === 'asc' ? '오래된순' : '최신순'}</button>
       </div>
@@ -13788,7 +13796,7 @@ function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }
                 {display.map(r => (
                   <tr key={r.id} className="border-t border-slate-100">
                     <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{r.tx_date}</td>
-                    <td className="px-2 py-1.5 text-center">{fmtT(r.tx_type)}</td>
+                    <td className="px-2 py-1.5 text-center">{r.type}</td>
                     <td className="px-2 py-1.5 text-slate-600 break-words">{r.memo || '—'}</td>
                     <td className="px-2 py-1.5 text-right tnum text-blue-700">{r.inc ? r.inc.toLocaleString() : ''}</td>
                     <td className="px-2 py-1.5 text-right tnum text-emerald-700">{r.dec ? r.dec.toLocaleString() : ''}</td>
