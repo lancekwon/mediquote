@@ -12336,12 +12336,15 @@ function TypeBadge({ type }) {
     adjustment:   { l: '조정',     c: 'bg-blue-100 text-blue-700' },
     cancel:       { l: '취소',     c: 'bg-rose-100 text-rose-700' },
     payment:      { l: '지급',     c: 'bg-emerald-100 text-emerald-700' },
+    sale_adj:     { l: '매출',     c: 'bg-blue-100 text-blue-700' },
+    tax_sale:     { l: '매출계산서', c: 'bg-blue-100 text-blue-700' },
+    collect:      { l: '수금',     c: 'bg-violet-100 text-violet-700' },
   };
   const s = map[type] || { l: type, c: 'bg-slate-100' };
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${s.c}`}>{s.l}</span>;
 }
 function typeLabel(t) {
-  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '매입계산서' })[t] || t;
+  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '매입계산서', collect: '수금', tax_sale: '매출계산서', sale_adj: '매출' })[t] || t;
 }
 
 function PurchaseAddModal({ balances, onClose, onSaved }) {
@@ -12670,21 +12673,27 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at')
           .eq('kind', 'sale').eq('manufacturer_id', manufacturerId).then(r => r.data || []),
       ]);
-      // tax_invoices 행을 payable과 같은 형태로 통합 (tx_type='tax_purchase')
+      // 매입 측 = payable + 매입 세금계산서
       const taxRows = ti.map(t => ({
-        id: 'ti-' + t.id,
-        _isTax: true,
+        id: 'ti-' + t.id, _isTax: true, _isPayable: true,
         manufacturer_id: manufacturerId,
-        tx_date: t.issue_date,
-        tx_type: 'tax_purchase',
+        tx_date: t.issue_date, tx_type: 'tax_purchase',
         amount: Number(t.amount) || 0,
         memo: t.party_name || '세금계산서',
         created_at: t.created_at,
       }));
-      setRows([...pt, ...taxRows]);
-      // 매출 세금계산서 6/1 이후만 집계(목록 recvByMfr와 동일 기준 — 5/29 이전은 이월 포함)
-      const saleTaxRows = sti.filter(t => (t.issue_date || '') > '2026-05-29').map(t => ({ id: 'sti-' + t.id, tx_date: t.issue_date, tx_type: 'tax_sale', amount: Number(t.amount) || 0, memo: t.party_name || '매출 세금계산서', created_at: t.created_at }));
-      setSaleRows([...rt, ...saleTaxRows]);
+      const payableRows = pt.map(r => ({ ...r, _isPayable: true }));
+      setRows([...payableRows, ...taxRows]);
+      // 매출 측 = receivable(adjustment '매출' / collect '수금' / cancel) + 매출 세금계산서(6/1 이후)
+      const rtRows = rt.map(r => ({ ...r, _isReceivable: true, tx_type: r.tx_type === 'adjustment' ? 'sale_adj' : r.tx_type }));
+      const saleTaxRows = sti.filter(t => (t.issue_date || '') > '2026-05-29').map(t => ({
+        id: 'sti-' + t.id, _isTax: true, _isReceivable: true,
+        tx_date: t.issue_date, tx_type: 'tax_sale',
+        amount: Number(t.amount) || 0,
+        memo: t.party_name || '매출 세금계산서',
+        created_at: t.created_at,
+      }));
+      setSaleRows([...rtRows, ...saleTaxRows]);
     } finally {
       setLoading(false);
     }
@@ -12692,17 +12701,29 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
 
   useEffect(() => { load(); }, [load]);
 
-  // 원장: 시간순 정렬 + 증가/감소/잔액 누적
+  // 부호: 잔액 = 받을돈 − 줄돈 (순). 매출/지급 = +, 매입/수금 = −
+  const signOf = (r) => {
+    const a = Number(r.amount) || 0;
+    if (r._isReceivable) {
+      // 매출 측: tax_sale·sale_adj 매출(+) / collect·cancel 감소(−)
+      return (r.tx_type === 'collect' || r.tx_type === 'cancel') ? -a : +a;
+    }
+    // 매입 측: opening/purchase/tax_purchase/adjustment/cancel 매입(−), payment 지급(+)
+    return r.tx_type === 'payment' ? +a : -a;
+  };
+
+  // 원장: 매입·매출 통합 시간순 정렬 + 증가/감소/순잔액 누적
   const ledgerAsc = useMemo(() => {
-    const asc = [...rows].sort((a, b) =>
+    const all = [...rows, ...saleRows];
+    const asc = all.sort((a, b) =>
       (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
     let running = 0;
     return asc.map(r => {
-      const signed = r.tx_type === 'payment' ? -r.amount : r.amount; // 잔액 영향(외상매입 기준)
+      const signed = signOf(r);
       running += signed;
       return { ...r, inc: signed > 0 ? signed : 0, dec: signed < 0 ? -signed : 0, running };
     });
-  }, [rows]);
+  }, [rows, saleRows]);
 
   // 기간 필터
   const filtered = useMemo(() => ledgerAsc.filter(r => {
@@ -12713,24 +12734,30 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
 
   const display = order === 'asc' ? filtered : [...filtered].reverse();
 
+  // 매입 측 요약 (외상매입 잔액)
   const summary = useMemo(() => {
     let totalIn = 0, totalPay = 0;
     rows.forEach(r => { if (r.tx_type === 'payment') totalPay += r.amount; else totalIn += r.amount; });
     return { totalIn, totalPay, balance: totalIn - totalPay, count: rows.length };
   }, [rows]);
+  // 매출 측 요약 (받을돈 잔액)
   const saleSummary = useMemo(() => {
     let inv = 0, col = 0;
     saleRows.forEach(r => { const a = Number(r.amount) || 0; if (r.tx_type === 'collect' || r.tx_type === 'cancel') col += a; else inv += a; });
     return { inv, col, balance: inv - col, count: saleRows.length };
   }, [saleRows]);
+  const netBalance = saleSummary.balance - summary.balance; // 순(받을 − 줄)
 
   const handleDelete = async (tx) => {
     if (!confirm(`이 거래를 삭제하시겠습니까?\n${tx.tx_date} / ${typeLabel(tx.tx_type)} / ${tx.amount.toLocaleString()}원`)) return;
     try {
       if (tx._isTax) {
-        // tax_invoices 행 삭제 — id에 'ti-' prefix 있음
-        const realId = String(tx.id).replace(/^ti-/, '');
+        // 매입계산서(ti-) / 매출계산서(sti-)
+        const realId = String(tx.id).replace(/^(ti|sti)-/, '');
         const { error } = await sb.from('tax_invoices').delete().eq('id', realId);
+        if (error) throw error;
+      } else if (tx._isReceivable) {
+        const { error } = await sb.from('receivable_transactions').delete().eq('id', tx.id);
         if (error) throw error;
       } else {
         await dbDeletePayableTransaction(tx.id);
@@ -12785,7 +12812,7 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
       <table>
         <thead><tr><th style="width:90px">날짜</th><th style="width:60px">유형</th><th>적요</th><th style="width:110px">증가</th><th style="width:110px">감소</th><th style="width:120px">잔액</th></tr></thead>
         <tbody>${bodyRows || '<tr><td colspan="6" class="c">내역 없음</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="3" class="c">합계</td><td class="r">${summary.totalIn.toLocaleString()}</td><td class="r">${summary.totalPay.toLocaleString()}</td><td class="r">${summary.balance.toLocaleString()}</td></tr></tfoot>
+        <tfoot><tr><td colspan="3" class="c">합계</td><td class="r">${filtered.reduce((s,r)=>s+(r.inc||0),0).toLocaleString()}</td><td class="r">${filtered.reduce((s,r)=>s+(r.dec||0),0).toLocaleString()}</td><td class="r">${(filtered.length?filtered[filtered.length-1].running:0).toLocaleString()}</td></tr></tfoot>
       </table>
       <script>window.onload=function(){window.print()}<\/script>
       </body></html>`);
@@ -12794,42 +12821,24 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
 
   return (
     <ModalShell title={`거래처 원장 — ${name}`} subtitle={vendorCode ? `코드 ${vendorCode}` : ''} onClose={onClose} wide>
-      {/* 요약 카드 */}
-      <div className="grid grid-cols-3 gap-3 mb-3">
+      {/* 요약 카드 — 매입(줄돈) / 매출(받을돈) / 순잔액 */}
+      <div className={`grid ${saleSummary.count > 0 ? 'grid-cols-3' : 'grid-cols-3'} gap-3 mb-3`}>
         <div className="bg-amber-50 border border-amber-200 rounded p-3">
-          <div className="text-[10px] text-amber-700 mb-0.5">총 매입 (증가)</div>
-          <div className="text-base font-bold font-mono text-amber-800">{summary.totalIn.toLocaleString()}</div>
+          <div className="text-[10px] text-amber-700 mb-0.5">줄 돈 (매입 − 지급)</div>
+          <div className={`text-base font-bold font-mono ${summary.balance < 0 ? 'text-red-600' : 'text-amber-800'}`}>{summary.balance.toLocaleString()}</div>
+          <div className="text-[10px] text-amber-600 mt-0.5">매입 {summary.totalIn.toLocaleString()} · 지급 {summary.totalPay.toLocaleString()}</div>
         </div>
-        <div className="bg-emerald-50 border border-emerald-200 rounded p-3">
-          <div className="text-[10px] text-emerald-700 mb-0.5">총 지급 (감소)</div>
-          <div className="text-base font-bold font-mono text-emerald-800">{summary.totalPay.toLocaleString()}</div>
+        <div className="bg-blue-50 border border-blue-200 rounded p-3">
+          <div className="text-[10px] text-blue-700 mb-0.5">받을 돈 (매출 − 수금)</div>
+          <div className={`text-base font-bold font-mono ${saleSummary.balance < 0 ? 'text-violet-600' : 'text-blue-800'}`}>{saleSummary.balance.toLocaleString()}</div>
+          <div className="text-[10px] text-blue-600 mt-0.5">매출 {saleSummary.inv.toLocaleString()} · 수금 {saleSummary.col.toLocaleString()}</div>
         </div>
         <div className="bg-slate-100 border border-slate-300 rounded p-3">
-          <div className="text-[10px] text-slate-500 mb-0.5">현재 외상잔액</div>
-          <div className={`text-base font-bold font-mono ${summary.balance < 0 ? 'text-red-600' : 'text-slate-900'}`}>{summary.balance.toLocaleString()}</div>
+          <div className="text-[10px] text-slate-500 mb-0.5">순 잔액 (받을 − 줄)</div>
+          <div className={`text-base font-bold font-mono ${netBalance < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{netBalance.toLocaleString()}</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">{netBalance >= 0 ? '거래처가 우리에게 줄 돈' : '우리가 거래처에 줄 돈'}</div>
         </div>
       </div>
-
-      {saleSummary.count > 0 && (
-        <div className="mb-3 border border-blue-200 rounded-lg overflow-hidden">
-          <div className="px-3 py-2 bg-blue-50 text-xs font-semibold text-blue-800 flex items-center gap-3 flex-wrap">
-            <span>매출 (이 거래처에 판매)</span>
-            <span className="ml-auto font-mono">매출 {saleSummary.inv.toLocaleString()} · 수금 {saleSummary.col.toLocaleString()} · 미수 {saleSummary.balance.toLocaleString()}</span>
-          </div>
-          <table className="w-full text-xs">
-            <tbody>
-              {[...saleRows].sort((a, b) => (a.tx_date < b.tx_date ? 1 : -1)).map(r => (
-                <tr key={r.id} className="border-t border-blue-50">
-                  <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{r.tx_date}</td>
-                  <td className="px-3 py-1.5 text-center text-slate-500">{r.tx_type === 'collect' ? '수금' : r.tx_type === 'tax_sale' ? '매출계산서' : r.tx_type === 'cancel' ? '취소' : '매출'}</td>
-                  <td className="px-3 py-1.5 text-slate-600 break-words">{r.memo || '—'}</td>
-                  <td className="px-3 py-1.5 text-right tnum">{(Number(r.amount) || 0).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {/* 필터 + 정렬 + 인쇄 */}
       <div className="flex flex-wrap items-center gap-2 mb-2">
