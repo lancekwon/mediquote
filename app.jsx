@@ -2821,7 +2821,8 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
     const enriched = activeItems.map(i => {
       const foundSpec = PRODUCT_SPECS[i.modelId] || PRODUCT_SPECS['_default'];
       const dbE = customEquips.find(e => e.model.id === i.modelId || (e.model.name === i.modelName && e.model.manufacturer === i.manufacturer));
-      const pDesc     = dbE?.spec?.desc     || foundSpec.desc;
+      // 견적서 PDF — 장비별 desc만 표시(없으면 빈칸). _default fallback 안내문구는 노출 안 함.
+      const pDesc     = dbE?.spec?.desc     || (PRODUCT_SPECS[i.modelId]?.desc || '');
       const pSpecs    = (dbE?.spec?.specs?.length ? dbE.spec.specs : foundSpec.specs) || [];
       const pCert     = dbE?.spec?.cert ? (typeof dbE.spec.cert==='string'?dbE.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE.spec.cert) : (foundSpec.cert||[]);
       const pAs       = dbE?.spec?.as       || foundSpec.as       || '';
@@ -2848,7 +2849,6 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         <td class="c-img">${img}</td>
         <td class="c-spec">
           <div class="spec-model">${escape(i.modelName)}</div>
-          ${i.pDesc ? `<div class="spec-desc">${escape(i.pDesc).slice(0,180)}</div>` : ''}
           ${specLines ? `<div class="spec-list">${specLines}</div>` : ''}
         </td>
         <td class="c-qty">${i.quantity}</td>
