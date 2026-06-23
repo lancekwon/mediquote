@@ -2817,13 +2817,46 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       }
     }));
 
-    const rows = activeItems.map(i => `
+    // 통합 견적서 행 — 사진·규격·수량·단가·합계·비고 한 줄
+    const enriched = activeItems.map(i => {
+      const foundSpec = PRODUCT_SPECS[i.modelId] || PRODUCT_SPECS['_default'];
+      const dbE = customEquips.find(e => e.model.id === i.modelId || (e.model.name === i.modelName && e.model.manufacturer === i.manufacturer));
+      const pDesc     = dbE?.spec?.desc     || foundSpec.desc;
+      const pSpecs    = (dbE?.spec?.specs?.length ? dbE.spec.specs : foundSpec.specs) || [];
+      const pCert     = dbE?.spec?.cert ? (typeof dbE.spec.cert==='string'?dbE.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE.spec.cert) : (foundSpec.cert||[]);
+      const pAs       = dbE?.spec?.as       || foundSpec.as       || '';
+      const pWarranty = dbE?.spec?.warranty || foundSpec.warranty || '';
+      const pImage    = dbE?.image || i.image || null;
+      return { ...i, pDesc, pSpecs, pCert, pAs, pWarranty, pImage };
+    });
+    const escape = (s) => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const rows = enriched.map(i => {
+      const specLines = (i.pSpecs || []).slice(0, 4).map(s => `${escape(s.l)} : ${escape(s.v)}`).join('<br/>');
+      const noteParts = [];
+      if (i.manufacturer) noteParts.push(escape(i.manufacturer));
+      if (i.pWarranty)    noteParts.push(`보증 ${escape(i.pWarranty)}`);
+      if (i.pAs)          noteParts.push(`A/S ${escape(i.pAs)}`);
+      if (i.pCert && i.pCert.length) noteParts.push(i.pCert.slice(0,2).map(escape).join(' · '));
+      const note = noteParts.join('<br/>');
+      const img = i.pImage
+        ? `<img src="${i.pImage}" alt="${escape(i.itemName)}" style="max-width:80px;max-height:80px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto"/>`
+        : `<div style="width:80px;height:80px;border:1px dashed #cbd5e1;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:18px;margin:0 auto">📷</div>`;
+      return `
       <tr>
-        <td style="text-align:center;width:40px">${i.rowNum}</td>
-        <td><strong>${i.itemName}</strong><br/><span style="color:#64748b;font-size:10px">${i.modelName} · ${i.manufacturer}</span></td>
-        <td style="text-align:center;width:50px">${i.quantity}</td>
-        <td style="text-align:right;font-weight:700;width:120px">${i.net!=null?i.net.toLocaleString('ko-KR')+'원':'—'}</td>
-      </tr>`).join('');
+        <td class="c-no">${i.rowNum}</td>
+        <td class="c-name"><strong>${escape(i.itemName)}</strong></td>
+        <td class="c-img">${img}</td>
+        <td class="c-spec">
+          <div class="spec-model">${escape(i.modelName)}</div>
+          ${i.pDesc ? `<div class="spec-desc">${escape(i.pDesc).slice(0,180)}</div>` : ''}
+          ${specLines ? `<div class="spec-list">${specLines}</div>` : ''}
+        </td>
+        <td class="c-qty">${i.quantity}</td>
+        <td class="c-price">${i.price!=null?i.price.toLocaleString('ko-KR'):'문의'}</td>
+        <td class="c-total">${i.net!=null?i.net.toLocaleString('ko-KR'):'—'}</td>
+        <td class="c-note">${note}</td>
+      </tr>`;
+    }).join('');
 
     printWin.document.write(`<!DOCTYPE html><html lang="ko"><head>
       <meta charset="UTF-8"><title>의료장비 견적서</title>
@@ -2864,6 +2897,22 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         table.data th { background:#1e3a5f; color:#fff; padding:7px 8px; text-align:left; font-size:10px; font-weight:600; }
         table.data td { padding:6px 8px; border-bottom:1px solid #e2e8f0; vertical-align:middle; }
         table.data tr:nth-child(even) td { background:#f8fafc; }
+        /* 통합 견적서 테이블 (사진+규격+수량+단가+비고 한 행) */
+        table.quote { width:100%; border-collapse:collapse; table-layout:fixed; }
+        table.quote th { background:#1e3a5f; color:#fff; padding:6px 6px; text-align:center; font-size:10px; font-weight:700; border:1px solid #1e3a5f; }
+        table.quote td { padding:6px 6px; border:1px solid #cbd5e1; vertical-align:middle; font-size:10px; color:#1e293b; background:#fff; }
+        table.quote tr { page-break-inside:avoid; }
+        table.quote td.c-no    { text-align:center; width:32px; font-weight:600; }
+        table.quote td.c-name  { text-align:center; width:110px; font-size:11px; }
+        table.quote td.c-img   { text-align:center; width:92px; padding:4px; }
+        table.quote td.c-spec  { vertical-align:top; padding:6px 8px; }
+        table.quote td.c-qty   { text-align:center; width:40px; font-weight:600; }
+        table.quote td.c-price { text-align:right; width:80px; font-variant-numeric:tabular-nums; }
+        table.quote td.c-total { text-align:right; width:90px; font-weight:700; font-variant-numeric:tabular-nums; }
+        table.quote td.c-note  { text-align:center; width:90px; font-size:9px; color:#475569; line-height:1.5; }
+        table.quote .spec-model { font-weight:700; color:#1e3a5f; font-size:11px; margin-bottom:3px; }
+        table.quote .spec-desc  { color:#64748b; font-size:9px; line-height:1.4; margin-bottom:3px; }
+        table.quote .spec-list  { color:#475569; font-size:9px; line-height:1.55; }
         .total-box { background:#1e3a5f; color:#fff; border-radius:8px; padding:20px 24px; margin-top:20px; }
         .total-box .row { display:flex; justify-content:space-between; padding:4px 0; font-size:12px; }
         .total-box .final { font-size:18px; font-weight:700; border-top:1px solid rgba(255,255,255,0.3); padding-top:12px; margin-top:8px; }
@@ -2938,16 +2987,20 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       </div>
     </div>
 
-    <!-- 총괄표 -->
+    <!-- 통합 견적서 (사진·규격·수량·단가·합계·비고 한 표) -->
     <div class="page">
-      <div class="section-title">총괄표</div>
-      <table class="data">
+      <div class="section-title">의료기기 견적 내역</div>
+      <table class="quote">
         <thead>
           <tr>
-            <th style="width:40px;text-align:center">No.</th>
-            <th>품목명 · 모델</th>
-            <th style="text-align:center;width:50px">수량</th>
-            <th style="text-align:right;width:120px">최종금액</th>
+            <th style="width:32px">No.</th>
+            <th style="width:110px">품 목</th>
+            <th style="width:92px">사 진</th>
+            <th>규 격</th>
+            <th style="width:40px">수량</th>
+            <th style="width:80px">단 가</th>
+            <th style="width:90px">합계금액</th>
+            <th style="width:90px">비 고</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -2963,75 +3016,6 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       </div>
       <div class="footer">본 견적서는 ${quoteInfo.validity}까지 유효합니다. · ${quoteInfo.hospital} 귀중</div>
     </div>
-
-    <!-- 제품 상세 페이지들 -->
-    ${(() => {
-      let detailNum = 0;
-      return activeItems.map(i => {
-        detailNum++;
-        const foundSpec = PRODUCT_SPECS[i.modelId] || PRODUCT_SPECS['_default'];
-        const dbE = customEquips.find(e => e.model.id === i.modelId || (e.model.name === i.modelName && e.model.manufacturer === i.manufacturer));
-        const pDesc    = dbE?.spec?.desc     || foundSpec.desc;
-        const pSpecs   = (dbE?.spec?.specs?.length ? dbE.spec.specs : foundSpec.specs);
-        const pOrigin  = dbE?.spec?.origin   || foundSpec.origin;
-        const pCert    = dbE?.spec?.cert ? (typeof dbE.spec.cert==='string'?dbE.spec.cert.split(',').map(s=>s.trim()).filter(Boolean):dbE.spec.cert) : foundSpec.cert;
-        const pAs      = dbE?.spec?.as       || foundSpec.as;
-        const pWarranty= dbE?.spec?.warranty || foundSpec.warranty;
-        const pImage   = dbE?.image || i.image || null;
-        const certsHtml = pCert.map(c => `<span style="display:inline-block;padding:1px 6px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:4px;font-size:9px;margin:1px">${c}</span>`).join('');
-        const specsHtml = pSpecs.map((s,idx) => `<tr style="background:${idx%2===0?'#fff':'#f8fafc'}"><td style="padding:5px 8px;color:#64748b;width:120px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;font-size:10px">${s.l}</td><td style="padding:5px 8px;color:#1e293b;border-bottom:1px solid #e2e8f0;font-size:10px;font-weight:500">${s.v}</td></tr>`).join('');
-        return `
-    <div class="page page-break">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e3a5f">
-        <span style="color:#94a3b8;font-size:11px">#${detailNum}</span>
-        <div>
-          <div style="font-size:15px;font-weight:700;color:#1e293b">${i.itemName}</div>
-          <div style="font-size:11px;color:#64748b;margin-top:1px">${i.modelName} · ${i.manufacturer}</div>
-        </div>
-        <div style="margin-left:auto;text-align:right">
-          <div style="font-size:11px;color:#64748b">${i.price!=null?i.price.toLocaleString('ko-KR')+'원 × '+i.quantity:'문의'}</div>
-          <div style="font-size:14px;font-weight:700;color:#1e3a5f">${i.net!=null?i.net.toLocaleString('ko-KR')+'원':'—'}</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:20px">
-        <!-- 이미지 영역 -->
-        <div style="width:180px;shrink:0;flex-shrink:0">
-          ${pImage
-            ? `<img src="${pImage}" alt="${i.itemName}" style="width:180px;height:180px;object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;background:#fff;margin-bottom:10px;display:block"/>`
-            : `<div style="width:180px;height:180px;border:2px dashed #cbd5e1;border-radius:10px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;margin-bottom:10px"><div style="font-size:24px;opacity:0.3">📷</div><div>이미지 없음</div></div>`
-          }
-          <div style="font-size:10px;display:flex;flex-direction:column;gap:4px">
-            <div style="display:flex;gap:4px"><span style="color:#94a3b8;width:36px">원산지</span><span style="font-weight:600;color:#1e293b">${pOrigin}</span></div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:flex-start"><span style="color:#94a3b8;width:36px">인증</span><div>${certsHtml}</div></div>
-          </div>
-        </div>
-        <!-- 스펙 -->
-        <div style="flex:1">
-          <div style="margin-bottom:10px">
-            <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">제품 소개</div>
-            <p style="font-size:10px;color:#475569;line-height:1.7">${pDesc}</p>
-          </div>
-          <div style="margin-bottom:10px">
-            <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">주요 사양</div>
-            <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
-              <tbody>${specsHtml}</tbody>
-            </table>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div style="border:1px solid #a7f3d0;background:#ecfdf5;border-radius:8px;padding:10px">
-              <div style="font-size:9px;color:#059669;margin-bottom:2px">A/S 기간</div>
-              <div style="font-size:12px;font-weight:700;color:#065f46">${pAs}</div>
-            </div>
-            <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:10px">
-              <div style="font-size:9px;color:#2563eb;margin-bottom:2px">제품 보증</div>
-              <div style="font-size:12px;font-weight:700;color:#1e40af">${pWarranty}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-      }).join('');
-    })()}
 
     <script>window.onload=function(){window.print();}<\/script>
     </body></html>`);
