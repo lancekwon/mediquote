@@ -3002,11 +3002,8 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       <div class="total-box">
         <div class="row"><span>공급가액 합계</span><span style="font-variant-numeric:tabular-nums">${s.grossSum.toLocaleString('ko-KR')}원</span></div>
         ${s.discountSum>0?`<div class="row"><span>품목별 할인</span><span>−${s.discountSum.toLocaleString('ko-KR')}원</span></div>`:''}
-        <div class="row"><span>전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})</span><span>−${s.globalAmt.toLocaleString('ko-KR')}원</span></div>
-        ${vatIncluded
-          ? `<div class="row"><span>공급가 (역산)</span><span style="font-variant-numeric:tabular-nums">${Math.floor(s.finalAmt/1.1).toLocaleString('ko-KR')}원</span></div><div class="row"><span>부가세 (10%)</span><span style="font-variant-numeric:tabular-nums">${(s.finalAmt-Math.floor(s.finalAmt/1.1)).toLocaleString('ko-KR')}원</span></div><div class="row final"><span>VAT 포함 합계</span><span style="font-variant-numeric:tabular-nums">${s.finalAmt.toLocaleString('ko-KR')}원</span></div>`
-          : `<div class="row final"><span>최종 제안 금액</span><span style="font-variant-numeric:tabular-nums">${s.finalAmt.toLocaleString('ko-KR')}원</span></div><div class="row" style="font-size:12px"><span>부가세 (10%)</span><span style="font-variant-numeric:tabular-nums">${Math.floor(s.finalAmt*0.1).toLocaleString('ko-KR')}원</span></div><div class="row final" style="background:rgba(255,255,255,0.15)"><span>VAT 포함 합계</span><span style="font-variant-numeric:tabular-nums">${Math.floor(s.finalAmt*1.1).toLocaleString('ko-KR')}원</span></div>`
-        }
+        ${s.globalAmt>0?`<div class="row"><span>전체 할인 (${globalDiscount.type==='rate'?globalDiscount.value+'%':'정액'})</span><span>−${s.globalAmt.toLocaleString('ko-KR')}원</span></div>`:''}
+        <div class="row final"><span>최종 금액 (VAT 포함)</span><span style="font-variant-numeric:tabular-nums">${(vatIncluded?s.finalAmt:Math.floor(s.finalAmt*1.1)).toLocaleString('ko-KR')}원</span></div>
       </div>
       <div class="footer">본 견적서는 ${quoteInfo.validity}까지 유효합니다. · ${quoteInfo.hospital} 귀중</div>
     </div>
