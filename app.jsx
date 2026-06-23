@@ -6123,9 +6123,23 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   };
 
   // 견적에서 다시 불러오기 — 견적 품목 기준으로 재구성 (발주/세금계산서/납품/매입가는 모델명 매칭 보존)
-  const reloadFromQuote = () => {
-    if (!window.confirm('견적 품목으로 다시 불러옵니다.\n\n· 발주에 직접 추가했던 품목은 사라지고 견적 기준으로 교체됩니다.\n· 모델명이 같은 품목의 발주/세금계산서/납품 체크와 매입가는 유지됩니다.\n\n계속할까요?')) return;
-    const sourceCategories = (contract?.categories && contract.categories.length > 0) ? contract.categories : (quote?.categories || []);
+  const reloadFromQuote = async () => {
+    if (!window.confirm('견적 + 거래처 정보를 다시 불러옵니다.\n\n· 발주에 직접 추가했던 품목은 사라지고 견적 기준으로 교체됩니다.\n· 모델명이 같은 품목의 발주/세금계산서/납품 체크와 매입가는 유지됩니다.\n· 거래처/담당자 연락처도 DB에서 최신으로 갱신됩니다.\n\n계속할까요?')) return;
+
+    // DB에서 견적·계약·거래처를 최신으로 다시 받기 (다른 화면에서 바뀐 내용 반영)
+    let freshQuote = quote, freshContract = contract, freshMfrs = manufacturers;
+    try {
+      const [q, c, m] = await Promise.all([
+        lead?.quote_no ? dbLoadQuoteByNo(lead.quote_no) : Promise.resolve(quote),
+        contract?.id ? dbLoadContractWithCategories({ id: contract.id }) : Promise.resolve(contract),
+        dbLoadManufacturers(),
+      ]);
+      if (q) { setQuote(q); freshQuote = q; }
+      if (c) { setContract(c); freshContract = c; }
+      if (m) { if (typeof setManufacturers === 'function') setManufacturers(m); freshMfrs = m; }
+    } catch (e) { console.warn('다시 불러오기 — DB 갱신 실패:', e); }
+
+    const sourceCategories = (freshContract?.categories && freshContract.categories.length > 0) ? freshContract.categories : (freshQuote?.categories || []);
     const newItems = [];
     sourceCategories.forEach(cat => {
       (cat.items || []).filter(i => !i.excluded).forEach(item => {
@@ -6133,7 +6147,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
         const eq = equipments.find(e => e.model.id === model?.id || (e.model.name === model?.name && e.model.manufacturer === model?.manufacturer));
         const manufacturer = model?.manufacturer || eq?.model.manufacturer || '';
         const vendor = eq?.vendor || manufacturer || '';
-        const vInfo = manufacturers.find(m => m.name === vendor);
+        const vInfo = freshMfrs.find(m => m.name === vendor);
         const prev = planItems.find(p => p.modelName === model?.name); // 기존 상태 보존용
         newItems.push({
           key: `q-${cat.id}-${item.id}`,
