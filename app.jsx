@@ -2820,11 +2820,18 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         .cover-pnode-num { width:38px; height:38px; border-radius:50%; background:#1e3a5f; color:#fff; font-size:14px; font-weight:800; display:flex; align-items:center; justify-content:center; margin-bottom:5px; }
         .cover-pnode-title { font-size:9px; font-weight:700; color:#1e3a5f; line-height:1.4; }
         .cover-closing { font-size:11px; color:#475569; text-align:center; margin-top:16px; margin-bottom:16px; line-height:1.8; }
-        .cover-summary { background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; border-radius:12px; padding:16px 28px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; }
-        .cover-summary-left { display:flex; flex-direction:column; gap:2px; }
-        .cover-summary-label { font-size:11px; opacity:0.85; }
-        .cover-summary-sublabel { font-size:9px; opacity:0.65; }
-        .cover-summary-amt { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+        /* 표지 약속 박스 (가격 X) */
+        .cover-promise { position:relative; background:linear-gradient(135deg,#1e3a5f 0%,#2d5a8e 100%); color:#fff; border-radius:14px; padding:18px 28px 18px 34px; margin-bottom:14px; overflow:hidden; }
+        .cover-promise-accent { position:absolute; left:0; top:0; bottom:0; width:5px; background:linear-gradient(180deg,#fbbf24,#f59e0b); }
+        .cover-promise-body { display:flex; flex-direction:column; gap:4px; }
+        .cover-promise-tag { font-size:9px; letter-spacing:0.18em; opacity:0.65; font-weight:600; }
+        .cover-promise-headline { font-size:18px; font-weight:800; letter-spacing:-0.3px; line-height:1.2; }
+        .cover-promise-sub { font-size:10.5px; opacity:0.82; line-height:1.55; }
+        .cover-promise-meta { display:flex; align-items:center; gap:14px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.18); }
+        .cover-promise-meta-item { display:flex; flex-direction:column; gap:1px; }
+        .cover-promise-meta-l { font-size:8.5px; opacity:0.6; letter-spacing:0.05em; }
+        .cover-promise-meta-v { font-size:11px; font-weight:700; }
+        .cover-promise-meta-divider { width:1px; height:24px; background:rgba(255,255,255,0.22); }
         .cover-bottom { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
         .cover-bottom-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:12px 16px; }
         .cover-bottom-box-title { font-size:9.5px; font-weight:700; color:#1e3a5f; margin-bottom:4px; }
@@ -2906,12 +2913,18 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         <div class="cover-closing">
           원장님의 비전이 현실이 되는 그날까지, 대원메디칼이 든든한 파트너가 되어드리겠습니다.
         </div>
-        <div class="cover-summary">
-          <div class="cover-summary-left">
-            <div class="cover-summary-label">총 제안 품목 : ${s.activeItems}종 (주요 의료기기, 소모품 일체)</div>
-            <div class="cover-summary-sublabel">금액 (VAT 포함 합계)</div>
+        <div class="cover-promise">
+          <div class="cover-promise-accent"></div>
+          <div class="cover-promise-body">
+            <div class="cover-promise-tag">DAEWON · OUR PROMISE</div>
+            <div class="cover-promise-headline">함께 만드는 성공적인 개원</div>
+            <div class="cover-promise-sub">납품부터 사후관리까지, 원스톱 파트너십을 약속드립니다.</div>
+            <div class="cover-promise-meta">
+              <div class="cover-promise-meta-item"><span class="cover-promise-meta-l">제안 품목</span><span class="cover-promise-meta-v">${s.activeItems}종</span></div>
+              <div class="cover-promise-meta-divider"></div>
+              <div class="cover-promise-meta-item"><span class="cover-promise-meta-l">유효기간</span><span class="cover-promise-meta-v">${quoteInfo.validity}</span></div>
+            </div>
           </div>
-          <div class="cover-summary-amt">${s.finalAmt.toLocaleString('ko-KR')}원</div>
         </div>
         <div class="cover-bottom">
           <div class="cover-bottom-box">
