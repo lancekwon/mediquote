@@ -11916,7 +11916,21 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                   {filtered.length}개 표시 / 전체 {balances.length}
                 </div>
               </div>
-              <div className="overflow-auto" style={{maxHeight:'calc(100vh - 360px)'}}>
+              {/* 합계 바 — 표 위 고정(스크롤 없이 보임) */}
+              <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center gap-x-6 gap-y-1">
+                <span className="text-sm font-bold text-slate-700">합 계 (외상·미수)</span>
+                <span className="text-sm text-slate-600">줄 돈 <b className="font-mono text-slate-900">{filtered.reduce((s, b) => s + Math.max(0, b.owe || 0), 0).toLocaleString()}</b></span>
+                <span className="text-sm text-slate-600">받을 돈 <b className="font-mono text-blue-700">{filtered.reduce((s, b) => s + Math.max(0, b.due || 0), 0).toLocaleString()}</b></span>
+                {(() => {
+                  const overpaid = filtered.reduce((s, b) => s + Math.max(0, -(b.owe || 0)), 0);
+                  const advance  = filtered.reduce((s, b) => s + Math.max(0, -(b.due || 0)), 0);
+                  if (overpaid <= 0 && advance <= 0) return null;
+                  return (
+                    <span className="ml-auto text-[11px] text-slate-500">└ 점검 대상(별도): {overpaid > 0 && <span className="text-rose-600 font-medium">과지급 −{overpaid.toLocaleString()} </span>}{advance > 0 && <span className="text-violet-600 font-medium">선수금 −{advance.toLocaleString()}</span>}</span>
+                  );
+                })()}
+              </div>
+              <div className="overflow-auto" style={{maxHeight:'calc(100vh - 400px)'}}>
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
                     <tr>
