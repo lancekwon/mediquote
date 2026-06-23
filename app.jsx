@@ -15017,9 +15017,6 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-2 transition-colors text-left"
                 >
                   <span className="font-semibold text-slate-800">{g.hospName}</span>
-                  {g.quoteName && (
-                    <span className="text-[11px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono" title="견적번호 (계약별 분리)">📋 {g.quoteName}</span>
-                  )}
                   {g.deliveryTargetDate && (
                     <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold" title="납기일">📅 {g.deliveryTargetDate}</span>
                   )}
