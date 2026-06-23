@@ -10805,7 +10805,7 @@ function TaxInvoiceTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0,10);
-  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', amount: '', memo: '' });
+  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '' });
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const reload = useCallback(async () => {
@@ -10828,9 +10828,11 @@ function TaxInvoiceTab() {
       await sb.from('tax_invoices').insert({
         kind: form.kind, issue_date: form.issue_date,
         party_name: form.party_name.trim(), amount: amt,
+        hospital_id: form.hospital_id || null,
+        manufacturer_id: form.manufacturer_id || null,
         memo: form.memo.trim() || null,
       });
-      setForm(p => ({ ...p, party_name: '', amount: '', memo: '' }));
+      setForm(p => ({ ...p, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '' }));
       reload();
     } catch (e) { alert('저장 실패: '+(e.message||e)); }
   };
@@ -10868,9 +10870,9 @@ function TaxInvoiceTab() {
         <div className="text-xs font-semibold text-slate-700 mb-2">세금계산서 입력</div>
         <div className="flex gap-2 flex-wrap">
           <div className="flex gap-1 border border-slate-300 rounded p-0.5 bg-white">
-            <button onClick={()=>setForm(p=>({...p, kind:'sale'}))}
+            <button onClick={()=>setForm(p=>({...p, kind:'sale', party_name:'', hospital_id:null, manufacturer_id:null}))}
               className={`px-3 py-1 text-xs rounded ${form.kind==='sale' ? 'bg-emerald-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>매출</button>
-            <button onClick={()=>setForm(p=>({...p, kind:'purchase'}))}
+            <button onClick={()=>setForm(p=>({...p, kind:'purchase', party_name:'', hospital_id:null, manufacturer_id:null}))}
               className={`px-3 py-1 text-xs rounded ${form.kind==='purchase' ? 'bg-rose-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>매입</button>
           </div>
           <input type="date" value={form.issue_date}
@@ -10898,7 +10900,7 @@ function TaxInvoiceTab() {
       {pickerOpen && (
         <VendorPickerModal
           onClose={()=>setPickerOpen(false)}
-          onSelect={(it)=>setForm(p=>({...p, party_name: it.name}))}
+          onSelect={(it)=>setForm(p=>({...p, party_name: it.name, hospital_id: it.kind==='hospital' ? it.id : null, manufacturer_id: it.kind==='hospital' ? null : it.id }))}
           defaultFilter={form.kind === 'sale' ? 'hospital' : 'vendor'}
           allowedKinds='both'
         />
