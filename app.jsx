@@ -11698,6 +11698,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [expectedRev, setExpectedRev] = useState([]);     // 예상 매출 (신규 모듈)
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
+  const [saleTax, setSaleTax] = useState([]); // 매출 세금계산서 (거래처 받을돈 집계용)
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [hideZero, setHideZero] = useState(true);
@@ -11719,7 +11720,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [b, t, c, p, ab, at, hosp, ctr, er] = await Promise.all([
+      const [b, t, c, p, ab, at, hosp, ctr, er, st] = await Promise.all([
         dbLoadPayableBalances(),
         dbLoadPayableTransactions(),
         dbLoadCashBalanceLog({ limit: 1000 }),
@@ -11729,6 +11730,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
         dbLoadHospitals(),
         dbLoadAllContracts(),
         dbLoadExpectedRevenue(),
+        sb.from('tax_invoices').select('manufacturer_id, hospital_id, amount, issue_date').eq('kind', 'sale').then(r => r.data || []),
       ]);
       setBalances(b);
       setTransactions(t);
@@ -11739,6 +11741,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       setHospitals(hosp);
       setContracts(ctr);
       setExpectedRev(er);
+      setSaleTax(st);
     } catch (e) {
       console.error(e);
       showToast('데이터 로드 실패: ' + (e.message || e), 'error');
@@ -11768,8 +11771,13 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       const s = (t.tx_type === 'collect' || t.tx_type === 'cancel') ? -a : a;
       m.set(t.manufacturer_id, (m.get(t.manufacturer_id) || 0) + s);
     });
+    // 거래처 매출 세금계산서(6/1 이후)도 받을돈에 포함 — 병원 v_receivable_balance와 대칭. 5/29 이전은 이월에 포함이라 제외
+    saleTax.forEach(t => {
+      if (!t.manufacturer_id || (t.issue_date || '') <= '2026-05-29') return;
+      m.set(t.manufacturer_id, (m.get(t.manufacturer_id) || 0) + (Number(t.amount) || 0));
+    });
     return m;
-  }, [arTransactions]);
+  }, [arTransactions, saleTax]);
 
   // 거래처(매입) + 병원(매출)을 한 목록으로 — 카테고리 포함
   const unifiedParties = useMemo(() => {
@@ -11991,7 +11999,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'taxinv' ? (
             <TaxInvoiceTab onChanged={reload} />
           ) : tab === 'report' ? (
-            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} cashCurrent={cashCurrent} />
+            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} />
           )}
@@ -14267,7 +14275,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
-function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], manufacturers = [], cashCurrent = null }) {
+function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], manufacturers = [], saleTax = [], cashCurrent = null }) {
   // 기본: 오늘부터 최근 한 달
   const defaultRange = useMemo(() => {
     const today = new Date();
@@ -14330,6 +14338,11 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       const s = (t.tx_type === 'collect' || t.tx_type === 'cancel') ? -a : a;
       byMfr.set(t.manufacturer_id, (byMfr.get(t.manufacturer_id) || 0) + s);
     });
+    // 거래처 매출 세금계산서(6/1 이후)도 포함 — 거래처원장과 동일 기준
+    saleTax.forEach(t => {
+      if (!t.manufacturer_id || (t.issue_date || '') <= '2026-05-29') return;
+      byMfr.set(t.manufacturer_id, (byMfr.get(t.manufacturer_id) || 0) + (Number(t.amount) || 0));
+    });
     byMfr.forEach((bal, id) => {
       if (bal !== 0) parties.push({ kind: '거래처', name: mfrName.get(id) || '(거래처)', balance: bal });
     });
@@ -14337,7 +14350,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
     const realAdvance    = parties.reduce((s, p) => s + Math.max(0, -p.balance), 0); // 선수금(미리 받음)
     const rank = parties.filter(p => p.balance > 0).sort((a, b) => b.balance - a.balance).slice(0, 12);
     return { realReceivable, realAdvance, rank };
-  }, [arBalances, arTransactions, manufacturers]);
+  }, [arBalances, arTransactions, manufacturers, saleTax]);
   // 예상 매출(참고용) — 별도 지표
   const expectedTotal = useMemo(() => expectedRev.reduce((s, r) => s + (r.amount || 0), 0), [expectedRev]);
   const netPositionReal = arReal.realReceivable - summary.totalBalance;
