@@ -14815,11 +14815,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     });
   }, [enriched, filter, search]);
 
-  // 그룹화 (병원 또는 거래처)
+  // 그룹화 (병원별: 계약 단위로 카드 분리 / 거래처별: 거래처명 단위)
   const groupedByHosp = useMemo(() => {
     const keyFn = groupBy === 'vendor'
       ? p => p.manufacturer_name || p.vendor_name || '(거래처 미정)'
-      : p => p.hospName;
+      : p => `${p.hospName}||${p.contract_id || 'no-ctr'}`; // 같은 병원이라도 계약(발주)별 분리
     const m = new Map();
     filtered.forEach(p => {
       const k = keyFn(p);
@@ -14827,17 +14827,28 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       m.get(k).push(p);
     });
     // 그룹 안에서 po_no 최신순
-    return Array.from(m.entries()).map(([name, list]) => ({
-      hospName: name,
-      list: list.sort((a,b) => (b.po_no || '').localeCompare(a.po_no || '')),
-      total: list.length,
-      issues: list.reduce((s,p)=>s+p.issues, 0),
-      lastUpdated: list.map(p => p.updated_at).filter(Boolean).sort().pop() || null,
-      // 병원별 그룹일 때만 contract.delivery_target_date 추출 — 가장 가까운 미래 또는 첫 번째
-      deliveryTargetDate: groupBy === 'hospital'
-        ? (list.map(p => p.ctr?.delivery_target_date).filter(Boolean).sort()[0] || null)
-        : null,
-    })).sort((a,b) => (b.issues - a.issues) || a.hospName.localeCompare(b.hospName));
+    return Array.from(m.entries()).map(([key, list]) => {
+      const first = list[0];
+      const hospName = groupBy === 'vendor' ? key : first.hospName;
+      const quoteName = groupBy === 'hospital' ? (first.ctr?.quote_name || null) : null;
+      const contractId = groupBy === 'hospital' ? (first.contract_id || null) : null;
+      return {
+        hospName, quoteName, contractId,
+        list: list.sort((a,b) => (b.po_no || '').localeCompare(a.po_no || '')),
+        total: list.length,
+        issues: list.reduce((s,p)=>s+p.issues, 0),
+        lastUpdated: list.map(p => p.updated_at).filter(Boolean).sort().pop() || null,
+        deliveryTargetDate: groupBy === 'hospital'
+          ? (list.map(p => p.ctr?.delivery_target_date).filter(Boolean).sort()[0] || null)
+          : null,
+      };
+    }).sort((a,b) => {
+      // 같은 병원의 추가발주는 인접하게 정렬 (병원 → 계약 생성일 역순)
+      if (groupBy === 'hospital' && a.hospName === b.hospName) {
+        return (b.lastUpdated || '').localeCompare(a.lastUpdated || '');
+      }
+      return (b.issues - a.issues) || a.hospName.localeCompare(b.hospName);
+    });
   }, [filtered, groupBy]);
 
   // 통계
@@ -14997,14 +15008,18 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         ) : (
           <div className="space-y-4">
             {groupedByHosp.map(g => {
-              const isOpen = !!expandedGroups[g.hospName];
+              const groupKey = `${g.hospName}||${g.contractId || g.quoteName || 'no-ctr'}`;
+              const isOpen = !!expandedGroups[groupKey];
               return (
-              <div key={g.hospName} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div key={groupKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <button
-                  onClick={()=>setExpandedGroups(p => ({ ...p, [g.hospName]: !p[g.hospName] }))}
+                  onClick={()=>setExpandedGroups(p => ({ ...p, [groupKey]: !p[groupKey] }))}
                   className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100 flex items-center gap-2 transition-colors text-left"
                 >
                   <span className="font-semibold text-slate-800">{g.hospName}</span>
+                  {g.quoteName && (
+                    <span className="text-[11px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono" title="견적번호 (계약별 분리)">📋 {g.quoteName}</span>
+                  )}
                   {g.deliveryTargetDate && (
                     <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold" title="납기일">📅 {g.deliveryTargetDate}</span>
                   )}
