@@ -10819,9 +10819,9 @@ function TaxInvoiceTab() {
   const fmt = (n) => (n || 0).toLocaleString() + '원';
 
   const handleAdd = async () => {
-    const amt = Number((form.amount||'').toString().replace(/[^0-9]/g,'')) || 0;
-    if (!form.issue_date || !form.party_name.trim() || amt <= 0) {
-      alert('발급일자·상호·금액을 모두 입력하세요.');
+    const amt = parseInt((form.amount||'').toString().replace(/[^0-9-]/g,''), 10) || 0;
+    if (!form.issue_date || !form.party_name.trim() || amt === 0) {
+      alert('발급일자·상호·금액을 모두 입력하세요. (수정·취소 계산서는 금액 앞에 −)');
       return;
     }
     try {
@@ -10880,10 +10880,10 @@ function TaxInvoiceTab() {
             className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm text-left bg-white hover:bg-slate-50 truncate">
             {form.party_name || <span className="text-slate-400">상호 선택 (클릭)</span>}
           </button>
-          <input type="text" value={form.amount ? Number(form.amount).toLocaleString() : ''}
-            onChange={e=>setForm(p=>({...p, amount:e.target.value.replace(/[^0-9]/g,'')}))}
+          <input type="text" value={form.amount==='' || form.amount==='-' ? form.amount : Number(form.amount).toLocaleString()}
+            onChange={e=>setForm(p=>({...p, amount:e.target.value.replace(/[^0-9-]/g,'').replace(/(?!^)-/g,'')}))}
             onKeyDown={e=>{ if (e.key==='Enter') handleAdd(); }}
-            placeholder="합계금액"
+            placeholder="합계금액 (수정계산서는 −)"
             className="w-40 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
           <input type="text" value={form.memo}
             onChange={e=>setForm(p=>({...p, memo:e.target.value}))}
@@ -10893,7 +10893,7 @@ function TaxInvoiceTab() {
           <button onClick={handleAdd}
             className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
         </div>
-        <div className="text-[10px] text-slate-400 mt-2">상호 칸 클릭 → 검색 모달에서 선택. 발급일자·상호·금액 모두 필수.</div>
+        <div className="text-[10px] text-slate-400 mt-2">상호 칸 클릭 → 검색 모달에서 선택. 발급일자·상호·금액 모두 필수. <span className="text-rose-500">수정·취소 계산서는 금액 앞에 −(마이너스)</span> 입력.</div>
       </div>
       {pickerOpen && (
         <VendorPickerModal
