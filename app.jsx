@@ -10582,16 +10582,34 @@ function TaxInvoiceTab({ onChanged }) {
 
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState('all'); // all | sale | purchase
+  const [onlyUnlinked, setOnlyUnlinked] = useState(false);
+  const [linkFor, setLinkFor] = useState(null); // {id, kind, party_name} — 미연결 행 매칭용 picker
 
-  // 검색 + 매출/매입 섞어서 발급일자 DESC 정렬
+  // 미연결 = manufacturer_id, hospital_id 둘 다 null
+  const unlinkedCount = useMemo(() => rows.filter(r => !r.manufacturer_id && !r.hospital_id).length, [rows]);
+
+  // 검색 + 매출/매입 + 미연결 필터 → 발급일자 DESC
   const sorted = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter(r => {
       if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
+      if (onlyUnlinked && (r.manufacturer_id || r.hospital_id)) return false;
       if (!q) return true;
       return (r.party_name||'').toLowerCase().includes(q) || (r.issue_date||'').includes(q) || String(r.amount||'').includes(q) || (r.memo||'').toLowerCase().includes(q);
     }).sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||''));
-  }, [rows, search, kindFilter]);
+  }, [rows, search, kindFilter, onlyUnlinked]);
+
+  // 미연결 행 → 거래처/병원 매칭
+  const handleLink = async (it) => {
+    if (!linkFor) return;
+    try {
+      const patch = it.kind==='hospital' ? { hospital_id: it.id, manufacturer_id: null } : { manufacturer_id: it.id, hospital_id: null };
+      await sb.from('tax_invoices').update(patch).eq('id', linkFor.id);
+      setLinkFor(null);
+      reload();
+      onChanged && onChanged(true);
+    } catch (e) { alert('매칭 실패: ' + (e.message||e)); }
+  };
 
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
@@ -10635,6 +10653,14 @@ function TaxInvoiceTab({ onChanged }) {
           allowedKinds='both'
         />
       )}
+      {linkFor && (
+        <VendorPickerModal
+          onClose={()=>setLinkFor(null)}
+          onSelect={handleLink}
+          defaultFilter={linkFor.kind === 'sale' ? 'hospital' : 'vendor'}
+          allowedKinds='both'
+        />
+      )}
 
       {/* 검색 바 */}
       <div className="bg-white rounded-lg border border-slate-200 px-3 py-2 flex items-center gap-3 flex-wrap">
@@ -10647,6 +10673,13 @@ function TaxInvoiceTab({ onChanged }) {
               className={`px-3 py-1 text-xs rounded transition-colors ${kindFilter===t.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
           ))}
         </div>
+        {unlinkedCount > 0 && (
+          <button onClick={()=>setOnlyUnlinked(p=>!p)}
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border font-semibold transition-colors ${onlyUnlinked ? 'bg-rose-600 text-white border-rose-600' : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'}`}
+            title="거래처/병원 매칭이 안 된 세금계산서. 법인 거래는 매칭 필수.">
+            ⚠️ 미연결 {unlinkedCount}건{onlyUnlinked && ' (만 보기)'}
+          </button>
+        )}
         <span className="text-xs text-slate-500 ml-auto">{sorted.length}건 / 전체 {rows.length}</span>
       </div>
 
@@ -10670,8 +10703,9 @@ function TaxInvoiceTab({ onChanged }) {
                 <tr><td colSpan={6} className="px-3 py-12 text-center text-slate-400 text-xs">등록된 세금계산서가 없습니다.</td></tr>
               ) : sorted.map(r => {
                 const matched = !!r.matched_payment_id;
+                const unlinked = !r.manufacturer_id && !r.hospital_id;
                 return (
-                <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${matched ? 'opacity-40' : ''}`} title={matched ? '송금에 매칭됨 (자금흐름에서 해제 가능)' : ''}>
+                <tr key={r.id} className={`border-t border-slate-100 hover:bg-slate-50 ${matched ? 'opacity-40' : ''} ${unlinked ? 'bg-rose-50/40' : ''}`} title={matched ? '송금에 매칭됨 (자금흐름에서 해제 가능)' : ''}>
                   <td className="px-3 py-1.5 text-center">
                     {r.kind === 'sale' ? (
                       <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-semibold rounded">매출</span>
@@ -10680,10 +10714,14 @@ function TaxInvoiceTab({ onChanged }) {
                     )}
                   </td>
                   <td className="px-3 py-1.5 font-mono text-xs text-slate-600">{r.issue_date}</td>
-                  <td className="px-3 py-1.5 text-slate-800">{r.party_name}</td>
+                  <td className="px-3 py-1.5 text-slate-800">
+                    {r.party_name}
+                    {unlinked && <span className="ml-1.5 inline-block px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded" title="거래처/병원 미연결 — 거래처 원장 미반영">⚠️ 미연결</span>}
+                  </td>
                   <td className={`px-3 py-1.5 text-right tnum font-medium ${r.kind === 'sale' ? 'text-emerald-700' : 'text-rose-700'}`}>{fmt(r.amount)}</td>
                   <td className="px-3 py-1.5 text-slate-500 text-xs">{r.memo || ''}</td>
-                  <td className="px-3 py-1.5 text-center">
+                  <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                    {unlinked && <button onClick={()=>setLinkFor(r)} className="mr-1 px-1.5 py-0.5 text-[10px] bg-rose-600 hover:bg-rose-500 text-white rounded font-semibold" title="거래처/병원 매칭">🔗</button>}
                     <button onClick={()=>handleDelete(r.id)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
                   </td>
                 </tr>
