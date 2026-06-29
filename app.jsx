@@ -13594,7 +13594,7 @@ const ENTRY_TYPES = [
   { key: 'payment',  label: '거래처 송금',       needVendor: true,  cashDir: -1, desc: '거래처에 외상 갚기 — 외상 차감 + 통장 출금' },
   { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
   // 'sale' 유형 제거 — 매출 발생은 「세금계산서」 탭에서 입력(거래처/병원 연결 → 받을돈 자동 반영)
-  { key: 'sale_collect', label: '매출 수금',      needParty: true, cashDir: +1, desc: '거래처/병원에서 수금 — 미수금 차감 + 통장 입금' },
+  // 'sale_collect' 제거 — 병원 수금은 '병원 입금', 거래처 수금은 별도 처리(수동)
   { key: 'ad',  label: '광고 매출', needVendor: true, cashDir: +1, desc: '광고 수익 입금 (발주 외 매출). 거래처 선택 필수' },
   { key: 'fee', label: '수수료',    needVendor: true, cashDir: +1, desc: '플랫폼·소개·판매 수수료 입금 (발주 외 매출). 거래처 선택 필수' },
   { key: 'opex',     label: '운영비 (임대료·인건비·광고비·세금)', shortLabel: '운영비', needVendor: false, cashDir: -1, freeForm: true, desc: '임대료·인건비·광고비·세금·통신·카드·공과금 등 모든 운영 지출' },
@@ -13657,16 +13657,6 @@ async function dbSaveManualEntry(e) {
         });
       } catch (_) { /* receivable_transactions 미존재 시 무시 */ }
     }
-  } else if (t.key === 'sale_collect') {
-    // 거래처/병원 수금 — 통장 입금 + 미수금 차감
-    const cashId = await dbInsertCashBalance({
-      log_date: e.date, delta: amount, counterparty: e.partyName || null,
-      entry_type: '수금', memo: e.memo || null,
-    });
-    await dbInsertReceivableTransaction({
-      [e.partyKind === 'hospital' ? 'hospital_id' : 'manufacturer_id']: e.partyId,
-      tx_date: e.date, tx_type: 'collect', amount, memo: e.memo || null, cash_log_id: cashId,
-    });
   } else {
     // collect(잡수입) / opex / advance / etc_in / etc_out / platform / payment(vendor없을때) — 통장만
     const tag = t.shortLabel || t.label;
