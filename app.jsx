@@ -13657,8 +13657,38 @@ async function dbSaveManualEntry(e) {
         });
       } catch (_) { /* receivable_transactions 미존재 시 무시 */ }
     }
+  } else if ((t.key === 'ad' || t.key === 'fee') && e.manufacturerId) {
+    // 광고매출/수수료 — 통장 입금 + 수금(receivable collect). 매출이 없으면 받을돈 음수(선수금)로 잡혀
+    // 세금계산서 발행 여부 점검 신호가 됨.
+    const cashId = await dbInsertCashBalance({
+      log_date: e.date, delta: amount,
+      counterparty: e.vendorName || null,
+      entry_type: t.label,
+      memo: e.memo || null,
+    });
+    await dbInsertReceivableTransaction({
+      manufacturer_id: e.manufacturerId,
+      tx_date: e.date, tx_type: 'collect',
+      amount, memo: e.memo || null,
+      cash_log_id: cashId,
+    });
+  } else if (t.key === 'advance' && e.manufacturerId) {
+    // 선지급 — 통장 출금 + 지급(payable payment). 매입(세금계산서)이 없으면 줄돈 음수(과지급)로 잡혀
+    // 매입 계산서 누락 점검 신호가 됨.
+    const cashId = await dbInsertCashBalance({
+      log_date: e.date, delta: -amount,
+      counterparty: e.vendorName || null,
+      entry_type: '선지급',
+      memo: e.memo || null,
+    });
+    await dbInsertPayableTransaction({
+      manufacturer_id: e.manufacturerId,
+      tx_date: e.date, tx_type: 'payment',
+      amount, memo: e.memo || null,
+      cash_log_id: cashId,
+    });
   } else {
-    // collect(잡수입) / opex / advance / etc_in / etc_out / platform / payment(vendor없을때) — 통장만
+    // 나머지(opex/etc_in/etc_out/그 외) — 통장만
     const tag = t.shortLabel || t.label;
     const delta = t.cashDir * amount;
     await dbInsertCashBalance({
