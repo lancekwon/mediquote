@@ -13593,12 +13593,12 @@ const ENTRY_TYPES = [
   // dbSaveManualEntry의 purchase 분기·표시 코드는 과거 호환용으로 남겨둠(신규 입력은 불가).
   { key: 'payment',  label: '거래처 송금',       needVendor: true,  cashDir: -1, desc: '거래처에 외상 갚기 — 외상 차감 + 통장 출금' },
   { key: 'collect',  label: '병원 입금',         needVendor: false, cashDir: +1, needHospital: 'optional', desc: '병원 선택 시 미수금 차감 + 통장 입금. 미선택 시 통장만 (잡수입)' },
-  { key: 'sale',     label: '매출 (외상 발생)',   needParty: true, cashDir: 0,  desc: '거래처/병원에 매출 — 미수금 증가, 통장 무관' },
+  // 'sale' 유형 제거 — 매출 발생은 「세금계산서」 탭에서 입력(거래처/병원 연결 → 받을돈 자동 반영)
   { key: 'sale_collect', label: '매출 수금',      needParty: true, cashDir: +1, desc: '거래처/병원에서 수금 — 미수금 차감 + 통장 입금' },
-  { key: 'ad',  label: '광고 매출', needVendor: false, cashDir: +1, freeForm: true, desc: '광고 수익 입금 (발주 외 매출). 출처는 직접 입력' },
-  { key: 'fee', label: '수수료',    needVendor: false, cashDir: +1, freeForm: true, desc: '플랫폼·소개·판매 수수료 입금 (발주 외 매출). 출처는 직접 입력' },
+  { key: 'ad',  label: '광고 매출', needVendor: true, cashDir: +1, desc: '광고 수익 입금 (발주 외 매출). 거래처 선택 필수' },
+  { key: 'fee', label: '수수료',    needVendor: true, cashDir: +1, desc: '플랫폼·소개·판매 수수료 입금 (발주 외 매출). 거래처 선택 필수' },
   { key: 'opex',     label: '운영비 (임대료·인건비·광고비·세금)', shortLabel: '운영비', needVendor: false, cashDir: -1, freeForm: true, desc: '임대료·인건비·광고비·세금·통신·카드·공과금 등 모든 운영 지출' },
-  { key: 'advance',  label: '선지급',            needVendor: false, cashDir: -1, freeForm: true, desc: '미리 보내는 돈 (예치/보증금 등)' },
+  { key: 'advance',  label: '선지급',            needVendor: true, cashDir: -1, desc: '미리 보내는 돈 (예치/보증금 등). 거래처 선택 필수' },
   { key: 'etc_in',   label: '잡수입',            needVendor: false, cashDir: +1, freeForm: true, desc: '환불·세금환급·기타 비분류 입금' },
   { key: 'etc_out',  label: '잡지출',            needVendor: false, cashDir: -1, freeForm: true, desc: '기타 비분류 출금' },
 ];
@@ -13657,14 +13657,6 @@ async function dbSaveManualEntry(e) {
         });
       } catch (_) { /* receivable_transactions 미존재 시 무시 */ }
     }
-  } else if (t.key === 'sale') {
-    // 거래처/병원에 매출 — 미수금 증가 (통장 무관)
-    // receivable_transactions의 tx_type CHECK는 collect/adjustment/cancel만 허용,
-    // 라이브 v_receivable_balance가 adjustment(+)로 미수를 집계하므로 매출 발생 = 'adjustment'
-    await dbInsertReceivableTransaction({
-      [e.partyKind === 'hospital' ? 'hospital_id' : 'manufacturer_id']: e.partyId,
-      tx_date: e.date, tx_type: 'adjustment', amount, memo: e.memo ? ('[매출] ' + e.memo) : '[매출]',
-    });
   } else if (t.key === 'sale_collect') {
     // 거래처/병원 수금 — 통장 입금 + 미수금 차감
     const cashId = await dbInsertCashBalance({
