@@ -25,7 +25,8 @@
     .row { display: flex; align-items: center; gap: 14px; padding: 16px 4px; border-bottom: 1px solid #ececef; cursor: pointer; }
     .row:hover { background: #fafbfc; }
     .row:last-child { border-bottom: 0; }
-    .thumb { width: 56px; height: 56px; border-radius: 2px; background: #f7f8fa; border: 1px solid #ececef; flex-shrink: 0; }
+    .thumb { width: 56px; height: 56px; border-radius: 2px; background: white; border: 1px solid #ececef; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 4px; }
+    .thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
     .nav-tab { padding: 8px 14px; cursor: pointer; font-size: 13px; color: #4a4f57; font-weight: 400; }
     .nav-tab.active { color: #0952b2; font-weight: 600; border-bottom: 2px solid #0952b2; }
     .nav-tab:hover:not(.active) { color: #0952b2; }
@@ -53,15 +54,17 @@ const STATUS = {
   muted:   { bg: '#f0f2f5', text: '#6a6f77', dot: '#9aa0a8' },
 };
 
+const STORAGE = 'https://nbgubiywavozgigiwkpr.supabase.co/storage/v1/object/public/equipment/';
+
 const EQUIPMENT = [
-  { id: 'xray',   model: 'XVISION-525',          maker: 'GEMSS Healthcare', category: 'X-Ray',         purchase: '2026.06', location: '영상실',     status: '방사선 검사 D-45', sk: 'warning', price: 14300000 },
-  { id: 'mw',     model: 'IS-300 (장방향)',       maker: 'Insung Medical',   category: 'MicroWave',     purchase: '2026.06', location: '물리치료실', status: '신규 도입',         sk: 'info',    price: 1540000 },
-  { id: 'eswt',   model: 'Zeus Wave',            maker: '웨버인스트루먼트', category: 'ESWT',          purchase: '2026.06', location: '물리치료실', status: '정상 가동',         sk: 'success', price: 16500000 },
-  { id: 'dr',     model: '17HQ701G-BP',          maker: 'LG',               category: 'DR 패널',        purchase: '2026.06', location: '영상실',     status: '정상 가동',         sk: 'success', price: 10100000 },
-  { id: 'us',     model: 'XC-50',                maker: 'Alpinion',         category: '초음파',         purchase: '2026.06', location: '진료실',     status: '정상 가동',         sk: 'success', price: 16500000 },
-  { id: 'magnet', model: 'Anybeat-33',           maker: '신화',             category: '자기장치료기',   purchase: '2026.06', location: '물리치료실', status: '정상 가동',         sk: 'success', price: 3850000 },
-  { id: 'oplight',model: 'LED KN-16',            maker: '케이엔티',         category: '수술등',         purchase: '2026.06', location: '수술실',     status: '정상 가동',         sk: 'success', price: 2970000 },
-  { id: 'mon',    model: 'VP-700',               maker: 'VOTEM',            category: '환자모니터',     purchase: '2026.06', location: '수술실',     status: '정상 가동',         sk: 'success', price: 1210000 },
+  { id: 'xray',   model: 'XVISION-525',          maker: 'GEMSS Healthcare', category: 'X-Ray',         purchase: '2026.06', location: '영상실',     status: '방사선 검사 D-45', sk: 'warning', price: 14300000, image: STORAGE + '5383bacc-4d53-480f-bae5-cf906f7cc1e0.jpg' },
+  { id: 'mw',     model: 'IS-300 (장방향)',       maker: 'Insung Medical',   category: 'MicroWave',     purchase: '2026.06', location: '물리치료실', status: '신규 도입',         sk: 'info',    price: 1540000,  image: STORAGE + 'is-3000_mqolxm9o00ej.png' },
+  { id: 'eswt',   model: 'Zeus Wave',            maker: '웨버인스트루먼트', category: 'ESWT',          purchase: '2026.06', location: '물리치료실', status: '정상 가동',         sk: 'success', price: 16500000, image: STORAGE + 'zeus-wave-pr.jpg' },
+  { id: 'dr',     model: '17HQ701G-BP',          maker: 'LG',               category: 'DR 패널',        purchase: '2026.06', location: '영상실',     status: '정상 가동',         sk: 'success', price: 10100000, image: STORAGE + 'lg-17x17.jpg' },
+  { id: 'us',     model: 'XC-50',                maker: 'Alpinion',         category: '초음파',         purchase: '2026.06', location: '진료실',     status: '정상 가동',         sk: 'success', price: 16500000, image: STORAGE + 'xc-50.jpg' },
+  { id: 'magnet', model: 'Anybeat-33',           maker: '신화',             category: '자기장치료기',   purchase: '2026.06', location: '물리치료실', status: '정상 가동',         sk: 'success', price: 3850000,  image: STORAGE + 'anybeat-33.jpg' },
+  { id: 'oplight',model: 'LED KN-16',            maker: '케이엔티',         category: '수술등',         purchase: '2026.06', location: '수술실',     status: '정상 가동',         sk: 'success', price: 2970000,  image: STORAGE + 'abaca725-a852-4b42-9852-892dfbeb3d64_mq5b2oqxjzli.jpg' },
+  { id: 'mon',    model: 'VP-700',               maker: 'VOTEM',            category: '환자모니터',     purchase: '2026.06', location: '수술실',     status: '정상 가동',         sk: 'success', price: 1210000,  image: STORAGE + 'cm-1780371609596_mpw3adxgoht9.png' },
 ];
 
 function TopHeader({ page, onNav }) {
@@ -150,7 +153,9 @@ function Home({ onOpenList, onOpenDetail }) {
           const s = STATUS[eq.sk];
           return (
             <div key={eq.id} className="card" style={{padding: 16, cursor: 'pointer'}} onClick={() => onOpenDetail(eq.id)}>
-              <div style={{height: 84, background: '#f7f8fa', border: '1px solid #ececef', borderRadius: 2, marginBottom: 14}}></div>
+              <div style={{height: 96, background: 'white', border: '1px solid #ececef', borderRadius: 2, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 8}}>
+                <img src={eq.image} alt={eq.model} loading="lazy" style={{maxWidth: '100%', maxHeight: '100%', objectFit: 'contain'}} />
+              </div>
               <div style={{fontSize: 13, fontWeight: 600}}>{eq.model}</div>
               <div style={{fontSize: 11, color: '#8a8f97', margin: '3px 0 10px'}}>{eq.category} · {eq.location}</div>
               <div style={{fontSize: 11, color: s.text, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500}}><span style={{width: 6, height: 6, borderRadius: '50%', background: s.dot}}/>{eq.status}</div>
@@ -213,7 +218,7 @@ function EquipmentList({ onSelect }) {
           const s = STATUS[eq.sk];
           return (
             <div key={eq.id} className="row" onClick={() => onSelect(eq.id)}>
-              <div className="thumb"></div>
+              <div className="thumb"><img src={eq.image} alt={eq.model} loading="lazy" /></div>
               <div style={{flex: 1, minWidth: 0}}>
                 <div style={{fontSize: 14, fontWeight: 600}}>{eq.model}</div>
                 <div style={{fontSize: 11, color: '#8a8f97', marginTop: 4}}>{eq.category} · {eq.maker} · {eq.purchase} · {eq.location}</div>
@@ -278,7 +283,8 @@ function EquipmentDetail({ id, onBack }) {
       </div>
 
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 22}}>
-        <div className="card" style={{aspectRatio: '1/1', position: 'relative'}}>
+        <div className="card" style={{aspectRatio: '1/1', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 28}}>
+          <img src={eq.image} alt={eq.model} style={{maxWidth: '100%', maxHeight: '100%', objectFit: 'contain'}} />
           <span className="cap" style={{position: 'absolute', bottom: 14, left: 16}}>1 / 4</span>
         </div>
         <div className="card" style={{padding: '18px 20px'}}>
