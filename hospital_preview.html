@@ -76,12 +76,7 @@ function TopHeader({ page, onNav }) {
   return (
     <div style={{background: 'white', borderBottom: '1px solid #ececef', position: 'sticky', top: 0, zIndex: 10}}>
       <div style={{maxWidth: 1100, margin: '0 auto', padding: '16px 28px', display: 'flex', alignItems: 'center', gap: 20}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
-          <div style={{width: 30, height: 30, background: '#0952b2', color: 'white', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 11, letterSpacing: 0.5}}>DW</div>
-          <div style={{fontSize: 15, fontWeight: 600, letterSpacing: '-0.4px'}}>대원메디칼</div>
-          <div style={{fontSize: 11, color: '#8a8f97', fontFamily: 'Montserrat, sans-serif', letterSpacing: 1.5, marginLeft: 2, paddingLeft: 12, borderLeft: '1px solid #ececef'}}>HOSPITAL PORTAL</div>
-        </div>
-        <div style={{flex: 1, display: 'flex', gap: 4, marginLeft: 16, overflow: 'auto'}}>
+        <div style={{flex: 1, display: 'flex', gap: 4, overflow: 'auto'}}>
           {MENU.map(m => (
             <span key={m.key} className={"nav-tab" + (navKey === m.key ? " active" : "")} onClick={() => onNav(m.key)}>
               {m.label}
