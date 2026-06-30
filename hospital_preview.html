@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>대원메디칼 — 병원 포털 (프리뷰)</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&family=Noto+Serif+KR:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.2.0/dist/tabler-icons.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #f7f8fa; font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif; color: #1a1a1a; font-size: 14px; -webkit-font-smoothing: antialiased; letter-spacing: -0.2px; }
+    .serif { font-family: 'Noto Serif KR', serif; letter-spacing: -0.8px; }
+    .cap { font-family: 'Montserrat', 'Pretendard Variable', sans-serif; font-size: 11px; letter-spacing: 2.5px; color: #8a8f97; font-weight: 500; text-transform: uppercase; }
+    .card { background: white; border: 1px solid #ececef; border-radius: 4px; }
+    .btn-primary { background: #0952b2; color: white; padding: 11px 22px; border-radius: 2px; font-size: 12px; font-weight: 500; cursor: pointer; border: 0; font-family: inherit; letter-spacing: 0.2px; }
+    .btn-secondary { background: white; border: 1px solid #cfd2d8; color: #1a1a1a; padding: 10px 22px; border-radius: 2px; font-size: 12px; cursor: pointer; font-family: inherit; }
+    .btn-primary:hover { background: #073f8c; }
+    .btn-secondary:hover { background: #f7f8fa; }
+    .row { display: flex; align-items: center; gap: 14px; padding: 16px 4px; border-bottom: 1px solid #ececef; cursor: pointer; }
+    .row:hover { background: #fafbfc; }
+    .row:last-child { border-bottom: 0; }
+    .thumb { width: 56px; height: 56px; border-radius: 2px; background: #f7f8fa; border: 1px solid #ececef; flex-shrink: 0; }
+    .nav-tab { padding: 8px 14px; cursor: pointer; font-size: 13px; color: #4a4f57; font-weight: 400; }
+    .nav-tab.active { color: #0952b2; font-weight: 600; border-bottom: 2px solid #0952b2; }
+    .nav-tab:hover:not(.active) { color: #0952b2; }
+    input, select { font-family: inherit; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cfd2d8; border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState } = React;
+
+const Ti = ({ n, s = 16, c }) => <i className={"ti ti-" + n} style={{ fontSize: s, color: c }} aria-hidden="true" />;
+
+const HOSPITAL = { name: '을지로일등정형외과의원', director: '김도열', code: 'H094' };
+const SALES = { name: '박우혁', title: '과장', initial: '박' };
+
+const STATUS = {
+  success: { bg: '#e8f4ed', text: '#1d6e3b', dot: '#2a8a4f' },
+  warning: { bg: '#fbf3e0', text: '#8a5a0c', dot: '#b07911' },
+  danger:  { bg: '#fbeaea', text: '#a52828', dot: '#cc3535' },
+  info:    { bg: '#e6effb', text: '#0952b2', dot: '#0952b2' },
+  muted:   { bg: '#f0f2f5', text: '#6a6f77', dot: '#9aa0a8' },
+};
+
+const EQUIPMENT = [
+  { id: 'xray',   model: 'XVISION-525',          maker: 'GEMSS Healthcare', category: 'X-Ray',         purchase: '2026.06', location: '영상실',     status: '방사선 검사 D-45', sk: 'warning', price: 14300000 },
+  { id: 'mw',     model: 'IS-300 (장방향)',       maker: 'Insung Medical',   category: 'MicroWave',     purchase: '2026.06', location: '물리치료실', status: '신규 도입',         sk: 'info',    price: 1540000 },
+  { id: 'eswt',   model: 'Zeus Wave',            maker: '웨버인스트루먼트', category: 'ESWT',          purchase: '2026.06', location: '물리치료실', status: '정상 가동',         sk: 'success', price: 16500000 },
+  { id: 'dr',     model: '17HQ701G-BP',          maker: 'LG',               category: 'DR 패널',        purchase: '2026.06', location: '영상실',     status: '정상 가동',         sk: 'success', price: 10100000 },
+  { id: 'us',     model: 'XC-50',                maker: 'Alpinion',         category: '초음파',         purchase: '2026.06', location: '진료실',     status: '정상 가동',         sk: 'success', price: 16500000 },
+  { id: 'magnet', model: 'Anybeat-33',           maker: '신화',             category: '자기장치료기',   purchase: '2026.06', location: '물리치료실', status: '정상 가동',         sk: 'success', price: 3850000 },
+  { id: 'oplight',model: 'LED KN-16',            maker: '케이엔티',         category: '수술등',         purchase: '2026.06', location: '수술실',     status: '정상 가동',         sk: 'success', price: 2970000 },
+  { id: 'mon',    model: 'VP-700',               maker: 'VOTEM',            category: '환자모니터',     purchase: '2026.06', location: '수술실',     status: '정상 가동',         sk: 'success', price: 1210000 },
+];
+
+function TopHeader({ page, onNav }) {
+  const MENU = [
+    { key: 'home', label: '홈' },
+    { key: 'equipment', label: '장비' },
+    { key: 'consumables', label: '소모품' },
+    { key: 'service', label: '점검·수리' },
+    { key: 'docs', label: '문서함' },
+  ];
+  const navKey = (page === 'detail') ? 'equipment' : page;
+  return (
+    <div style={{background: 'white', borderBottom: '1px solid #ececef', position: 'sticky', top: 0, zIndex: 10}}>
+      <div style={{maxWidth: 1100, margin: '0 auto', padding: '16px 28px', display: 'flex', alignItems: 'center', gap: 20}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+          <div style={{width: 30, height: 30, background: '#0952b2', color: 'white', borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 11, letterSpacing: 0.5}}>DW</div>
+          <div style={{fontSize: 15, fontWeight: 600, letterSpacing: '-0.4px'}}>대원메디칼</div>
+          <div style={{fontSize: 11, color: '#8a8f97', fontFamily: 'Montserrat, sans-serif', letterSpacing: 1.5, marginLeft: 2, paddingLeft: 12, borderLeft: '1px solid #ececef'}}>HOSPITAL PORTAL</div>
+        </div>
+        <div style={{flex: 1, display: 'flex', gap: 4, marginLeft: 16, overflow: 'auto'}}>
+          {MENU.map(m => (
+            <span key={m.key} className={"nav-tab" + (navKey === m.key ? " active" : "")} onClick={() => onNav(m.key)}>
+              {m.label}
+            </span>
+          ))}
+        </div>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+            <div style={{width: 30, height: 30, borderRadius: '50%', background: '#e6effb', color: '#0952b2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600}}>{SALES.initial}</div>
+            <div>
+              <div style={{fontSize: 10, color: '#8a8f97', lineHeight: 1.1, fontFamily: 'Montserrat, sans-serif', letterSpacing: 1}}>SALES</div>
+              <div style={{fontSize: 12, fontWeight: 500, lineHeight: 1.3}}>{SALES.name} {SALES.title}</div>
+            </div>
+          </div>
+          <div style={{display: 'flex', gap: 4, marginLeft: 4}}>
+            <a href="https://pf.kakao.com/_dwmedi/chat" title="대원메디칼 카카오톡 채널" style={{width: 32, height: 32, background: '#FEE500', borderRadius: 2, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', color: '#3C1E1E'}}>
+              <Ti n="message-circle-2" s={15} />
+            </a>
+            <a href="tel:0212345678" title="대원메디칼 대표번호" style={{width: 32, height: 32, background: 'white', border: '1px solid #cfd2d8', borderRadius: 2, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', color: '#1a1a1a'}}>
+              <Ti n="phone" s={15} />
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Home({ onOpenList, onOpenDetail }) {
+  return (
+    <div style={{maxWidth: 880, margin: '0 auto', padding: '36px 28px'}}>
+      <div style={{marginBottom: 28}}>
+        <div className="cap">2026.06.29 · Monday</div>
+        <div className="serif" style={{fontSize: 28, fontWeight: 600, marginTop: 8}}>{HOSPITAL.director} 원장님, 안녕하세요.</div>
+        <div style={{fontSize: 13, color: '#6a6f77', marginTop: 4}}>{HOSPITAL.name} · 보유 장비 22대</div>
+      </div>
+
+      <div className="card" style={{padding: '36px 40px', marginBottom: 28, minHeight: 200}}>
+        <div className="cap">Equipment in service · No. 06</div>
+        <div className="serif" style={{fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: '14px 0 12px', maxWidth: '88%'}}>영상실, 가동을 시작했습니다.</div>
+        <div style={{fontSize: 13, color: '#4a4f57', maxWidth: '80%', lineHeight: 1.75}}>XVISION-525 · DR 17HQ701G-BP · PACS 풀세트가 6월 11일부로 가동을 시작했습니다. 사용 가이드와 다음 검사 일정을 안내해드립니다.</div>
+        <div style={{display: 'flex', gap: 8, marginTop: 22}}>
+          <button className="btn-primary">사용 가이드 보기</button>
+          <button className="btn-secondary">영상실 라인업 보기</button>
+        </div>
+      </div>
+
+      <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14}}>
+        <div className="cap">My equipment</div>
+        <div onClick={onOpenList} style={{fontSize: 12, color: '#0952b2', cursor: 'pointer', fontWeight: 500}}>22대 전체 보기</div>
+      </div>
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 28}}>
+        {EQUIPMENT.slice(0, 3).map(eq => {
+          const s = STATUS[eq.sk];
+          return (
+            <div key={eq.id} className="card" style={{padding: 16, cursor: 'pointer'}} onClick={() => onOpenDetail(eq.id)}>
+              <div style={{height: 84, background: '#f7f8fa', border: '1px solid #ececef', borderRadius: 2, marginBottom: 14}}></div>
+              <div style={{fontSize: 13, fontWeight: 600}}>{eq.model}</div>
+              <div style={{fontSize: 11, color: '#8a8f97', margin: '3px 0 10px'}}>{eq.category} · {eq.location}</div>
+              <div style={{fontSize: 11, color: s.text, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500}}><span style={{width: 6, height: 6, borderRadius: '50%', background: s.dot}}/>{eq.status}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card" style={{padding: '20px 22px', marginBottom: 28}}>
+        <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14}}>
+          <div>
+            <div className="cap" style={{marginBottom: 4}}>Routine order</div>
+            <div style={{fontSize: 14, fontWeight: 600}}>정기 주문 품목</div>
+          </div>
+          <div style={{fontSize: 11, color: '#8a8f97'}}>이전 주문 기준</div>
+        </div>
+        <div style={{display: 'flex', flexWrap: 'wrap', gap: 7}}>
+          {[['CO2 gas 20kg', '×1'], ['멸균포', '×5'], ['ESWT 젤', '×3'], ['사각베개', '×2']].map(([n, q], i) => (
+            <span key={i} style={{background: 'white', border: '1px solid #ececef', padding: '8px 14px', borderRadius: 2, fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6}}>
+              {n}<span style={{color: '#8a8f97'}}>{q}</span>
+            </span>
+          ))}
+          <span style={{background: '#0952b2', color: 'white', padding: '8px 16px', borderRadius: 2, fontSize: 12, fontWeight: 500, cursor: 'pointer'}}>한 번에 담기</span>
+        </div>
+      </div>
+
+      <div style={{padding: '14px 18px', background: '#fbf3e0', border: '1px solid #f0dfae', borderRadius: 2, fontSize: 12, color: '#8a5a0c', lineHeight: 1.7}}>
+        신설 X-Ray 가동 후 60일 이내 방사선 안전관리 검사가 의무적으로 안내됩니다.
+      </div>
+    </div>
+  );
+}
+
+function EquipmentList({ onSelect }) {
+  return (
+    <div style={{maxWidth: 880, margin: '0 auto', padding: '36px 28px'}}>
+      <div style={{display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8}}>
+        <div className="cap">My equipment</div>
+        <div style={{fontSize: 12, color: '#6a6f77'}}>총 22대</div>
+      </div>
+      <div className="serif" style={{fontSize: 26, fontWeight: 600, marginBottom: 24}}>대원메디칼과 함께한 장비 목록입니다.</div>
+
+      <div style={{display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center'}}>
+        <input type="text" placeholder="모델 · 제조사 · 위치 검색" style={{flex: 1, padding: '0 16px', height: 40, fontSize: 13, border: '1px solid #cfd2d8', borderRadius: 2, background: 'white', outline: 'none'}} />
+        <select style={{height: 40, fontSize: 13, minWidth: 130, border: '1px solid #cfd2d8', borderRadius: 2, background: 'white', padding: '0 12px'}}>
+          <option>최근 구매순</option>
+          <option>카테고리별</option>
+          <option>위치별</option>
+        </select>
+      </div>
+
+      <div style={{display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap'}}>
+        {[['전체', 22, true], ['영상진단', 6, false], ['물리치료', 6, false], ['수술', 2, false], ['환자모니터', 1, false], ['멸균·기타', 7, false]].map((row, i) => (
+          <span key={i} style={{fontSize: 12, padding: '7px 14px', borderRadius: 2, border: '1px solid', borderColor: row[2] ? '#0952b2' : '#ececef', background: row[2] ? '#0952b2' : 'white', color: row[2] ? 'white' : '#4a4f57', cursor: 'pointer', fontWeight: row[2] ? 500 : 400}}>{row[0]} <span style={{opacity: 0.7, marginLeft: 4}}>{row[1]}</span></span>
+        ))}
+      </div>
+
+      <div className="card" style={{padding: '4px 20px'}}>
+        {EQUIPMENT.map(eq => {
+          const s = STATUS[eq.sk];
+          return (
+            <div key={eq.id} className="row" onClick={() => onSelect(eq.id)}>
+              <div className="thumb"></div>
+              <div style={{flex: 1, minWidth: 0}}>
+                <div style={{fontSize: 14, fontWeight: 600}}>{eq.model}</div>
+                <div style={{fontSize: 11, color: '#8a8f97', marginTop: 4}}>{eq.category} · {eq.maker} · {eq.purchase} · {eq.location}</div>
+              </div>
+              <span style={{fontSize: 11, padding: '5px 12px', borderRadius: 2, fontWeight: 500, background: s.bg, color: s.text, flexShrink: 0}}>{eq.status}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{marginTop: 18, textAlign: 'center'}}>
+        <span style={{fontSize: 12, color: '#0952b2', cursor: 'pointer', fontWeight: 500}}>14대 더 보기</span>
+      </div>
+    </div>
+  );
+}
+
+function EquipmentDetail({ id, onBack }) {
+  const eq = EQUIPMENT.find(e => e.id === id) || EQUIPMENT[0];
+
+  const DOCS = [
+    { t: '공식 사용설명서', d: 'PDF · ' + eq.maker + ' 한글판' },
+    { t: '빠른 사용 안내', d: '주요 기능을 한 페이지로 정리' },
+    { t: '트러블슈팅 가이드', d: '증상별 자가진단 12가지' },
+    { t: '사용 영상 안내', d: '설치 · 기본조작 · 측정 (6편)' },
+  ];
+
+  const TLINE = (eq.id === 'xray') ? [
+    { date: '2026.04.20', t: '견적 발송', d: 'DW-2026-042 (1차)', dot: '#2a8a4f' },
+    { date: '2026.05.28', t: '견적 3차 수정 (R3)', d: '영상시스템 풀세트 확정', dot: '#2a8a4f' },
+    { date: '2026.06.11', t: '계약 체결', d: 'DW-2026-042-R3 · 14,300,000원', dot: '#2a8a4f' },
+    { date: '2026.06.18', t: '납품 · 설치 완료', d: '엔지니어 박진수 · 교육 2시간', dot: '#2a8a4f' },
+    { date: '2026.08.15 예정', t: '방사선 안전관리 검사 (D-45)', d: '신설 X-Ray 의무 검사', dot: '#b07911' },
+  ] : [
+    { date: '2026.06.11', t: '계약 체결', d: 'DW-2026-042-R3 · ' + (eq.price || 0).toLocaleString() + '원', dot: '#2a8a4f' },
+    { date: '2026.06.18', t: '납품 · 설치 완료', d: '엔지니어 박진수', dot: '#2a8a4f' },
+    { date: '2026.06.20', t: '사용 교육 완료', d: '담당자 1명 · 1시간', dot: '#2a8a4f' },
+  ];
+
+  const META = (eq.id === 'xray') ? [
+    ['구매일', '2026.06.11'],
+    ['계약번호', 'DW-2026-042-R3'],
+    ['보증기간', '~2028.06.11 (D+715)'],
+    ['다음 검사', '2026.08.15 (D-45)'],
+  ] : [
+    ['구매일', eq.purchase + '.11'],
+    ['계약번호', 'DW-2026-042-R3'],
+    ['공급가', (eq.price || 0).toLocaleString() + '원'],
+    ['보증기간', '~2028.06 (D+715)'],
+  ];
+
+  return (
+    <div style={{maxWidth: 880, margin: '0 auto', padding: '36px 28px'}}>
+      <div style={{marginBottom: 20, fontSize: 12, color: '#6a6f77', cursor: 'pointer', fontWeight: 500}} onClick={onBack}>
+        ← 내 장비 · {eq.category}
+      </div>
+
+      <div style={{marginBottom: 24}}>
+        <div className="cap">{eq.maker} · {eq.category}</div>
+        <div className="serif" style={{fontSize: 32, fontWeight: 600, lineHeight: 1.2, marginTop: 8}}>{eq.model}</div>
+        <div style={{fontSize: 12, color: '#6a6f77', marginTop: 10}}>시리얼 SN-{eq.id.toUpperCase()}-26K11-0042 · {eq.location}</div>
+      </div>
+
+      <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 22}}>
+        <div className="card" style={{aspectRatio: '1/1', position: 'relative'}}>
+          <span className="cap" style={{position: 'absolute', bottom: 14, left: 16}}>1 / 4</span>
+        </div>
+        <div className="card" style={{padding: '18px 20px'}}>
+          <div className="cap" style={{marginBottom: 6}}>Status</div>
+          <div style={{display: 'flex', alignItems: 'center', gap: 7, marginBottom: 16}}>
+            <span style={{width: 7, height: 7, borderRadius: '50%', background: STATUS[eq.sk].dot}}/>
+            <span style={{fontSize: 14, fontWeight: 600}}>{eq.status}</span>
+          </div>
+          {META.map(([l, v], i) => (
+            <div key={i} style={{display: 'flex', justifyContent: 'space-between', padding: '10px 0', fontSize: 13, borderBottom: i === META.length - 1 ? 0 : '1px solid #ececef'}}>
+              <span style={{color: '#8a8f97'}}>{l}</span><span style={{fontWeight: 500}}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 32}}>
+        <button className="btn-primary" style={{padding: '13px 16px'}}>점검·수리 신청</button>
+        <button className="btn-secondary" style={{padding: '12px 16px'}}>소모품 주문</button>
+        <button className="btn-secondary" style={{padding: '12px 16px'}}>QR 출력</button>
+      </div>
+
+      <div style={{marginBottom: 12}}>
+        <div className="cap">Manual & resources</div>
+        <div className="serif" style={{fontSize: 18, fontWeight: 600, marginTop: 4}}>사용설명서와 자료실</div>
+      </div>
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 32}}>
+        {DOCS.map((d, i) => (
+          <div key={i} className="card" style={{padding: '18px 20px', cursor: 'pointer'}}>
+            <div style={{fontSize: 13, fontWeight: 600}}>{d.t}</div>
+            <div style={{fontSize: 11, color: '#8a8f97', marginTop: 5}}>{d.d}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{marginBottom: 12}}>
+        <div className="cap">History</div>
+        <div className="serif" style={{fontSize: 18, fontWeight: 600, marginTop: 4}}>이력</div>
+      </div>
+      <div className="card" style={{padding: '20px 22px', marginBottom: 32}}>
+        {TLINE.map((t, i) => (
+          <div key={i} style={{display: 'flex', gap: 16}}>
+            <div style={{width: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
+              <div style={{width: 9, height: 9, borderRadius: '50%', background: t.dot, marginTop: 5}}/>
+              {i < TLINE.length - 1 && <div style={{width: 1, flex: 1, background: '#ececef', marginTop: 5}}/>}
+            </div>
+            <div style={{flex: 1, paddingBottom: i === TLINE.length - 1 ? 0 : 18}}>
+              <div className="cap" style={{fontSize: 10, letterSpacing: 1.5}}>{t.date}</div>
+              <div style={{fontSize: 13, fontWeight: 600, marginTop: 4}}>{t.t}</div>
+              {t.d && <div style={{fontSize: 12, color: '#6a6f77', marginTop: 3}}>{t.d}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{marginBottom: 12}}>
+        <div className="cap">Next steps</div>
+        <div className="serif" style={{fontSize: 18, fontWeight: 600, marginTop: 4}}>이 장비의 다음 단계</div>
+      </div>
+
+      <div className="card" style={{padding: '28px 30px', marginBottom: 12}}>
+        <div className="cap" style={{color: '#0952b2'}}>Line-up extension</div>
+        <div className="serif" style={{fontSize: 24, fontWeight: 600, lineHeight: 1.25, margin: '10px 0 20px'}}>영상 라인업을, 한 단계 더 확장해드립니다.</div>
+        <div style={{display: 'grid', gridTemplateColumns: '110px 1fr', gap: 18, marginBottom: 18}}>
+          <div style={{background: '#f7f8fa', border: '1px solid #ececef', borderRadius: 2, aspectRatio: '1/1'}}></div>
+          <div>
+            <div style={{fontSize: 14, fontWeight: 600}}>GEMSS C-arm 9300</div>
+            <div style={{fontSize: 11, color: '#8a8f97', margin: '3px 0 10px'}}>이동형 영상장비 · 정형외과 시술 최적화</div>
+            <ul style={{fontSize: 12, color: '#4a4f57', lineHeight: 1.85, margin: 0, paddingLeft: 18}}>
+              <li>수술실 / 시술실 이동 사용</li>
+              <li>9인치 인텐시파이어 · 고해상도</li>
+              <li>현재 XVISION-525 PACS와 연동 가능</li>
+            </ul>
+          </div>
+        </div>
+        <div style={{background: '#e6effb', border: '1px solid #c7d8f0', borderRadius: 2, padding: '13px 16px', marginBottom: 18, fontSize: 12, color: '#0952b2', lineHeight: 1.7}}>
+          이번 견적에서 제외된 <b style={{fontWeight: 600}}>C-arm</b>은 정형외과 시술실 영상 라인업의 자연스러운 보완 장비입니다.
+        </div>
+        <div style={{display: 'flex', gap: 8}}>
+          <button className="btn-primary">맞춤 견적 받기</button>
+          <button className="btn-secondary">라인업 비교 보기</button>
+        </div>
+      </div>
+
+      <div className="card" style={{padding: '22px 24px', display: 'flex', alignItems: 'center', gap: 18}}>
+        <div style={{flex: 1, minWidth: 0}}>
+          <div className="cap" style={{marginBottom: 4}}>Resell</div>
+          <div style={{fontSize: 14, fontWeight: 600}}>사용하시던 장비, 새 주인을 찾아드립니다.</div>
+          <div style={{fontSize: 12, color: '#6a6f77', marginTop: 6, lineHeight: 1.7}}>보유 1년 이상 장비부터 처분 안내드리고 있습니다. 같은 모델 평균 시세 <b style={{color: '#1a1a1a', fontWeight: 600}}>850~1,200만원</b> · 최근 90일 거래 7건</div>
+        </div>
+        <button className="btn-secondary">시세 확인하기</button>
+      </div>
+    </div>
+  );
+}
+
+function Placeholder({ title, desc, eng }) {
+  return (
+    <div style={{maxWidth: 880, margin: '0 auto', padding: '100px 28px', textAlign: 'center'}}>
+      <div className="cap">{eng}</div>
+      <div className="serif" style={{fontSize: 28, fontWeight: 600, marginTop: 10}}>{title}</div>
+      <div style={{fontSize: 13, color: '#6a6f77', marginTop: 10}}>{desc}</div>
+      <div className="cap" style={{marginTop: 30}}>Coming soon</div>
+    </div>
+  );
+}
+
+function App() {
+  const [page, setPage] = useState('home');
+  const [selectedId, setSelectedId] = useState(null);
+
+  const openDetail = (id) => { setSelectedId(id); setPage('detail'); };
+  const nav = (p) => { setPage(p); };
+
+  return (
+    <div>
+      <TopHeader page={page} onNav={nav} />
+      {page === 'home' && <Home onOpenList={() => setPage('equipment')} onOpenDetail={openDetail} />}
+      {page === 'equipment' && <EquipmentList onSelect={openDetail} />}
+      {page === 'detail' && <EquipmentDetail id={selectedId} onBack={() => setPage('equipment')} />}
+      {page === 'consumables' && <Placeholder eng="Consumables" title="소모품 주문" desc="자주 사용하시는 품목을 한 번에 주문하실 수 있습니다." />}
+      {page === 'service' && <Placeholder eng="Service" title="점검·수리" desc="정기검사와 A/S 신청을 한 곳에서 안내해드립니다." />}
+      {page === 'docs' && <Placeholder eng="Documents" title="문서함" desc="견적서·세금계산서·검사 보고서를 한 곳에 보관해드립니다." />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

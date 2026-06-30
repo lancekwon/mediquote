@@ -4,6 +4,7 @@
   "outputDirectory": ".",
   "rewrites": [
     { "source": "/hospital", "destination": "/hospital.html" },
-    { "source": "/((?!dw-logo\\.png|hospital\\.html|app\\.js).*)", "destination": "/index.html" }
+    { "source": "/preview", "destination": "/hospital_preview.html" },
+    { "source": "/((?!dw-logo\\.png|hospital\\.html|hospital_preview\\.html|app\\.js).*)", "destination": "/index.html" }
   ]
 }
