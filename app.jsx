@@ -3332,7 +3332,7 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
       setLoading(true);
       try {
         const [pi, po, ph] = await Promise.all([
-          sb.from('purchase_order_items').select('equipment_id, model_name, manufacturer, unit_price, quantity, po_id, ordered_at, created_at').not('equipment_id', 'is', null).then(r => r.data || []),
+          sb.from('purchase_order_items').select('equipment_id, model_name, manufacturer, unit_price, quantity, po_id, ordered_at, created_at, is_used').not('equipment_id', 'is', null).then(r => r.data || []),
           sb.from('purchase_orders').select('id, vendor_name, manufacturer_name, hospital_name, ordered_at, created_at').then(r => r.data || []),
           sb.from('equipment_price_history').select('equipment_id, price, recorded_at, vendor, po_no, po_id').then(r => r.data || []),
         ]);
@@ -3352,28 +3352,37 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
       const date = (po.ordered_at || po.created_at || it.ordered_at || it.created_at || '').slice(0, 10);
       const vendor = po.vendor_name || po.manufacturer_name || it.manufacturer || '';
       if (!events.has(it.equipment_id)) events.set(it.equipment_id, []);
-      events.get(it.equipment_id).push({ price: Number(it.unit_price), qty: Number(it.quantity) || 0, date, vendor, site: po.hospital_name || '', src: '발주' });
+      events.get(it.equipment_id).push({ price: Number(it.unit_price), qty: Number(it.quantity) || 0, date, vendor, site: po.hospital_name || '', src: '발주', isUsed: !!it.is_used });
       if (it.po_id) covered.add(it.equipment_id + '|' + it.po_id);
     });
     hist.forEach(h => {
       if (!h.equipment_id || !(Number(h.price) > 0)) return;
       if (h.po_id && covered.has(h.equipment_id + '|' + h.po_id)) return;
       if (!events.has(h.equipment_id)) events.set(h.equipment_id, []);
-      events.get(h.equipment_id).push({ price: Number(h.price), qty: 0, date: (h.recorded_at || '').slice(0, 10), vendor: h.vendor || '', site: (poMap.get(h.po_id) || {}).hospital_name || '', src: '이력' });
+      events.get(h.equipment_id).push({ price: Number(h.price), qty: 0, date: (h.recorded_at || '').slice(0, 10), vendor: h.vendor || '', site: (poMap.get(h.po_id) || {}).hospital_name || '', src: '이력', isUsed: false });
     });
+    const statOf = (arr) => {
+      if (arr.length === 0) return null;
+      const p = arr.map(x => x.price);
+      return { count: arr.length, min: Math.min(...p), max: Math.max(...p), avg: Math.round(p.reduce((a,b)=>a+b,0)/p.length) };
+    };
     const out = [];
     events.forEach((evs, eqId) => {
       const e = eqMap.get(eqId);
       const prices = evs.map(x => x.price);
       const sorted = [...evs].sort((a, b) => (a.date < b.date ? 1 : -1));
       const latest = sorted[0];
+      const newEvs = evs.filter(x => !x.isUsed);
+      const usedEvs = evs.filter(x => x.isUsed);
       out.push({
         eqId, model: e ? (e.model && e.model.name) || e.itemName || '(모델명 없음)' : '(삭제된 장비)', mfr: e ? (e.model && e.model.manufacturer) || '' : '',
         count: evs.length, totalQty: evs.reduce((s, x) => s + x.qty, 0),
         min: Math.min(...prices), max: Math.max(...prices),
         avg: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
-        latestPrice: latest.price, latestDate: latest.date,
+        latestPrice: latest.price, latestDate: latest.date, latestIsUsed: !!latest.isUsed,
         vendors: [...new Set(evs.map(x => x.vendor).filter(Boolean))],
+        newStat: statOf(newEvs),
+        usedStat: statOf(usedEvs),
         events: sorted,
       });
     });
@@ -3441,11 +3450,27 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
             <tbody>
               {filtered.map(r => (
                 <tr key={r.eqId} className="border-t border-slate-100 hover:bg-blue-50/40 cursor-pointer" onClick={() => setDetail(r)}>
-                  <td className="px-3 py-2"><div className="font-medium text-slate-800">{r.model}</div><div className="text-[11px] text-slate-400">{r.mfr}</div></td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-900 tnum">{fmt(r.latestPrice)}</td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-slate-800 flex items-center gap-1.5">
+                      {r.model}
+                      {r.usedStat && <span className="px-1 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded" title={`중고 평균 ${fmt(r.usedStat.avg)} (×${r.usedStat.count})`}>중고 {r.usedStat.count}</span>}
+                    </div>
+                    <div className="text-[11px] text-slate-400">{r.mfr}</div>
+                  </td>
+                  <td className="px-3 py-2 text-right tnum">
+                    <span className={`font-semibold ${r.latestIsUsed ? 'text-amber-700' : 'text-slate-900'}`}>{fmt(r.latestPrice)}</span>
+                    {r.latestIsUsed && <span className="ml-1 text-[9px] text-amber-600 font-bold">중고</span>}
+                  </td>
                   <td className="px-3 py-2 text-center text-xs text-slate-500">{r.latestDate || '—'}</td>
                   <td className="px-3 py-2 text-right tnum text-slate-600">{fmt(r.min)}</td>
-                  <td className="px-3 py-2 text-right tnum text-slate-600">{fmt(r.avg)}</td>
+                  <td className="px-3 py-2 text-right tnum text-slate-600">
+                    {r.newStat && r.usedStat ? (
+                      <div className="leading-tight">
+                        <div className="text-[11px] text-slate-700">신 {fmt(r.newStat.avg)}</div>
+                        <div className="text-[11px] text-amber-700">중 {fmt(r.usedStat.avg)}</div>
+                      </div>
+                    ) : fmt(r.avg)}
+                  </td>
                   <td className="px-3 py-2 text-right tnum text-slate-600">{fmt(r.max)}</td>
                   <td className="px-3 py-2 text-center text-slate-600">{r.count}</td>
                   <td className="px-3 py-2 text-center text-slate-600">{r.totalQty || '—'}</td>
@@ -3464,14 +3489,27 @@ function EquipmentPurchasePriceTab({ equips = [] }) {
             <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">최대</div><div className="font-bold text-slate-800 tnum">{fmt(detail.max)}</div></div>
             <div className="bg-slate-50 rounded p-2"><div className="text-[10px] text-slate-500">횟수/수량</div><div className="font-bold text-slate-800">{detail.count}회/{detail.totalQty}</div></div>
           </div>
+          {(detail.newStat || detail.usedStat) && (detail.newStat && detail.usedStat) && (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="bg-slate-50 border border-slate-200 rounded p-2 text-center">
+                <div className="text-[10px] text-slate-600 font-semibold mb-0.5">新 신품 ({detail.newStat.count}회)</div>
+                <div className="text-[11px] text-slate-700">평균 <b className="tnum">{fmt(detail.newStat.avg)}</b> · 최소 {fmt(detail.newStat.min)} · 최대 {fmt(detail.newStat.max)}</div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-center">
+                <div className="text-[10px] text-amber-700 font-semibold mb-0.5">중고 ({detail.usedStat.count}회)</div>
+                <div className="text-[11px] text-amber-800">평균 <b className="tnum">{fmt(detail.usedStat.avg)}</b> · 최소 {fmt(detail.usedStat.min)} · 최대 {fmt(detail.usedStat.max)}</div>
+              </div>
+            </div>
+          )}
           <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[10px] text-slate-500"><tr><th className="px-2 py-1.5 text-left">날짜</th><th className="px-2 py-1.5 text-right">단가</th><th className="px-2 py-1.5 text-center">수량</th><th className="px-2 py-1.5 text-left">거래처</th><th className="px-2 py-1.5 text-left">납품처</th><th className="px-2 py-1.5 text-center">출처</th></tr></thead>
+            <thead className="bg-slate-50 text-[10px] text-slate-500"><tr><th className="px-2 py-1.5 text-left">날짜</th><th className="px-2 py-1.5 text-right">단가</th><th className="px-2 py-1.5 text-center">수량</th><th className="px-2 py-1.5 text-center w-12">중고</th><th className="px-2 py-1.5 text-left">거래처</th><th className="px-2 py-1.5 text-left">납품처</th><th className="px-2 py-1.5 text-center">출처</th></tr></thead>
             <tbody>
               {detail.events.map((ev, i) => (
-                <tr key={i} className="border-t border-slate-100">
+                <tr key={i} className={`border-t border-slate-100 ${ev.isUsed ? 'bg-amber-50/40' : ''}`}>
                   <td className="px-2 py-1.5 text-slate-600 whitespace-nowrap">{ev.date || '—'}</td>
-                  <td className="px-2 py-1.5 text-right tnum font-medium">{fmt(ev.price)}</td>
+                  <td className={`px-2 py-1.5 text-right tnum font-medium ${ev.isUsed ? 'text-amber-700' : ''}`}>{fmt(ev.price)}</td>
                   <td className="px-2 py-1.5 text-center text-slate-500">{ev.qty || '—'}</td>
+                  <td className="px-2 py-1.5 text-center">{ev.isUsed ? <span className="px-1 py-0.5 bg-amber-500 text-white text-[9px] font-bold rounded">중고</span> : <span className="text-slate-300 text-[10px]">—</span>}</td>
                   <td className="px-2 py-1.5 text-slate-600">{ev.vendor || '—'}</td>
                   <td className="px-2 py-1.5 text-slate-600">{ev.site || '—'}</td>
                   <td className="px-2 py-1.5 text-center text-[10px] text-slate-400">{ev.src}</td>
@@ -5710,6 +5748,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                 tax_invoiced_at: pi.tax_invoiced_at || null,
                 delivered:  !!pi.delivered,
                 delivered_at: pi.delivered_at || null,
+                isUsed: !!pi.is_used,
                 memo: pi.memo || '',
                 note: '',
               });
@@ -5745,6 +5784,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                 ordered: false, ordered_at: null,
                 taxInvoiced: false, tax_invoiced_at: null,
                 delivered: false, delivered_at: null,
+                isUsed: false,
                 memo: '', note: '',
               });
             });
@@ -5789,7 +5829,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
       equipmentId: null, manufacturer: '', vendor: (vendor && vendor !== '(미지정)') ? vendor : '',
       quantity: 1, salePrice: 0, purchasePrice: 0,
       vendorContactName: '', vendorContactPhone: '',
-      ordered: false, ordered_at: null, taxInvoiced: false, tax_invoiced_at: null,
+      ordered: false, ordered_at: null, taxInvoiced: false, tax_invoiced_at: null, isUsed: false,
       delivered: false, delivered_at: null, memo: '', note: '',
     }]);
   };
@@ -5838,6 +5878,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           ordered: prev?.ordered || false, ordered_at: prev?.ordered_at || null,
           taxInvoiced: prev?.taxInvoiced || false, tax_invoiced_at: prev?.tax_invoiced_at || null,
           delivered: prev?.delivered || false, delivered_at: prev?.delivered_at || null,
+          isUsed: prev?.isUsed || false,
           memo: prev?.memo || '', note: '',
         });
       });
@@ -5935,6 +5976,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           tax_invoiced_at: it.taxInvoiced ? (it.tax_invoiced_at || today) : null,
           delivered: !!it.delivered,
           delivered_at: it.delivered ? (it.delivered_at || today) : null,
+          is_used: !!it.isUsed,
           memo: it.memo || null,
         }));
 
@@ -6408,6 +6450,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                       <th className="px-2 py-2 text-center w-14">입금</th>
                       <th className="px-2 py-2 text-center w-20">세금계산서</th>
                       <th className="px-2 py-2 text-center w-14">납품</th>
+                      <th className="px-2 py-2 text-center w-12">중고</th>
                       <th className="px-2 py-2 text-left w-40">메모</th>
                       <th className="px-2 py-2 text-center w-16">담당자</th>
                       <th className="px-2 py-2 text-center w-14">카톡</th>
@@ -6537,6 +6580,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                             onClick={() => setItem(it.key, { taxInvoiced: !it.taxInvoiced, tax_invoiced_at: !it.taxInvoiced ? (it.tax_invoiced_at||today()) : null })}/></td>
                           <td className="px-2 py-1.5 text-center"><IconPill on={it.delivered} icon={ICON.box} title={it.delivered ? `납품: ${it.delivered_at||''}` : '납품'}
                             onClick={() => setItem(it.key, { delivered: !it.delivered, delivered_at: !it.delivered ? (it.delivered_at||today()) : null })}/></td>
+                          <td className="px-2 py-1.5 text-center">
+                            <button onClick={() => setItem(it.key, { isUsed: !it.isUsed })} title={it.isUsed ? '중고 발주 (해제하려면 클릭)' : '중고 발주로 표시'}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors ${it.isUsed ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                              {it.isUsed ? '중고' : '新'}
+                            </button>
+                          </td>
                           <td className="px-2 py-1.5">
                             <button onClick={() => setItemMemoModal({ key: it.key, item: it })}
                               className={`w-full text-left px-2 py-1 rounded text-[11px] border ${it.memo ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100' : 'border-dashed border-slate-200 text-slate-400 hover:bg-slate-50'}`}
