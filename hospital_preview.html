@@ -106,6 +106,15 @@ function TopHeader({ page, onNav }) {
 }
 
 function Home({ onOpenList, onOpenDetail }) {
+  const BANNERS = [
+    { img: '/img/banner/banner_1_newmyo.png', alt: 'NEWMYO III · 3 IN 1 의료용 조합자극기' },
+    { img: '/img/banner/banner_2_carerush.png', alt: '케어 러쉬 · 피부질환 전용 레이저 조사기' },
+  ];
+  const [bannerIdx, setBannerIdx] = useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => setBannerIdx(i => (i + 1) % BANNERS.length), 5000);
+    return () => clearInterval(t);
+  }, []);
   return (
     <div style={{maxWidth: 880, margin: '0 auto', padding: '36px 28px'}}>
       <div style={{marginBottom: 28}}>
@@ -114,13 +123,21 @@ function Home({ onOpenList, onOpenDetail }) {
         <div style={{fontSize: 13, color: '#6a6f77', marginTop: 4}}>{HOSPITAL.name} · 보유 장비 22대</div>
       </div>
 
-      <div className="card" style={{padding: '36px 40px', marginBottom: 28, minHeight: 200}}>
-        <div className="cap">Equipment in service · No. 06</div>
-        <div className="serif" style={{fontSize: 30, fontWeight: 600, lineHeight: 1.25, margin: '14px 0 12px', maxWidth: '88%'}}>영상실, 가동을 시작했습니다.</div>
-        <div style={{fontSize: 13, color: '#4a4f57', maxWidth: '80%', lineHeight: 1.75}}>XVISION-525 · DR 17HQ701G-BP · PACS 풀세트가 6월 11일부로 가동을 시작했습니다. 사용 가이드와 다음 검사 일정을 안내해드립니다.</div>
-        <div style={{display: 'flex', gap: 8, marginTop: 22}}>
-          <button className="btn-primary">사용 가이드 보기</button>
-          <button className="btn-secondary">영상실 라인업 보기</button>
+      <div style={{position: 'relative', marginBottom: 28, borderRadius: 4, overflow: 'hidden', background: '#fff', border: '1px solid #ececef'}}>
+        {BANNERS.map((b, i) => (
+          <a key={i} href="#" style={{display: i === bannerIdx ? 'block' : 'none', cursor: 'pointer'}}>
+            <img src={b.img} alt={b.alt} style={{display: 'block', width: '100%', height: 'auto'}} />
+          </a>
+        ))}
+        <div style={{position: 'absolute', bottom: 14, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6, pointerEvents: 'none'}}>
+          {BANNERS.map((_, i) => (
+            <span key={i} onClick={() => setBannerIdx(i)} style={{
+              width: i === bannerIdx ? 22 : 8, height: 8, borderRadius: 99,
+              background: i === bannerIdx ? '#0952b2' : 'rgba(255,255,255,0.9)',
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.18)',
+              cursor: 'pointer', transition: 'all .25s', pointerEvents: 'auto'
+            }} />
+          ))}
         </div>
       </div>
 

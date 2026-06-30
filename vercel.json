@@ -5,6 +5,6 @@
   "rewrites": [
     { "source": "/hospital", "destination": "/hospital.html" },
     { "source": "/preview", "destination": "/hospital_preview.html" },
-    { "source": "/((?!dw-logo\\.png|hospital\\.html|hospital_preview\\.html|app\\.js).*)", "destination": "/index.html" }
+    { "source": "/((?!dw-logo\\.png|hospital\\.html|hospital_preview\\.html|app\\.js|img/|.*\\.(png|jpg|jpeg|webp|svg|gif|ico|css|js|json|txt|map)).*)", "destination": "/index.html" }
   ]
 }
