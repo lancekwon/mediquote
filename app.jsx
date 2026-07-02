@@ -12480,12 +12480,12 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
     try {
       const [pt, ti, rt, sti] = await Promise.all([
         dbLoadPayableTransactions({ manufacturerId }),
-        sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at')
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, created_at')
           .eq('kind', 'purchase').eq('manufacturer_id', manufacturerId)
           .order('issue_date', { ascending: false })
           .then(r => r.data || []),
         sb.from('receivable_transactions').select('*').eq('manufacturer_id', manufacturerId).then(r => r.data || []),
-        sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at')
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, created_at')
           .eq('kind', 'sale').eq('manufacturer_id', manufacturerId).then(r => r.data || []),
       ]);
       // 매입 측 = payable + 매입 세금계산서
@@ -12494,7 +12494,8 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         manufacturer_id: manufacturerId,
         tx_date: t.issue_date, tx_type: 'tax_purchase',
         amount: Number(t.amount) || 0,
-        memo: t.party_name || '세금계산서',
+        memo: t.memo || null,
+        _partyName: t.party_name || null,
         created_at: t.created_at,
       }));
       const payableRows = pt.map(r => ({ ...r, _isPayable: true }));
@@ -12505,7 +12506,8 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         id: 'sti-' + t.id, _isTax: true, _isReceivable: true,
         tx_date: t.issue_date, tx_type: 'tax_sale',
         amount: Number(t.amount) || 0,
-        memo: t.party_name || '매출 세금계산서',
+        memo: t.memo || null,
+        _partyName: t.party_name || null,
         created_at: t.created_at,
       }));
       setSaleRows([...rtRows, ...saleTaxRows]);
@@ -12686,12 +12688,18 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
               <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">거래 내역이 없습니다</td></tr>
             ) : display.map(r => (
               <tr key={r.id} className="border-t border-slate-100">
-                <td className="px-3 py-1.5 text-xs text-slate-700">{r.tx_date}</td>
-                <td className="px-3 py-1.5"><TypeBadge type={r.tx_type} /></td>
-                <td className="px-3 py-1.5 text-slate-600 text-xs">{r.memo || '—'}</td>
-                <td className="px-3 py-1.5 text-right font-mono text-amber-700 text-xs">{r.inc ? r.inc.toLocaleString() : ''}</td>
-                <td className="px-3 py-1.5 text-right font-mono text-emerald-600 text-xs">{r.dec ? r.dec.toLocaleString() : ''}</td>
-                <td className="px-3 py-1.5 text-right font-mono text-slate-700 text-xs font-semibold">{r.running.toLocaleString()}</td>
+                <td className="px-3 py-1.5 text-xs text-slate-700 align-top">{r.tx_date}</td>
+                <td className="px-3 py-1.5 align-top"><TypeBadge type={r.tx_type} /></td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs align-top">{r.memo || '—'}</td>
+                <td className="px-3 py-1.5 text-right align-top">
+                  <div className="font-mono text-amber-700 text-xs">{r.inc ? r.inc.toLocaleString() : ''}</div>
+                  {r.inc > 0 && r.memo ? <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px] ml-auto" title={r.memo}>{r.memo}</div> : null}
+                </td>
+                <td className="px-3 py-1.5 text-right align-top">
+                  <div className="font-mono text-emerald-600 text-xs">{r.dec ? r.dec.toLocaleString() : ''}</div>
+                  {r.dec > 0 && r.memo ? <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px] ml-auto" title={r.memo}>{r.memo}</div> : null}
+                </td>
+                <td className="px-3 py-1.5 text-right font-mono text-slate-700 text-xs font-semibold align-top">{r.running.toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
@@ -13587,7 +13595,7 @@ function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }
     try {
       const [r, t] = await Promise.all([
         sb.from('receivable_transactions').select('*').eq('hospital_id', hospitalId).then(x => x.data || []),
-        sb.from('tax_invoices').select('id, issue_date, amount, party_name, created_at').eq('kind', 'sale').eq('hospital_id', hospitalId).then(x => x.data || []),
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, created_at').eq('kind', 'sale').eq('hospital_id', hospitalId).then(x => x.data || []),
       ]);
       setRecv(r); setTax(t);
     } finally { setLoading(false); }
@@ -13601,7 +13609,7 @@ function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }
   const ledgerAsc = useMemo(() => {
     const items = [
       ...recv.map(r => ({ id: r.id, tx_date: r.tx_date, type: fmtT(r.tx_type), s: sign(r.tx_type) * (Number(r.amount) || 0), memo: r.memo, created_at: r.created_at })),
-      ...tax.filter(t => (t.issue_date || '') > CUT).map(t => ({ id: 'tax-' + t.id, tx_date: t.issue_date, type: '매출(계산서)', s: (Number(t.amount) || 0), memo: t.party_name || '매출 세금계산서', created_at: t.created_at })),
+      ...tax.filter(t => (t.issue_date || '') > CUT).map(t => ({ id: 'tax-' + t.id, tx_date: t.issue_date, type: '매출(계산서)', s: (Number(t.amount) || 0), memo: t.memo || null, _partyName: t.party_name || null, created_at: t.created_at })),
     ];
     items.sort((a, b) => (a.tx_date < b.tx_date ? -1 : a.tx_date > b.tx_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
     let running = 0;
@@ -13637,12 +13645,18 @@ function HospitalLedgerModal({ hospitalId, name, onClose, onChanged, showToast }
               </tr></thead>
               <tbody>
                 {display.map(r => (
-                  <tr key={r.id} className="border-t border-slate-100">
+                  <tr key={r.id} className="border-t border-slate-100 align-top">
                     <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">{r.tx_date}</td>
                     <td className="px-2 py-1.5 text-center">{r.type}</td>
                     <td className="px-2 py-1.5 text-slate-600 break-words">{r.memo || '—'}</td>
-                    <td className="px-2 py-1.5 text-right tnum text-blue-700">{r.inc ? r.inc.toLocaleString() : ''}</td>
-                    <td className="px-2 py-1.5 text-right tnum text-emerald-700">{r.dec ? r.dec.toLocaleString() : ''}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <div className="tnum text-blue-700">{r.inc ? r.inc.toLocaleString() : ''}</div>
+                      {r.inc > 0 && r.memo ? <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px] ml-auto" title={r.memo}>{r.memo}</div> : null}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <div className="tnum text-emerald-700">{r.dec ? r.dec.toLocaleString() : ''}</div>
+                      {r.dec > 0 && r.memo ? <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px] ml-auto" title={r.memo}>{r.memo}</div> : null}
+                    </td>
                     <td className="px-2 py-1.5 text-right tnum font-semibold">{r.running.toLocaleString()}</td>
                   </tr>
                 ))}
