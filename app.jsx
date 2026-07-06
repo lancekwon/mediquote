@@ -7661,6 +7661,14 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
   const [showGcalSettings, setShowGcalSettings] = React.useState(false);
   const [gcalConnected, setGcalConnected] = React.useState(!!gcalAccessToken);
 
+  // App-level hospitals가 최초 로그인 시 1회만 로드되어, 병원 관리 페이지에서
+  // 병원을 추가/수정해도 리드 자동완성에는 stale 상태로 남는 문제 방지.
+  // 리드 페이지 진입 시 최신으로 refresh (setHospitals가 App의 setter라 전역 반영).
+  React.useEffect(() => {
+    if (typeof setHospitals !== 'function') return;
+    dbLoadHospitals().then(fresh => setHospitals(fresh)).catch(console.error);
+  }, []);
+
   // 바깥 클릭 시 단계 팝업 닫기
   React.useEffect(() => {
     if (!stagePopup) return;
