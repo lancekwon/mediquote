@@ -10918,6 +10918,115 @@ function TaxInvoiceTab({ onChanged }) {
 /* ============================================================
    CASHFLOW TAB — 활성 발주 기반 자금 흐름 (병원/계약별)
    ============================================================ */
+/* 통장 출납 상단 — 세금계산서 스타일의 한 줄 입력 폼 (즉시 저장) */
+function QuickCashEntry({ balances = [], onSaved, showToast }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+  const [typeKey, setTypeKey] = useState('payment');
+  const [partyId, setPartyId] = useState('');
+  const [partyName, setPartyName] = useState('');
+  const [partyKindSel, setPartyKindSel] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const curType = ENTRY_TYPE_BY_KEY[typeKey];
+  const needsPicker = curType.needVendor || curType.needHospital === 'optional' || curType.needParty;
+  const freeTextParty = !needsPicker && curType.freeForm;
+
+  const changeType = (k) => {
+    setTypeKey(k);
+    setPartyId(''); setPartyName(''); setPartyKindSel('');
+  };
+
+  const handleAdd = async () => {
+    const amt = Number((amount || '').toString().replace(/[,\s]/g, '')) || 0;
+    if (!amt || amt <= 0) return alert('금액을 입력하세요.');
+    if (curType.needVendor && !partyId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
+    if (curType.needParty && !partyId) return alert(`${curType.label}은(는) 거래처/병원을 선택해야 합니다.`);
+    setSaving(true);
+    try {
+      const e = { date, typeKey, amount: amt, memo: memo.trim() || null };
+      if (curType.needVendor) {
+        e.manufacturerId = partyId; e.vendorName = partyName;
+      } else if (typeKey === 'collect' && partyKindSel === 'hospital' && partyId) {
+        e.hospitalId = partyId; e.hospitalName = partyName;
+      } else if (curType.needParty) {
+        // ad/fee 등 party는 vendor로 처리
+        e.manufacturerId = partyKindSel === 'vendor' ? partyId : null;
+        e.vendorName = partyName;
+      } else if (freeTextParty) {
+        e.vendorName = partyName.trim() || null;
+      }
+      await dbSaveManualEntry(e);
+      setPartyId(''); setPartyName(''); setPartyKindSel('');
+      setAmount(''); setMemo('');
+      onSaved && onSaved();
+      showToast && showToast(`${curType.label} 저장됨`);
+    } catch (err) {
+      alert('저장 실패: ' + (err.message || err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const partyPh = curType.needVendor ? '거래처 선택 (클릭)'
+    : typeKey === 'collect' ? '병원 선택 (선택)'
+    : curType.needParty ? '거래처/병원 선택 (클릭)'
+    : '상대방 (선택)';
+  const pickerAllowed = curType.needParty ? 'both'
+    : (typeKey === 'collect' ? 'hospital' : 'vendor');
+  const pickerDefault = typeKey === 'collect' ? 'hospital' : 'vendor';
+
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+      <div className="text-xs font-semibold text-slate-700 mb-2">통장 거래 입력 (한 건씩 즉시 저장)</div>
+      <div className="flex gap-2 flex-wrap items-center">
+        <select value={typeKey} onChange={e => changeType(e.target.value)}
+          className="border border-slate-300 rounded px-2 py-1 text-sm bg-white">
+          {ENTRY_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          className="border border-slate-300 rounded px-2 py-1 text-sm"/>
+        {needsPicker && (
+          <button type="button" onClick={() => setPickerOpen(true)}
+            className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm text-left bg-white hover:bg-slate-50 truncate">
+            {partyName || <span className="text-slate-400">{partyPh}</span>}
+          </button>
+        )}
+        {freeTextParty && (
+          <input type="text" value={partyName} onChange={e => setPartyName(e.target.value)}
+            placeholder={partyPh}
+            className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm"/>
+        )}
+        <input type="text" value={amount === '' ? '' : Number(String(amount).replace(/[^0-9]/g, '')).toLocaleString()}
+          onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
+          placeholder="금액"
+          className="w-36 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
+        <input type="text" value={memo} onChange={e => setMemo(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
+          placeholder="메모 (선택)"
+          className="w-48 border border-slate-300 rounded px-2 py-1 text-sm"/>
+        <button onClick={handleAdd} disabled={saving}
+          className={`px-4 py-1 rounded text-sm font-semibold text-white ${curType.cashDir < 0 ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'} disabled:opacity-50`}>
+          {saving ? '저장 중…' : (curType.cashDir < 0 ? '− 출금' : '+ 입금')}
+        </button>
+      </div>
+      <div className="text-[10px] text-slate-400 mt-2">{curType.desc}</div>
+      {pickerOpen && (
+        <VendorPickerModal
+          onClose={() => setPickerOpen(false)}
+          onSelect={(it) => { setPartyId(it.id); setPartyName(it.name); setPartyKindSel(it.kind); setPickerOpen(false); }}
+          defaultFilter={pickerDefault}
+          allowedKinds={pickerAllowed}
+        />
+      )}
+    </div>
+  );
+}
+
 function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
   const [pos, setPos] = useState([]);
   const [recvTx, setRecvTx] = useState([]);    // 병원 → 우리 입금
@@ -11180,7 +11289,7 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
       <div>
         <div className="text-sm font-semibold text-slate-700">💰 발주 외 매출 — 광고·수수료·기타 수입</div>
-        <div className="text-xs text-slate-500 mt-0.5">장비 발주(병원 매출)와 무관한 수입을 모아 봅니다. 입력은 「거래 입력」 탭에서 <b>광고 매출 · 수수료 · 잡수입</b> 유형으로 하세요 — 여기는 보기 전용입니다.</div>
+        <div className="text-xs text-slate-500 mt-0.5">장비 발주(병원 매출)와 무관한 수입을 모아 봅니다. 통장 출납 탭 상단 <b>통장 거래 입력</b>에서 <b>광고 매출 · 수수료 · 잡수입</b> 유형으로 입력하시면 여기 모입니다 — 아래는 보기 전용입니다.</div>
       </div>
 
       {/* 기간 */}
@@ -11966,7 +12075,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} />
           ) : (
-            <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} />
+            <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} />
           )}
         </div>
 
@@ -12058,7 +12167,7 @@ const cashRowDisplay = (l) => {
   return { tag: tag || '', counterparty: body, body: '' };
 };
 
-function CashBalanceTable({ logs, onReload, showToast }) {
+function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('all'); // all | tag명
   const [viewMode, setViewMode] = useState('time'); // time | group
@@ -12137,6 +12246,9 @@ function CashBalanceTable({ logs, onReload, showToast }) {
   };
   return (
     <div>
+      <div className="p-3 border-b border-slate-100 bg-white">
+        <QuickCashEntry balances={balances} onSaved={onReload} showToast={showToast} />
+      </div>
       <div className="flex items-center gap-3 px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 flex-wrap">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="메모 검색 (예: 운영비, 거래처명, 임대 등)"
