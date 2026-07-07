@@ -10605,8 +10605,10 @@ function TaxInvoiceTab({ onChanged }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0,10);
-  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '' });
+  const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '', po_id: null, no_po: false });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [poCandidates, setPoCandidates] = useState([]);
+  const [poCandLoading, setPoCandLoading] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -10615,6 +10617,54 @@ function TaxInvoiceTab({ onChanged }) {
     setLoading(false);
   }, []);
   useEffect(() => { reload(); }, [reload]);
+
+  // 매입 계산서 + 거래처 + 발행일이 확정되면 관련 발주 자동 추천
+  useEffect(() => {
+    if (form.kind !== 'purchase' || !form.manufacturer_id || !form.issue_date || form.no_po) {
+      setPoCandidates([]); return;
+    }
+    let cancelled = false;
+    (async () => {
+      setPoCandLoading(true);
+      try {
+        const d = new Date(form.issue_date); d.setDate(d.getDate() - 60);
+        const fromDate = d.toISOString().slice(0, 10);
+        // ordered_at 필드가 거의 채워지지 않아 created_at을 발주 시점 대체로 사용.
+        // 세금계산서 발행일 + 3일 여유(발주 등록일이 계산서 발행일보다 살짝 늦은 경우 대비).
+        const untilDate = form.issue_date + 'T23:59:59';
+        const { data } = await sb.from('purchase_orders')
+          .select('id, po_no, ordered_at, created_at, total_amount, manufacturer_name, hospital_name, status, is_active, purchase_order_items(item_name, model_name, quantity, amount)')
+          .eq('manufacturer_id', form.manufacturer_id)
+          .eq('is_active', true)
+          .neq('status', '취소')
+          .gte('created_at', fromDate + 'T00:00:00')
+          .lte('created_at', untilDate)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        const list = data || [];
+        const poIds = list.map(p => p.id);
+        let usedSet = new Set();
+        if (poIds.length > 0) {
+          const { data: used } = await sb.from('tax_invoices').select('po_id').in('po_id', poIds);
+          usedSet = new Set((used || []).map(t => t.po_id).filter(Boolean));
+        }
+        const amt = parseInt(String(form.amount || '').replace(/[^0-9-]/g, ''), 10) || 0;
+        const scored = list.map(p => ({
+          ...p,
+          _used: usedSet.has(p.id),
+          _diff: amt > 0 ? Math.abs((p.total_amount || 0) - amt) : 0,
+          _match: amt > 0 && p.total_amount > 0 ? Math.round(100 - Math.min(100, (Math.abs(p.total_amount - amt) / p.total_amount) * 100)) : null,
+        })).sort((a, b) => {
+          if (a._used !== b._used) return a._used ? 1 : -1;
+          return a._diff - b._diff;
+        }).slice(0, 3);
+        if (!cancelled) setPoCandidates(scored);
+      } finally {
+        if (!cancelled) setPoCandLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [form.kind, form.manufacturer_id, form.issue_date, form.amount, form.no_po]);
 
   const fmt = (n) => (n || 0).toLocaleString() + '원';
 
@@ -10631,8 +10681,12 @@ function TaxInvoiceTab({ onChanged }) {
         hospital_id: form.hospital_id || null,
         manufacturer_id: form.manufacturer_id || null,
         memo: form.memo.trim() || null,
+        // 매입 계산서만 발주 연결 저장 (매출은 이번 스코프 밖)
+        po_id: form.kind === 'purchase' ? (form.po_id || null) : null,
+        no_po: form.kind === 'purchase' ? !!form.no_po : false,
       });
-      setForm(p => ({ ...p, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '' }));
+      setForm(p => ({ ...p, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '', po_id: null, no_po: false }));
+      setPoCandidates([]);
       reload();
       onChanged && onChanged(true); // 거래처 원장 잔액도 갱신
     } catch (e) { alert('저장 실패: '+(e.message||e)); }
@@ -10690,9 +10744,9 @@ function TaxInvoiceTab({ onChanged }) {
         <div className="text-xs font-semibold text-slate-700 mb-2">세금계산서 입력</div>
         <div className="flex gap-2 flex-wrap">
           <div className="flex gap-1 border border-slate-300 rounded p-0.5 bg-white">
-            <button onClick={()=>setForm(p=>({...p, kind:'sale', party_name:'', hospital_id:null, manufacturer_id:null}))}
+            <button onClick={()=>setForm(p=>({...p, kind:'sale', party_name:'', hospital_id:null, manufacturer_id:null, po_id:null, no_po:false}))}
               className={`px-3 py-1 text-xs rounded ${form.kind==='sale' ? 'bg-emerald-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>매출</button>
-            <button onClick={()=>setForm(p=>({...p, kind:'purchase', party_name:'', hospital_id:null, manufacturer_id:null}))}
+            <button onClick={()=>setForm(p=>({...p, kind:'purchase', party_name:'', hospital_id:null, manufacturer_id:null, po_id:null, no_po:false}))}
               className={`px-3 py-1 text-xs rounded ${form.kind==='purchase' ? 'bg-rose-500 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100'}`}>매입</button>
           </div>
           <input type="date" value={form.issue_date}
@@ -10716,11 +10770,65 @@ function TaxInvoiceTab({ onChanged }) {
             className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-semibold">+ 추가</button>
         </div>
         <div className="text-[10px] text-slate-400 mt-2">상호 칸 클릭 → 검색 모달에서 선택. 발급일자·상호·금액 모두 필수. <span className="text-rose-500">수정·취소 계산서는 금액 앞에 −(마이너스)</span> 입력.</div>
+
+        {/* 발주 매칭 섹션 — 매입 계산서 + 거래처 확정 시에만 표시 */}
+        {form.kind === 'purchase' && form.manufacturer_id && (
+          <div className="mt-3 pt-3 border-t border-slate-200">
+            <label className="flex items-center gap-2 text-xs mb-2 cursor-pointer w-fit">
+              <input type="checkbox" checked={!!form.no_po}
+                onChange={e => setForm(p => ({...p, no_po: e.target.checked, po_id: e.target.checked ? null : p.po_id}))} />
+              <span className="text-slate-700 font-semibold">발주 없음 (기타 매입)</span>
+              <span className="text-slate-400">— 세무사비·소모품 잡비 등</span>
+            </label>
+
+            {!form.no_po && (
+              <>
+                <div className="text-xs font-semibold text-slate-600 mb-2">이 계산서, 어느 발주에 대한 건가요?</div>
+                {poCandLoading ? (
+                  <div className="text-xs text-slate-400 py-2">발주 검색 중…</div>
+                ) : poCandidates.length === 0 ? (
+                  <div className="text-xs text-slate-400 py-2">
+                    최근 60일 내 해당 거래처의 발주가 없습니다. 발주 없이 발생한 매입이면 위 체크박스를 선택하세요.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {poCandidates.map(po => {
+                      const isSel = form.po_id === po.id;
+                      const items = po.purchase_order_items || [];
+                      const itemsText = items.slice(0, 2).map(it => `${it.item_name || it.model_name || '-'}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`).join(', ') + (items.length > 2 ? ` 외 ${items.length - 2}건` : '');
+                      return (
+                        <button key={po.id} type="button"
+                          onClick={() => setForm(p => ({...p, po_id: isSel ? null : po.id}))}
+                          className={`text-left border-2 rounded p-2 text-xs transition-all ${isSel ? 'border-blue-500 bg-blue-50' : po._used ? 'border-slate-200 bg-slate-50 opacity-70 hover:opacity-100' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+                          <div className="flex items-center justify-between mb-1 gap-1">
+                            <span className="font-semibold text-slate-800 truncate">{po.po_no}</span>
+                            {po._match != null && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${po._match >= 90 ? 'bg-emerald-100 text-emerald-700' : po._match >= 70 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>일치도 {po._match}%</span>
+                            )}
+                          </div>
+                          <div className="text-slate-500 text-[10px] mb-1">{po.ordered_at || (po.created_at || '').slice(0,10) + ' 등록'} · {po.hospital_name || po.manufacturer_name}</div>
+                          <div className="text-slate-600 truncate mb-1">{itemsText || '(품목 없음)'}</div>
+                          <div className="flex items-center justify-between">
+                            <span className="tnum font-mono text-slate-700">{(po.total_amount || 0).toLocaleString()}원</span>
+                            {po._used && <span className="text-[10px] text-slate-400">이미 매칭됨</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {form.po_id && (
+                  <div className="mt-2 text-[10px] text-blue-600">✓ 선택됨. "+ 추가" 시 이 발주와 연결되어 저장됩니다.</div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
       {pickerOpen && (
         <VendorPickerModal
           onClose={()=>setPickerOpen(false)}
-          onSelect={(it)=>setForm(p=>({...p, party_name: it.name, hospital_id: it.kind==='hospital' ? it.id : null, manufacturer_id: it.kind==='hospital' ? null : it.id }))}
+          onSelect={(it)=>setForm(p=>({...p, party_name: it.name, hospital_id: it.kind==='hospital' ? it.id : null, manufacturer_id: it.kind==='hospital' ? null : it.id, po_id: null, no_po: false }))}
           defaultFilter={form.kind === 'sale' ? 'hospital' : 'vendor'}
           allowedKinds='both'
         />
@@ -12503,7 +12611,7 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
     try {
       const [pt, ti, rt, sti] = await Promise.all([
         dbLoadPayableTransactions({ manufacturerId }),
-        sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, created_at')
+        sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, po_id, no_po, created_at, purchase_orders!po_id(id, po_no, ordered_at, created_at, total_amount, hospital_name, purchase_order_items(item_name, model_name, quantity))')
           .eq('kind', 'purchase').eq('manufacturer_id', manufacturerId)
           .order('issue_date', { ascending: false })
           .then(r => r.data || []),
@@ -12519,6 +12627,9 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         amount: Number(t.amount) || 0,
         memo: t.memo || null,
         _partyName: t.party_name || null,
+        _poId: t.po_id || null,
+        _noPo: !!t.no_po,
+        _po: t.purchase_orders || null,
         created_at: t.created_at,
       }));
       const payableRows = pt.map(r => ({ ...r, _isPayable: true }));
@@ -12709,11 +12820,26 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
               <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">로딩 중...</td></tr>
             ) : display.length === 0 ? (
               <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">거래 내역이 없습니다</td></tr>
-            ) : display.map(r => (
+            ) : display.map(r => {
+              const poItems = r._po?.purchase_order_items || [];
+              const poItemsText = poItems.slice(0, 2).map(it => `${it.item_name || it.model_name || '-'}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`).join(', ') + (poItems.length > 2 ? ` 외 ${poItems.length - 2}건` : '');
+              const poDate = r._po?.ordered_at || (r._po?.created_at || '').slice(0, 10);
+              return (
               <tr key={r.id} className="border-t border-slate-100">
                 <td className="px-3 py-1.5 text-xs text-slate-700 align-top">{r.tx_date}</td>
                 <td className="px-3 py-1.5 align-top"><TypeBadge type={r.tx_type} /></td>
-                <td className="px-3 py-1.5 text-slate-600 text-xs align-top">{r.memo || '—'}</td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs align-top">
+                  <div>{r.memo || '—'}</div>
+                  {r._isTax && r._isPayable && r._po && (
+                    <div className="text-[10px] text-blue-600 mt-0.5">↳ 발주 <span className="font-semibold">{r._po.po_no}</span> · {poDate} · {poItemsText || '(품목 없음)'}</div>
+                  )}
+                  {r._isTax && r._isPayable && !r._po && r._noPo && (
+                    <div className="text-[10px] text-slate-400 mt-0.5">↳ 발주 없음 (기타 매입)</div>
+                  )}
+                  {r._isTax && r._isPayable && !r._po && !r._noPo && (
+                    <div className="text-[10px] text-amber-600 mt-0.5">⚠ 발주 미매칭</div>
+                  )}
+                </td>
                 <td className="px-3 py-1.5 text-right align-top">
                   <div className="font-mono text-amber-700 text-xs">{r.inc ? r.inc.toLocaleString() : ''}</div>
                   {r.inc > 0 && r.memo ? <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px] ml-auto" title={r.memo}>{r.memo}</div> : null}
@@ -12724,7 +12850,8 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
                 </td>
                 <td className="px-3 py-1.5 text-right font-mono text-slate-700 text-xs font-semibold align-top">{r.running.toLocaleString()}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
