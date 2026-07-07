@@ -8193,7 +8193,22 @@ function LeadsPage({ onBack, onCreateQuote, user, onLogout, nav, leads = [], set
                   hospitalId={form.hospital_id}
                   hospitals={hospitals}
                   placeholder="병원명 입력 또는 기존 병원 선택"
-                  onChange={(name, id) => setForm(p => ({ ...p, hospital_name: name, hospital_id: id }))}
+                  onChange={(name, id) => setForm(p => {
+                    const next = { ...p, hospital_name: name, hospital_id: id };
+                    // 기존 병원 선택 시 담당자·연락처·주소 등을 빈 필드에 한해 자동 채움
+                    // (이미 입력한 값은 덮어쓰지 않음. 리드 수정 중일 때도 안전)
+                    if (id) {
+                      const h = hospitals.find(x => x.id === id);
+                      if (h) {
+                        if (!next.contact_name && h.contact_name) next.contact_name = h.contact_name;
+                        if (!next.contact_phone && h.contact_phone) next.contact_phone = h.contact_phone;
+                        if (!next.contact_email && h.contact_email) next.contact_email = h.contact_email;
+                        if (!next.region && h.region) next.region = h.region;
+                        if (!next.address && h.address) next.address = h.address;
+                      }
+                    }
+                    return next;
+                  })}
                 />
               </div>
               {/* 영업 단계 */}
