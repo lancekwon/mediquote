@@ -12605,6 +12605,7 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
   const [order, setOrder] = useState('asc'); // 원장 기본 = 시간순(오래된→최신)
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [poMatchTarget, setPoMatchTarget] = useState(null); // 소급 매칭할 세금계산서 행
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -12831,13 +12832,22 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
                 <td className="px-3 py-1.5 text-slate-600 text-xs align-top">
                   <div>{r.memo || '—'}</div>
                   {r._isTax && r._isPayable && r._po && (
-                    <div className="text-[10px] text-blue-600 mt-0.5">↳ 발주 <span className="font-semibold">{r._po.po_no}</span> · {poDate} · {poItemsText || '(품목 없음)'}</div>
+                    <button type="button" onClick={() => setPoMatchTarget(r)}
+                      className="text-[10px] text-blue-600 mt-0.5 hover:bg-blue-50 rounded px-1 py-0.5 text-left" title="클릭하여 발주 변경">
+                      ↳ 발주 <span className="font-semibold">{r._po.po_no}</span> · {poDate} · {poItemsText || '(품목 없음)'}
+                    </button>
                   )}
                   {r._isTax && r._isPayable && !r._po && r._noPo && (
-                    <div className="text-[10px] text-slate-400 mt-0.5">↳ 발주 없음 (기타 매입)</div>
+                    <button type="button" onClick={() => setPoMatchTarget(r)}
+                      className="text-[10px] text-slate-400 mt-0.5 hover:bg-slate-100 rounded px-1 py-0.5" title="클릭하여 발주 매칭">
+                      ↳ 발주 없음 (기타 매입) · 편집
+                    </button>
                   )}
                   {r._isTax && r._isPayable && !r._po && !r._noPo && (
-                    <div className="text-[10px] text-amber-600 mt-0.5">⚠ 발주 미매칭</div>
+                    <button type="button" onClick={() => setPoMatchTarget(r)}
+                      className="text-[10px] text-amber-600 mt-0.5 hover:bg-amber-100 rounded px-1 py-0.5 font-semibold" title="클릭하여 발주 매칭">
+                      ⚠ 발주 미매칭 — 클릭하여 매칭
+                    </button>
                   )}
                 </td>
                 <td className="px-3 py-1.5 text-right align-top">
@@ -12854,6 +12864,199 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
             })}
           </tbody>
         </table>
+      </div>
+      {poMatchTarget && (
+        <POMatchModal
+          taxRow={poMatchTarget}
+          onClose={() => setPoMatchTarget(null)}
+          onSaved={() => { setPoMatchTarget(null); load(); onChanged && onChanged(true); showToast && showToast('발주 매칭 저장됨'); }}
+        />
+      )}
+    </ModalShell>
+  );
+}
+
+/* ========== 발주 매칭 팝업 (세금계산서 소급 매칭) ========== */
+function POMatchModal({ taxRow, onClose, onSaved }) {
+  const realId = String(taxRow.id).replace(/^ti-/, '');
+  const [selectedPoId, setSelectedPoId] = useState(taxRow._poId || null);
+  const [noPo, setNoPo] = useState(!!taxRow._noPo);
+  const [poCandidates, setPoCandidates] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [allPos, setAllPos] = useState([]);
+  const [allLoading, setAllLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const partyName = taxRow._partyName || '';
+  const issueDate = taxRow.tx_date;
+  const amount = Number(taxRow.amount) || 0;
+  const manufacturerId = taxRow.manufacturer_id;
+
+  useEffect(() => {
+    if (!manufacturerId || !issueDate || noPo) { setPoCandidates([]); return; }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const d = new Date(issueDate); d.setDate(d.getDate() - 60);
+        const fromDate = d.toISOString().slice(0, 10);
+        const untilDate = issueDate + 'T23:59:59';
+        const { data } = await sb.from('purchase_orders')
+          .select('id, po_no, ordered_at, created_at, total_amount, manufacturer_name, hospital_name, status, is_active, purchase_order_items(item_name, model_name, quantity)')
+          .eq('manufacturer_id', manufacturerId)
+          .eq('is_active', true)
+          .neq('status', '취소')
+          .gte('created_at', fromDate + 'T00:00:00')
+          .lte('created_at', untilDate)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        const list = data || [];
+        const poIds = list.map(p => p.id);
+        let usedSet = new Set();
+        if (poIds.length > 0) {
+          const { data: used } = await sb.from('tax_invoices').select('id, po_id').in('po_id', poIds).neq('id', realId);
+          usedSet = new Set((used || []).map(t => t.po_id).filter(Boolean));
+        }
+        const scored = list.map(p => ({
+          ...p,
+          _used: usedSet.has(p.id),
+          _diff: amount > 0 ? Math.abs((p.total_amount || 0) - amount) : 0,
+          _match: amount > 0 && p.total_amount > 0 ? Math.round(100 - Math.min(100, (Math.abs(p.total_amount - amount) / p.total_amount) * 100)) : null,
+        })).sort((a, b) => {
+          if (a._used !== b._used) return a._used ? 1 : -1;
+          return a._diff - b._diff;
+        }).slice(0, 5);
+        if (!cancelled) setPoCandidates(scored);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [manufacturerId, issueDate, amount, realId, noPo]);
+
+  const loadAll = async () => {
+    if (allPos.length > 0 || !manufacturerId) return;
+    setAllLoading(true);
+    try {
+      const { data } = await sb.from('purchase_orders')
+        .select('id, po_no, ordered_at, created_at, total_amount, manufacturer_name, hospital_name, purchase_order_items(item_name, model_name, quantity)')
+        .eq('manufacturer_id', manufacturerId)
+        .eq('is_active', true)
+        .neq('status', '취소')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      setAllPos(data || []);
+    } finally { setAllLoading(false); }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await sb.from('tax_invoices').update({
+        po_id: noPo ? null : (selectedPoId || null),
+        no_po: noPo,
+      }).eq('id', realId);
+      onSaved && onSaved();
+    } catch (e) {
+      alert('저장 실패: ' + (e.message || e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const canSave = noPo || !!selectedPoId;
+
+  return (
+    <ModalShell title={`발주 매칭 — ${partyName}`}
+      subtitle={`${issueDate} · ${amount.toLocaleString()}원 · 세금계산서`}
+      onClose={onClose} z={70}>
+      <label className="flex items-center gap-2 text-sm mb-4 cursor-pointer w-fit">
+        <input type="checkbox" checked={noPo} onChange={e => setNoPo(e.target.checked)} />
+        <span className="font-semibold text-slate-800">발주 없음 (기타 매입)</span>
+        <span className="text-slate-400 text-xs">— 세무사비·소모품 잡비 등</span>
+      </label>
+
+      {!noPo && (
+        <>
+          <div className="text-xs font-semibold text-slate-600 mb-2">추천 발주 (같은 거래처 · 최근 60일)</div>
+          {loading ? (
+            <div className="text-xs text-slate-400 py-2">발주 검색 중…</div>
+          ) : poCandidates.length === 0 ? (
+            <div className="text-xs text-slate-400 py-3 border border-dashed border-slate-200 rounded text-center">
+              최근 60일 내 해당 거래처의 발주가 없습니다. "직접 찾기"로 전체에서 선택하시거나 "발주 없음"으로 처리하세요.
+            </div>
+          ) : (
+            <div className="space-y-2 mb-3">
+              {poCandidates.map(po => {
+                const isSel = selectedPoId === po.id;
+                const items = po.purchase_order_items || [];
+                const itemsText = items.slice(0, 3).map(it => `${it.item_name || it.model_name || '-'}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`).join(', ') + (items.length > 3 ? ` 외 ${items.length - 3}건` : '');
+                return (
+                  <button key={po.id} type="button"
+                    onClick={() => setSelectedPoId(isSel ? null : po.id)}
+                    className={`w-full text-left border-2 rounded p-2.5 text-xs transition-all ${isSel ? 'border-blue-500 bg-blue-50' : po._used ? 'border-slate-200 bg-slate-50 opacity-70 hover:opacity-100' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <span className="font-semibold text-slate-800">{po.po_no}</span>
+                      {po._match != null && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${po._match >= 90 ? 'bg-emerald-100 text-emerald-700' : po._match >= 70 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>일치도 {po._match}%</span>
+                      )}
+                    </div>
+                    <div className="text-slate-500 text-[10px] mb-1">{po.ordered_at || (po.created_at || '').slice(0, 10) + ' 등록'} · {po.hospital_name || po.manufacturer_name}</div>
+                    <div className="text-slate-600 truncate mb-1">{itemsText || '(품목 없음)'}</div>
+                    <div className="flex items-center justify-between">
+                      <span className="tnum font-mono text-slate-700">{(po.total_amount || 0).toLocaleString()}원</span>
+                      {po._used && <span className="text-[10px] text-slate-400">이미 매칭됨</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!showAll && (
+            <button type="button" onClick={() => { setShowAll(true); loadAll(); }}
+              className="text-xs text-blue-600 hover:text-blue-700 mb-3">
+              + 직접 찾기 (거래처의 전체 발주에서 선택)
+            </button>
+          )}
+          {showAll && (
+            <div>
+              <div className="text-xs font-semibold text-slate-600 mb-2">전체 발주 목록</div>
+              <div className="border border-slate-200 rounded max-h-56 overflow-y-auto">
+                {allLoading ? (
+                  <div className="text-xs text-slate-400 p-3 text-center">로딩 중…</div>
+                ) : allPos.length === 0 ? (
+                  <div className="text-xs text-slate-400 p-3 text-center">발주가 없습니다.</div>
+                ) : allPos.map(po => {
+                  const isSel = selectedPoId === po.id;
+                  const items = po.purchase_order_items || [];
+                  const itemsText = items.slice(0, 2).map(it => it.item_name || it.model_name || '-').join(', ') + (items.length > 2 ? ` 외 ${items.length - 2}건` : '');
+                  return (
+                    <button key={po.id} type="button"
+                      onClick={() => setSelectedPoId(isSel ? null : po.id)}
+                      className={`w-full text-left px-3 py-2 text-xs border-b border-slate-100 last:border-b-0 ${isSel ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{po.po_no}</span>
+                        <span className="tnum font-mono text-slate-700">{(po.total_amount || 0).toLocaleString()}원</span>
+                      </div>
+                      <div className="text-slate-500 text-[10px] truncate">{(po.created_at || '').slice(0, 10)} · {po.hospital_name || '-'} · {itemsText || '(품목 없음)'}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="flex justify-end gap-2 pt-4 mt-3 border-t border-slate-100">
+        <button onClick={onClose}
+          className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
+        <button onClick={handleSave} disabled={saving || !canSave}
+          className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-40">
+          {saving ? '저장 중…' : '매칭 저장'}
+        </button>
       </div>
     </ModalShell>
   );
