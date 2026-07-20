@@ -10728,6 +10728,16 @@ function TaxInvoiceTab({ onChanged }) {
     }).sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||''));
   }, [rows, search, kindFilter, onlyUnlinked]);
 
+  // 필터 결과의 매출/매입 합계 — 상단 표시용
+  const sortedSum = useMemo(() => {
+    let sale = 0, purchase = 0;
+    sorted.forEach(r => {
+      const a = Number(r.amount) || 0;
+      if (r.kind === 'sale') sale += a; else purchase += a;
+    });
+    return { sale, purchase, net: sale - purchase };
+  }, [sorted]);
+
   // 미연결 행 → 거래처/병원 매칭
   const handleLink = async (it) => {
     if (!linkFor) return;
@@ -10864,6 +10874,30 @@ function TaxInvoiceTab({ onChanged }) {
           </button>
         )}
         <span className="text-xs text-slate-500 ml-auto">{sorted.length}건 / 전체 {rows.length}</span>
+      </div>
+
+      {/* 필터 결과 합계 */}
+      <div className="bg-white border border-slate-200 rounded-lg px-4 py-2.5 flex items-center gap-4 flex-wrap text-xs">
+        <span className="text-slate-500 font-semibold">필터 합계</span>
+        {(kindFilter === 'all' || kindFilter === 'sale') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-emerald-700 font-semibold">매출</span>
+            <span className="font-mono tnum font-semibold text-slate-800">{sortedSum.sale.toLocaleString()}원</span>
+          </span>
+        )}
+        {(kindFilter === 'all' || kindFilter === 'purchase') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-rose-700 font-semibold">매입</span>
+            <span className="font-mono tnum font-semibold text-slate-800">{sortedSum.purchase.toLocaleString()}원</span>
+          </span>
+        )}
+        {kindFilter === 'all' && (
+          <span className="inline-flex items-center gap-1.5 border-l border-slate-200 pl-4">
+            <span className="text-slate-500">순합계 (매출 − 매입)</span>
+            <span className={`font-mono tnum font-semibold ${sortedSum.net < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{sortedSum.net.toLocaleString()}원</span>
+          </span>
+        )}
+        {search && <span className="text-slate-400 ml-auto">검색어 “{search}” 기준</span>}
       </div>
 
       {loading ? (
