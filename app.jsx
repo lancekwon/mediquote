@@ -10712,21 +10712,25 @@ function TaxInvoiceTab({ onChanged }) {
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState('all'); // all | sale | purchase
   const [onlyUnlinked, setOnlyUnlinked] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [linkFor, setLinkFor] = useState(null); // {id, kind, party_name} — 미연결 행 매칭용 picker
 
   // 미연결 = manufacturer_id, hospital_id 둘 다 null
   const unlinkedCount = useMemo(() => rows.filter(r => !r.manufacturer_id && !r.hospital_id).length, [rows]);
 
-  // 검색 + 매출/매입 + 미연결 필터 → 발급일자 DESC
+  // 검색 + 매출/매입 + 미연결 + 발급일자 범위 필터 → 발급일자 DESC
   const sorted = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter(r => {
       if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
       if (onlyUnlinked && (r.manufacturer_id || r.hospital_id)) return false;
+      if (dateFrom && (r.issue_date || '') < dateFrom) return false;
+      if (dateTo && (r.issue_date || '') > dateTo) return false;
       if (!q) return true;
       return (r.party_name||'').toLowerCase().includes(q) || (r.issue_date||'').includes(q) || String(r.amount||'').includes(q) || (r.memo||'').toLowerCase().includes(q);
     }).sort((a,b) => (b.issue_date||'').localeCompare(a.issue_date||'') || (b.created_at||'').localeCompare(a.created_at||''));
-  }, [rows, search, kindFilter, onlyUnlinked]);
+  }, [rows, search, kindFilter, onlyUnlinked, dateFrom, dateTo]);
 
   // 필터 결과의 매출/매입 합계 — 상단 표시용
   const sortedSum = useMemo(() => {
@@ -10865,6 +10869,33 @@ function TaxInvoiceTab({ onChanged }) {
             <button key={t.k} onClick={()=>setKindFilter(t.k)}
               className={`px-3 py-1 text-xs rounded transition-colors ${kindFilter===t.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
           ))}
+        </div>
+        <div className="flex items-center gap-1">
+          <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발급일자 시작" />
+          <span className="text-slate-400 text-xs">~</span>
+          <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발급일자 종료" />
+          {(dateFrom || dateTo) && (
+            <button onClick={()=>{setDateFrom(''); setDateTo('');}}
+              className="text-xs text-slate-500 hover:text-slate-800 px-1" title="날짜 필터 해제">✕</button>
+          )}
+          {(() => {
+            const now = new Date();
+            const y = now.getFullYear(), m = now.getMonth();
+            const pad = n => String(n).padStart(2,'0');
+            const first = (yy, mm) => `${yy}-${pad(mm+1)}-01`;
+            const last = (yy, mm) => { const d = new Date(yy, mm+1, 0); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+            const setThis = () => { setDateFrom(first(y, m)); setDateTo(last(y, m)); };
+            const setLast = () => { const pm = m===0 ? {y:y-1, m:11} : {y, m:m-1}; setDateFrom(first(pm.y, pm.m)); setDateTo(last(pm.y, pm.m)); };
+            const setYear = () => { setDateFrom(`${y}-01-01`); setDateTo(`${y}-12-31`); };
+            const btn = "px-2 py-1 text-[11px] rounded border border-slate-200 hover:bg-slate-50 text-slate-600";
+            return (<>
+              <button onClick={setThis} className={btn}>이번달</button>
+              <button onClick={setLast} className={btn}>지난달</button>
+              <button onClick={setYear} className={btn}>올해</button>
+            </>);
+          })()}
         </div>
         {unlinkedCount > 0 && (
           <button onClick={()=>setOnlyUnlinked(p=>!p)}
