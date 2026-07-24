@@ -11013,6 +11013,10 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
     if (!amt || amt === 0) return alert('금액을 입력하세요. (환불/취소는 −)');
     if (curType.needVendor && !partyId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
     if (curType.needParty && !partyId) return alert(`${curType.label}은(는) 거래처/병원을 선택해야 합니다.`);
+    // 병원 입금(collect)에서 병원 미선택 시 원장 반영이 안 되므로 경고
+    if (typeKey === 'collect' && !partyId) {
+      if (!confirm('병원을 선택하지 않으면 거래처 원장에 반영되지 않고 통장에만 기록됩니다. 그래도 진행할까요?')) return;
+    }
     setSaving(true);
     try {
       const e = { date, typeKey, amount: amt, memo: memo.trim() || null };
@@ -14288,16 +14292,15 @@ async function dbSaveManualEntry(e) {
         collected_cash_log_id: cashId,
       });
     } else if (e.hospitalId) {
-      // legacy: receivable_transactions 기록 (마이그레이션 전 호환)
-      try {
-        await dbInsertReceivableTransaction({
-          hospital_id: e.hospitalId,
-          contract_id: e.contractId || null,
-          tx_date: e.date, tx_type: 'collect',
-          amount, memo: e.memo || null,
-          cash_log_id: cashId,
-        });
-      } catch (_) { /* receivable_transactions 미존재 시 무시 */ }
+      // 병원 원장 반영 — 실패 시 조용히 넘어가지 말고 사용자에게 알림
+      // (테이블 미존재 케이스는 종료된 상태라 catch로 삼키지 않음)
+      await dbInsertReceivableTransaction({
+        hospital_id: e.hospitalId,
+        contract_id: e.contractId || null,
+        tx_date: e.date, tx_type: 'collect',
+        amount, memo: e.memo || null,
+        cash_log_id: cashId,
+      });
     }
   } else if ((t.key === 'ad' || t.key === 'fee') && e.manufacturerId) {
     // 광고매출/수수료 — 통장 입금 + 수금(receivable collect). 매출이 없으면 받을돈 음수(선수금)로 잡혀
