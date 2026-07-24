@@ -11010,7 +11010,7 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
 
   const handleAdd = async () => {
     const amt = Number((amount || '').toString().replace(/[,\s]/g, '')) || 0;
-    if (!amt || amt <= 0) return alert('금액을 입력하세요.');
+    if (!amt || amt === 0) return alert('금액을 입력하세요. (환불/취소는 −)');
     if (curType.needVendor && !partyId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
     if (curType.needParty && !partyId) return alert(`${curType.label}은(는) 거래처/병원을 선택해야 합니다.`);
     setSaving(true);
@@ -11068,21 +11068,29 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
             placeholder={partyPh}
             className="flex-1 min-w-[200px] border border-slate-300 rounded px-2 py-1 text-sm"/>
         )}
-        <input type="text" value={amount === '' ? '' : Number(String(amount).replace(/[^0-9]/g, '')).toLocaleString()}
-          onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+        <input type="text" value={amount === '' || amount === '-' ? amount : Number(amount).toLocaleString()}
+          onChange={e => setAmount(e.target.value.replace(/[^0-9-]/g, '').replace(/(?!^)-/g, ''))}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
-          placeholder="금액"
-          className="w-36 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
+          placeholder="금액 (환불/취소는 −)"
+          className="w-44 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
         <input type="text" value={memo} onChange={e => setMemo(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
           placeholder="메모 (선택)"
           className="w-48 border border-slate-300 rounded px-2 py-1 text-sm"/>
-        <button onClick={handleAdd} disabled={saving}
-          className={`px-4 py-1 rounded text-sm font-semibold text-white ${curType.cashDir < 0 ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'} disabled:opacity-50`}>
-          {saving ? '저장 중…' : (curType.cashDir < 0 ? '− 출금' : '+ 입금')}
-        </button>
+        {(() => {
+          const amtNum = Number(amount) || 0;
+          const isRefund = amtNum < 0;
+          const cls = isRefund ? 'bg-amber-500 hover:bg-amber-600' : (curType.cashDir < 0 ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600');
+          const label = saving ? '저장 중…' : isRefund ? '↩ 환불/취소' : (curType.cashDir < 0 ? '− 출금' : '+ 입금');
+          return (
+            <button onClick={handleAdd} disabled={saving}
+              className={`px-4 py-1 rounded text-sm font-semibold text-white ${cls} disabled:opacity-50`}>
+              {label}
+            </button>
+          );
+        })()}
       </div>
-      <div className="text-[10px] text-slate-400 mt-2">{curType.desc}</div>
+      <div className="text-[10px] text-slate-400 mt-2">{curType.desc} · <span className="text-rose-500">환불/취소는 금액 앞에 −(마이너스)</span></div>
       {pickerOpen && (
         <VendorPickerModal
           onClose={() => setPickerOpen(false)}
