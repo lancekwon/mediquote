@@ -1476,7 +1476,6 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
     { label:'병원 관리',         onClick: onHospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: onManage,   icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: onPayables, icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
-    { label:'발주 요청함',      onClick: onOrderRequests, badge: pendingReqs, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
   ];
 
   const textFields = [
@@ -1582,7 +1581,6 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     { label:'병원 관리',         onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { label:'장비 및 거래처 관리', onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: nav?.payables,  icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
-    { label:'발주 요청함',      onClick: nav?.orderRequests, badge: pendingReqs, icon:'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0l-2.5 4.5a2 2 0 01-1.7 1H8.2a2 2 0 01-1.7-1L4 13m16 0h-4.6a1 1 0 00-.9.6 2.5 2.5 0 01-5 0 1 1 0 00-.9-.6H4' },
   ];
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
@@ -11824,7 +11822,7 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
    PAYABLES (외상매입금 관리) PAGE
    ============================================================ */
 function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
-  const [tab, setTab] = useState('entry'); // entry | balance | history | cash | report
+  const [tab, setTab] = useState('balance'); // balance | history | cashflow | cash | taxinv | report
   const [balances, setBalances] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [cashLogs, setCashLogs] = useState([]);
@@ -12004,7 +12002,6 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="flex border-b border-slate-200">
             {[
-              { k: 'entry', l: '거래 입력' },
               { k: 'balance', l: '거래처 원장' },
               { k: 'cashflow', l: '발주 외 매출' },
               { k: 'cash', l: '통장 출납' },
@@ -12146,8 +12143,6 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
                 <b className="text-violet-700"> 받을 돈 (−)</b>(선수금) = 판 것보다 더 받음 → 우리가 <b>세금계산서를 안 발행했는지</b> 확인
               </div>
             </div>
-          ) : tab === 'entry' ? (
-            <TransactionEntryTab balances={balances} cashCurrent={cashCurrent} hospitals={hospitals} contracts={contracts} expectedRev={expectedRev} onReload={reload} showToast={showToast} />
           ) : tab === 'cashflow' ? (
             <CashflowTab contracts={contracts} hospitals={hospitals} manufacturers={manufacturers} />
           ) : tab === 'taxinv' ? (
