@@ -13010,8 +13010,15 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
               <tr><td colSpan={7} className="py-8 text-center text-slate-400 text-sm">거래 내역이 없습니다</td></tr>
             ) : display.map(r => {
               const poItems = r._po?.purchase_order_items || [];
-              const poItemsText = poItems.slice(0, 2).map(it => `${it.item_name || it.model_name || '-'}${it.quantity > 1 ? ` ×${it.quantity}` : ''}`).join(', ') + (poItems.length > 2 ? ` 외 ${poItems.length - 2}건` : '');
+              const poItemsText = poItems.slice(0, 2).map(it => {
+                const name = it.item_name || '';
+                const model = it.model_name || '';
+                const both = [name, model].filter(Boolean).join(' ');
+                const qty = it.quantity > 1 ? ` ×${it.quantity}` : '';
+                return (both || '-') + qty;
+              }).join(', ') + (poItems.length > 2 ? ` 외 ${poItems.length - 2}건` : '');
               const poDate = r._po?.ordered_at || (r._po?.created_at || '').slice(0, 10);
+              const poHosp = r._po?.hospital_name || '';
               return (
               <tr key={r.id} className="border-t border-slate-100">
                 <td className="px-3 py-1.5 text-xs text-slate-700 align-top">{r.tx_date}</td>
@@ -13021,7 +13028,7 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
                   {r._isTax && r._isPayable && r._po && (
                     <button type="button" onClick={() => setPoMatchTarget(r)}
                       className="text-[10px] text-blue-600 mt-0.5 hover:bg-blue-50 rounded px-1 py-0.5 text-left" title="클릭하여 발주 변경">
-                      ↳ 발주 <span className="font-semibold">{r._po.po_no}</span> · {poDate} · {poItemsText || '(품목 없음)'}
+                      ↳ {poDate}{poHosp ? ` · ${poHosp}` : ''} · {poItemsText || '(품목 없음)'}
                     </button>
                   )}
                   {r._isTax && r._isPayable && !r._po && r._noPo && (
