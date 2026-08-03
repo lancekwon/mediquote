@@ -10650,15 +10650,14 @@ function TaxInvoiceTab({ onChanged }) {
           usedSet = new Set((used || []).map(t => t.po_id).filter(Boolean));
         }
         const amt = parseInt(String(form.amount || '').replace(/[^0-9-]/g, ''), 10) || 0;
-        const scored = list.map(p => ({
-          ...p,
-          _used: usedSet.has(p.id),
-          _diff: amt > 0 ? Math.abs((p.total_amount || 0) - amt) : 0,
-          _match: amt > 0 && p.total_amount > 0 ? Math.round(100 - Math.min(100, (Math.abs(p.total_amount - amt) / p.total_amount) * 100)) : null,
-        })).sort((a, b) => {
-          if (a._used !== b._used) return a._used ? 1 : -1;
-          return a._diff - b._diff;
-        }).slice(0, 3);
+        const scored = list
+          .filter(p => !usedSet.has(p.id))
+          .map(p => ({
+            ...p,
+            _used: false,
+            _diff: amt > 0 ? Math.abs((p.total_amount || 0) - amt) : 0,
+            _match: amt > 0 && p.total_amount > 0 ? Math.round(100 - Math.min(100, (Math.abs(p.total_amount - amt) / p.total_amount) * 100)) : null,
+          })).sort((a, b) => a._diff - b._diff).slice(0, 3);
         if (!cancelled) setPoCandidates(scored);
       } finally {
         if (!cancelled) setPoCandLoading(false);
