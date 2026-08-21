@@ -15511,40 +15511,25 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
         delivered: false,
       };
 
-      // 같은 병원+거래처+준비중 활성 PO가 있으면 아이템 추가
-      const existing = (pos || []).find(p =>
-        p.hospital_id === form.hospital.id &&
-        p.manufacturer_id === form.vendor.id &&
-        (p.status === '준비중' || p.status === '발주완료') &&
-        p.is_active !== false
-      );
-
-      if (existing) {
-        const { error } = await sb.from('purchase_order_items').insert({ ...itemRow, po_id: existing.id });
-        if (error) throw error;
-        const newTotal = (existing.total_amount || 0) + itemRow.amount;
-        await dbUpdatePurchaseOrder(existing.id, { total_amount: newTotal });
-        showToast && showToast(`${existing.po_no}에 품목 추가됨`);
-      } else {
-        const poNo = await dbGeneratePoNo();
-        await dbSavePurchaseOrder({
-          po_no: poNo,
-          hospital_id: form.hospital.id,
-          hospital_name: form.hospital.name,
-          manufacturer_id: form.vendor.id,
-          manufacturer_name: form.vendor.name,
-          vendor_name: form.vendor.name,
-          contract_id: null,
-          source: 'direct',
-          status: '준비중',
-          is_active: true,
-          revision: 0,
-          total_amount: itemRow.amount,
-          sale_amount: qty * salePrice,
-          delivery_date: form.deliveryDate || null,
-        }, [itemRow]);
-        showToast && showToast(`발주 ${poNo} 생성됨`);
-      }
+      // 매 입력마다 새 발주 생성 (아이템 1개 = PO 1개, 개별 저장/삭제 가능)
+      const poNo = await dbGeneratePoNo();
+      await dbSavePurchaseOrder({
+        po_no: poNo,
+        hospital_id: form.hospital.id,
+        hospital_name: form.hospital.name,
+        manufacturer_id: form.vendor.id,
+        manufacturer_name: form.vendor.name,
+        vendor_name: form.vendor.name,
+        contract_id: null,
+        source: 'direct',
+        status: '준비중',
+        is_active: true,
+        revision: 0,
+        total_amount: itemRow.amount,
+        sale_amount: qty * salePrice,
+        delivery_date: form.deliveryDate || null,
+      }, [itemRow]);
+      showToast && showToast(`발주 ${poNo} 생성됨`);
 
       clearForm();
       onSaved && onSaved();
@@ -15560,7 +15545,7 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
 
   return (
     <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
-      <div className="text-xs font-semibold text-slate-700 mb-2">빠른 발주 등록 <span className="text-slate-400 font-normal">(같은 병원+거래처 활성 발주가 있으면 품목만 추가, 없으면 새 발주 생성 · 기본 상태: 대기)</span></div>
+      <div className="text-xs font-semibold text-slate-700 mb-2">빠른 발주 등록 <span className="text-slate-400 font-normal">(입력할 때마다 새 발주 번호 생성 · 개별 저장·삭제 · 기본 상태: 대기)</span></div>
       <div className="flex gap-2 flex-wrap items-start">
         {/* 병원 */}
         <button type="button" onClick={()=>setPickerOpen('hospital')}
