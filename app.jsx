@@ -16076,6 +16076,56 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     }
   };
 
+  // 단일 발주(PO)만 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거
+  const handleFinalizePo = async (p) => {
+    const items = p.purchase_order_items || [];
+    if (items.length === 0) { alert('품목이 없습니다.'); return; }
+    const hospName = p.hospital_name || '병원';
+    const hospId = p.hospital_id;
+    if (!hospId) {
+      alert(`병원 정보를 찾을 수 없습니다: ${hospName}\n먼저 발주에 병원을 연결해주세요.`);
+      return;
+    }
+    if (!confirm(
+      `[${p.po_no || '(발주번호 없음)'}] ${hospName} — 품목 ${items.length}개를 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거합니다.\n\n· 이 발주 하나만 처리됩니다 (같은 병원의 다른 발주는 유지)\n· 되돌리기 불가\n\n계속할까요?`
+    )) return;
+
+    try {
+      let supplyTotal = 0, vatTotal = 0, grandTotal = 0;
+      const delItems = items.map(it => {
+        const qty = Number(it.quantity)||0;
+        const unit = Number(it.sale_price)||0;
+        const supply = qty * unit;
+        const vat = Math.round(supply * 0.1);
+        const total = supply + vat;
+        supplyTotal += supply; vatTotal += vat; grandTotal += total;
+        return {
+          item_name: it.item_name || '',
+          model_name: it.model_name || '',
+          spec: null, unit: null,
+          quantity: qty, unit_price: unit,
+          supply_amount: supply, vat, total_amount: total,
+        };
+      });
+      const today = new Date().toISOString().slice(0,10);
+      await dbSaveDelivery({
+        hospital_id: hospId,
+        delivered_date: today,
+        doc_no: p.po_no || `PO-${today.replace(/-/g,'')}`,
+        supply_amount: supplyTotal,
+        vat: vatTotal,
+        total_amount: grandTotal,
+        notes: `발주 진행에서 개별 등록 (${p.po_no || ''})`.trim(),
+      }, delItems);
+      await dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false });
+      showToast(`[${p.po_no || '발주'}] 병원관리 납품이력에 등록됨`);
+      reload();
+    } catch (e) {
+      console.error(e);
+      alert('저장 실패: ' + (e.message || e));
+    }
+  };
+
   const handleResend = (p) => {
     const lines = (p.purchase_order_items || []).map(it => `· ${it.item_name || '-'}${it.model_name ? ' ('+it.model_name+')':''} × ${it.quantity || 1}`);
     const text = [
@@ -16188,6 +16238,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
             {groupedByHosp.map(g => {
               const groupKey = `${g.hospName}||${g.contractId || g.quoteName || 'no-ctr'}`;
               const isOpen = !!expandedGroups[groupKey];
+              const groupSale = (g.list || []).reduce((s,p)=>s+(p.purchase_order_items||[]).reduce((ss,it)=>ss+(Number(it.sale_price)||0)*(Number(it.quantity)||0),0),0);
+              const groupPur  = (g.list || []).reduce((s,p)=>s+(p.purchase_order_items||[]).reduce((ss,it)=>ss+(Number(it.unit_price)||0)*(Number(it.quantity)||0),0),0);
+              const groupProfit = groupSale - groupPur;
               return (
               <div key={groupKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="w-full px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
@@ -16200,6 +16253,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                       <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold" title="납기일">📅 {g.deliveryTargetDate}</span>
                     )}
                     <span className="text-xs text-slate-500">{g.total}개 발주</span>
+                    {groupBy === 'hospital' && (groupSale > 0 || groupPur > 0) && (
+                      <span className="text-[11px] text-slate-600 font-mono ml-1">
+                        · <span className="text-emerald-700 font-semibold">매출 {groupSale.toLocaleString()}</span>
+                        {' / '}<span className="text-rose-700 font-semibold">매입 {groupPur.toLocaleString()}</span>
+                        {' / '}<span className={groupProfit < 0 ? 'text-red-600 font-semibold' : 'text-blue-700 font-semibold'}>이익 {groupProfit.toLocaleString()}</span>
+                      </span>
+                    )}
                     {g.lastUpdated && <span className="text-xs text-slate-400">· 마지막 변경 {fmtRelative(g.lastUpdated)}</span>}
                     {g.issues > 0 && <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-semibold">⚠ 이슈 {g.issues}</span>}
                   </button>
@@ -16300,12 +16360,26 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             {/* 수량 */}
                             <td className="px-2 py-1.5 text-center text-slate-700">{it?.quantity || (it ? 1 : '')}</td>
                             {/* 매출가 */}
-                            <td className="px-2 py-1.5 text-right tnum text-emerald-700 text-xs">
-                              {it && it.sale_price != null && it.sale_price > 0 ? Number(it.sale_price).toLocaleString() : (it ? <span className="text-slate-300">—</span> : '')}
+                            <td className="px-2 py-1.5 text-right tnum text-emerald-700 text-xs align-top">
+                              {it && it.sale_price != null && it.sale_price > 0 ? (
+                                <>
+                                  <div>{Number(it.sale_price).toLocaleString()}</div>
+                                  {Number(it.quantity || 1) > 1 && (
+                                    <div className="text-[10px] text-emerald-600 mt-0.5 font-semibold">= {(Number(it.sale_price) * Number(it.quantity || 1)).toLocaleString()}</div>
+                                  )}
+                                </>
+                              ) : (it ? <span className="text-slate-300">—</span> : '')}
                             </td>
                             {/* 매입가 */}
-                            <td className="px-2 py-1.5 text-right tnum text-slate-600 text-xs">
-                              {it && it.unit_price != null && it.unit_price > 0 ? Number(it.unit_price).toLocaleString() : (it ? <span className="text-slate-300">—</span> : '')}
+                            <td className="px-2 py-1.5 text-right tnum text-slate-600 text-xs align-top">
+                              {it && it.unit_price != null && it.unit_price > 0 ? (
+                                <>
+                                  <div>{Number(it.unit_price).toLocaleString()}</div>
+                                  {Number(it.quantity || 1) > 1 && (
+                                    <div className="text-[10px] text-slate-500 mt-0.5 font-semibold">= {(Number(it.unit_price) * Number(it.quantity || 1)).toLocaleString()}</div>
+                                  )}
+                                </>
+                              ) : (it ? <span className="text-slate-300">—</span> : '')}
                             </td>
                             {/* 납기일 — 첫 행만 (편집 가능) */}
                             <td className="px-2 py-1.5 text-center align-top">
@@ -16392,8 +16466,15 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                                 </button>
                               )}
                             </td>
-                            {/* 발주 취소 — 첫 행만 (PO 단위) */}
+                            {/* 발주 취소 — 첫 행만 (PO 단위). 저장 버튼 함께 배치 */}
                             <td className="px-2 py-1.5 text-center align-top">
+                              {isFirst && !viewer && groupBy === 'hospital' && p.hospital_id && (
+                                <button onClick={() => handleFinalizePo(p)}
+                                  title="이 발주만 병원관리 납품이력에 저장하고 목록에서 제거"
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors mr-0.5">
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+                                </button>
+                              )}
                               {isFirst && (
                                 <button onClick={() => handleCancel(p)}
                                   title="이 발주 전체를 취소 처리 (비활성화)"
