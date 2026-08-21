@@ -12147,7 +12147,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'taxinv' ? (
             <TaxInvoiceTab onChanged={reload} />
           ) : tab === 'report' ? (
-            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} />
+            <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} />
           )}
@@ -14697,7 +14697,331 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
-function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], manufacturers = [], saleTax = [], cashCurrent = null }) {
+/* ============================================================
+   주별 영업 리포트 — 세금계산서 기준, 병원별 매출/매입/이익 + 기타 이익/지출
+   ============================================================ */
+function WeeklyReport({ hospitals = [] }) {
+  const getMonday = (dt) => {
+    const d = new Date(dt); const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff); d.setHours(0,0,0,0);
+    return d;
+  };
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const fmtMD = d => `${d.getMonth()+1}/${d.getDate()}`;
+
+  const weeks = useMemo(() => {
+    const list = []; const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const mon = getMonday(now); mon.setDate(mon.getDate() - i * 7);
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      const wom = Math.ceil(mon.getDate() / 7);
+      list.push({
+        start: iso(mon), end: iso(sun),
+        label: `${mon.getFullYear()}년 ${mon.getMonth()+1}월 ${wom}주차 · ${fmtMD(mon)}(월) ~ ${fmtMD(sun)}(일)`,
+      });
+    }
+    return list;
+  }, []);
+
+  const [wi, setWi] = useState(0);
+  const [saleTx, setSaleTx] = useState([]);
+  const [purTx, setPurTx] = useState([]);
+  const [cLogs, setCLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const w = weeks[wi];
+
+  useEffect(() => {
+    if (!w) return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const [saleT, purT, cl] = await Promise.all([
+          sb.from('tax_invoices').select('id, issue_date, hospital_id, amount, party_name, memo')
+            .eq('kind', 'sale').gte('issue_date', w.start).lte('issue_date', w.end).then(r => r.data || []),
+          sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, po_id, purchase_orders!po_id(hospital_id, hospital_name)')
+            .eq('kind', 'purchase').gte('issue_date', w.start).lte('issue_date', w.end).then(r => r.data || []),
+          sb.from('cash_balance_log').select('id, log_date, delta, counterparty, entry_type, memo')
+            .gte('log_date', w.start).lte('log_date', w.end).then(r => r.data || []),
+        ]);
+        if (!cancelled) { setSaleTx(saleT); setPurTx(purT); setCLogs(cl); }
+      } finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [w?.start, w?.end]);
+
+  const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭 병원)';
+
+  // 병원별 매출/매입/이익
+  const byHosp = useMemo(() => {
+    const m = new Map();
+    saleTx.forEach(t => {
+      const hid = t.hospital_id || '__unassigned__';
+      const v = m.get(hid) || { id: hid, name: t.hospital_id ? hospName(t.hospital_id) : (t.party_name || '(병원 미배정)'), sale: 0, purchase: 0, saleItems: [], purItems: [] };
+      v.sale += Number(t.amount) || 0;
+      v.saleItems.push(t);
+      m.set(hid, v);
+    });
+    purTx.forEach(t => {
+      const hid = t.purchase_orders?.hospital_id;
+      if (!hid) return; // 매입계산서에 발주 매칭 없으면 병원 매입에 반영 안 함
+      const v = m.get(hid) || { id: hid, name: hospName(hid), sale: 0, purchase: 0, saleItems: [], purItems: [] };
+      v.purchase += Number(t.amount) || 0;
+      v.purItems.push(t);
+      m.set(hid, v);
+    });
+    return Array.from(m.values()).map(v => ({ ...v, profit: v.sale - v.purchase })).sort((a,b) => b.sale - a.sale);
+  }, [saleTx, purTx, hospitals]);
+
+  // 발주 매칭 안 된 매입계산서 (기타 매입으로 처리)
+  const unmatchedPur = useMemo(() => purTx.filter(t => !t.purchase_orders?.hospital_id), [purTx]);
+
+  const INCOME_TYPES = ['광고 매출', '수수료', '잡수입'];
+  const EXPENSE_TYPES = ['운영비', '잡지출'];
+  const extraIncome = useMemo(() => cLogs.filter(c => c.delta > 0 && INCOME_TYPES.includes(c.entry_type))
+    .map(c => ({ ...c, amount: c.delta })), [cLogs]);
+  const extraExpense = useMemo(() => cLogs.filter(c => c.delta < 0 && EXPENSE_TYPES.includes(c.entry_type))
+    .map(c => ({ ...c, amount: -c.delta })), [cLogs]);
+
+  const totals = useMemo(() => {
+    const hospSale = byHosp.reduce((s, h) => s + h.sale, 0);
+    const hospPur = byHosp.reduce((s, h) => s + h.purchase, 0);
+    const unPur = unmatchedPur.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const extraIn = extraIncome.reduce((s, x) => s + x.amount, 0);
+    const extraOut = extraExpense.reduce((s, x) => s + x.amount, 0);
+    return { hospSale, hospPur, hospProfit: hospSale - hospPur, unPur, extraIn, extraOut, net: (hospSale - hospPur) + extraIn - extraOut };
+  }, [byHosp, unmatchedPur, extraIncome, extraExpense]);
+
+  const fmt = (n) => (n || 0).toLocaleString('ko-KR');
+  const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
+  const logo = (typeof DW_LOGO_BASE64 !== 'undefined') ? DW_LOGO_BASE64 : '';
+
+  const handlePrint = () => {
+    const win = window.open('', '_blank', 'width=900,height=1100');
+    if (!win) { alert('팝업이 차단되었습니다.'); return; }
+    const hospRows = byHosp.map((h, i) => `
+      <tr><td class="c">${i+1}</td><td>${h.name}</td>
+      <td class="r">${fmt(h.sale)}</td><td class="r">${fmt(h.purchase)}</td>
+      <td class="r ${h.profit<0?'neg':''}">${fmt(h.profit)}</td></tr>`).join('');
+    const incRows = extraIncome.map(x => `
+      <tr><td class="c">${x.log_date}</td><td>${x.entry_type||'-'}</td>
+      <td>${x.counterparty||'-'}</td><td>${(x.memo||'').replace(/</g,'&lt;')}</td>
+      <td class="r">${fmt(x.amount)}</td></tr>`).join('');
+    const expRows = extraExpense.map(x => `
+      <tr><td class="c">${x.log_date}</td><td>${x.entry_type||'-'}</td>
+      <td>${x.counterparty||'-'}</td><td>${(x.memo||'').replace(/</g,'&lt;')}</td>
+      <td class="r">${fmt(x.amount)}</td></tr>`).join('');
+    win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>[DW] 주별 영업 리포트 ${w.start}</title>
+      <style>*{box-sizing:border-box;margin:0;padding:0;font-family:'Noto Sans KR',sans-serif;}
+      body{padding:20mm;font-size:11px;color:#000;}
+      .header-row{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px;font-size:11px;}
+      .header-left{display:flex;flex-direction:column;gap:6px;}
+      .brand-logo{height:44px;}
+      .title{text-align:center;font-size:24px;font-weight:900;letter-spacing:10px;padding:10px 0;margin:8px 0 4px;border-top:3px double #000;border-bottom:3px double #000;}
+      .period{text-align:center;font-size:13px;font-weight:600;margin-bottom:16px;color:#333;}
+      .section{margin-bottom:16px;}
+      .sec-title{font-size:13px;font-weight:800;background:#f0f0f0;padding:6px 10px;border-left:4px solid #000;margin-bottom:6px;}
+      table{width:100%;border-collapse:collapse;}
+      th{border:1px solid #333;background:#e8e8e8;padding:5px;font-size:10.5px;font-weight:700;}
+      td{border:1px solid #ccc;padding:4px 6px;font-size:10.5px;}
+      td.c{text-align:center;}td.r{text-align:right;font-family:monospace;}
+      td.neg{color:#c00;}
+      tfoot td{font-weight:800;background:#fef9c3;}
+      .summary{display:flex;gap:6px;margin-bottom:14px;}
+      .card{flex:1;border:1px solid #333;padding:8px 10px;text-align:center;background:#fafafa;}
+      .card .lbl{font-size:10px;color:#666;margin-bottom:3px;}
+      .card .val{font-size:14px;font-weight:900;font-family:monospace;}
+      .net-box{border:3px solid #000;padding:12px;text-align:center;background:#fef9c3;margin-top:12px;}
+      .net-box .lbl{font-size:11px;color:#333;font-weight:700;margin-bottom:4px;}
+      .net-box .val{font-size:20px;font-weight:900;font-family:monospace;}
+      .empty{text-align:center;color:#999;font-size:11px;padding:14px;}
+      @media print{@page{margin:0;size:A4;}body{padding:15mm;}}
+      </style></head><body>
+      <div class="header-row">
+        <div class="header-left">
+          ${logo ? `<img class="brand-logo" src="${logo}" alt="DW"/>` : ''}
+          <div>${company.name || '주식회사 대원메디칼'} · 내부 자료</div>
+        </div>
+        <div>출력일 ${iso(new Date())}</div>
+      </div>
+      <div class="title">주 별 영 업 리 포 트</div>
+      <div class="period">${w.label}</div>
+
+      <div class="summary">
+        <div class="card"><div class="lbl">병원 매출</div><div class="val">${fmt(totals.hospSale)}</div></div>
+        <div class="card"><div class="lbl">병원 매입</div><div class="val">${fmt(totals.hospPur)}</div></div>
+        <div class="card"><div class="lbl">병원 이익</div><div class="val ${totals.hospProfit<0?'neg':''}" style="${totals.hospProfit<0?'color:#c00;':''}">${fmt(totals.hospProfit)}</div></div>
+        <div class="card"><div class="lbl">기타 이익</div><div class="val">${fmt(totals.extraIn)}</div></div>
+        <div class="card"><div class="lbl">기타 지출</div><div class="val">${fmt(totals.extraOut)}</div></div>
+      </div>
+
+      <div class="section">
+        <div class="sec-title">① 거래한 병원 (${byHosp.length}개)</div>
+        <table>
+          <thead><tr><th style="width:30px">No</th><th>병원명</th>
+          <th style="width:120px">매출</th><th style="width:120px">매입</th><th style="width:120px">이익</th></tr></thead>
+          <tbody>${hospRows || '<tr><td colspan="5" class="empty">거래 병원이 없습니다.</td></tr>'}</tbody>
+          ${byHosp.length ? `<tfoot><tr><td colspan="2" class="c">합계</td>
+            <td class="r">${fmt(totals.hospSale)}</td><td class="r">${fmt(totals.hospPur)}</td>
+            <td class="r ${totals.hospProfit<0?'neg':''}">${fmt(totals.hospProfit)}</td></tr></tfoot>` : ''}
+        </table>
+        ${totals.unPur > 0 ? `<div style="font-size:10px;color:#666;margin-top:4px;">※ 발주 매칭 안 된 매입계산서 ${unmatchedPur.length}건 · ${fmt(totals.unPur)}원은 병원 매입에 반영 안 됨 (거래처 원장에서 매칭 필요)</div>` : ''}
+      </div>
+
+      <div class="section">
+        <div class="sec-title">② 기타 이익 (${extraIncome.length}건 · ${fmt(totals.extraIn)}원)</div>
+        <table>
+          <thead><tr><th style="width:90px">날짜</th><th style="width:90px">유형</th>
+          <th style="width:140px">상대</th><th>메모</th><th style="width:120px">금액</th></tr></thead>
+          <tbody>${incRows || '<tr><td colspan="5" class="empty">기타 이익이 없습니다.</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="sec-title">③ 기타 지출 (${extraExpense.length}건 · ${fmt(totals.extraOut)}원)</div>
+        <table>
+          <thead><tr><th style="width:90px">날짜</th><th style="width:90px">유형</th>
+          <th style="width:140px">상대</th><th>메모</th><th style="width:120px">금액</th></tr></thead>
+          <tbody>${expRows || '<tr><td colspan="5" class="empty">기타 지출이 없습니다.</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="net-box">
+        <div class="lbl">종합 순이익  =  병원 이익  +  기타 이익  −  기타 지출</div>
+        <div class="val" style="${totals.net<0?'color:#c00;':''}">${fmt(totals.net)} 원</div>
+      </div>
+
+      <script>window.onload=function(){window.print();}<\/script>
+      </body></html>`);
+    win.document.close();
+  };
+
+  const Card = ({label, value, color}) => (
+    <div className={`${color} rounded p-3 text-center`}>
+      <div className="text-[10px] text-slate-600 mb-1">{label}</div>
+      <div className="text-base font-bold font-mono">{fmt(value)}</div>
+    </div>
+  );
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <div>
+          <div className="text-sm font-bold text-slate-800">📊 주별 영업 리포트 (세금계산서 기준)</div>
+          <div className="text-[11px] text-slate-500">병원별 매출·매입·이익 + 기타 이익·지출을 주 단위로 집계</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={wi} onChange={e => setWi(Number(e.target.value))}
+            className="border border-slate-200 rounded px-3 py-1.5 text-xs bg-white min-w-[280px]">
+            {weeks.map((wk, i) => <option key={i} value={i}>{wk.label}</option>)}
+          </select>
+          <button onClick={handlePrint} disabled={loading}
+            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold disabled:opacity-50">📄 PDF 인쇄</button>
+        </div>
+      </div>
+
+      {loading ? <div className="p-8 text-center text-slate-400 text-sm">불러오는 중…</div> : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+            <Card label="병원 매출" value={totals.hospSale} color="bg-blue-50" />
+            <Card label="병원 매입" value={totals.hospPur} color="bg-rose-50" />
+            <Card label="병원 이익" value={totals.hospProfit} color="bg-emerald-50" />
+            <Card label="기타 이익" value={totals.extraIn} color="bg-teal-50" />
+            <Card label="기타 지출" value={totals.extraOut} color="bg-amber-50" />
+          </div>
+          <div className={`rounded p-3 text-center mb-4 ${totals.net < 0 ? 'bg-rose-50 border border-rose-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+            <span className="text-xs font-semibold text-slate-600">종합 순이익 (병원 이익 + 기타 이익 − 기타 지출)</span>
+            <span className={`ml-3 text-xl font-bold font-mono ${totals.net < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(totals.net)}원</span>
+          </div>
+
+          <div className="mb-3">
+            <div className="text-xs font-semibold text-slate-700 mb-1.5">① 거래한 병원 ({byHosp.length}개)</div>
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500"><tr>
+                  <th className="px-2 py-1.5 text-left">병원명</th>
+                  <th className="px-2 py-1.5 text-right w-28">매출</th>
+                  <th className="px-2 py-1.5 text-right w-28">매입</th>
+                  <th className="px-2 py-1.5 text-right w-28">이익</th>
+                </tr></thead>
+                <tbody>
+                  {byHosp.length === 0 ? (
+                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">이번 주 세금계산서 발행된 병원이 없습니다.</td></tr>
+                  ) : byHosp.map(h => (
+                    <tr key={h.id} className="border-t border-slate-100">
+                      <td className="px-2 py-1.5">{h.name}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-blue-700">{fmt(h.sale)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-rose-700">{fmt(h.purchase)}</td>
+                      <td className={`px-2 py-1.5 text-right font-mono font-semibold ${h.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(h.profit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {unmatchedPur.length > 0 && (
+              <div className="text-[10px] text-slate-500 mt-1">※ 발주 매칭 안 된 매입계산서 {unmatchedPur.length}건 · {fmt(totals.unPur)}원은 병원 매입에 반영 안 됨</div>
+            )}
+          </div>
+
+          <div className="mb-3">
+            <div className="text-xs font-semibold text-slate-700 mb-1.5">② 기타 이익 ({extraIncome.length}건 · {fmt(totals.extraIn)}원)</div>
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500"><tr>
+                  <th className="px-2 py-1.5 text-left w-24">날짜</th>
+                  <th className="px-2 py-1.5 text-left w-24">유형</th>
+                  <th className="px-2 py-1.5 text-left">상대 · 메모</th>
+                  <th className="px-2 py-1.5 text-right w-28">금액</th>
+                </tr></thead>
+                <tbody>
+                  {extraIncome.length === 0 ? (
+                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">기타 이익이 없습니다.</td></tr>
+                  ) : extraIncome.map(x => (
+                    <tr key={x.id} className="border-t border-slate-100">
+                      <td className="px-2 py-1.5 font-mono text-slate-600">{x.log_date}</td>
+                      <td className="px-2 py-1.5"><span className="inline-block px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded text-[10px]">{x.entry_type}</span></td>
+                      <td className="px-2 py-1.5 text-slate-700">{x.counterparty || '-'}{x.memo ? ` · ${x.memo}` : ''}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-teal-700 font-semibold">{fmt(x.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mb-1">
+            <div className="text-xs font-semibold text-slate-700 mb-1.5">③ 기타 지출 ({extraExpense.length}건 · {fmt(totals.extraOut)}원)</div>
+            <div className="border border-slate-200 rounded overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500"><tr>
+                  <th className="px-2 py-1.5 text-left w-24">날짜</th>
+                  <th className="px-2 py-1.5 text-left w-24">유형</th>
+                  <th className="px-2 py-1.5 text-left">상대 · 메모</th>
+                  <th className="px-2 py-1.5 text-right w-28">금액</th>
+                </tr></thead>
+                <tbody>
+                  {extraExpense.length === 0 ? (
+                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">기타 지출이 없습니다.</td></tr>
+                  ) : extraExpense.map(x => (
+                    <tr key={x.id} className="border-t border-slate-100">
+                      <td className="px-2 py-1.5 font-mono text-slate-600">{x.log_date}</td>
+                      <td className="px-2 py-1.5"><span className="inline-block px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px]">{x.entry_type}</span></td>
+                      <td className="px-2 py-1.5 text-slate-700">{x.counterparty || '-'}{x.memo ? ` · ${x.memo}` : ''}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-amber-700 font-semibold">{fmt(x.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arBalances = [], arTransactions = [], expectedRev = [], manufacturers = [], saleTax = [], cashCurrent = null, hospitals = [] }) {
   // 기본: 오늘부터 최근 한 달
   const defaultRange = useMemo(() => {
     const today = new Date();
@@ -14846,6 +15170,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
 
   return (
     <div className="p-4 space-y-5 overflow-auto" style={{maxHeight: 'calc(100vh - 260px)'}}>
+      <WeeklyReport hospitals={hospitals} />
       {/* 통장잔액 (현재 시점) */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
         <div>
