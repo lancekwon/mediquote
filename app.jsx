@@ -16155,6 +16155,65 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     }
   };
 
+  // 단일 아이템만 병원관리 납품이력에 저장하고, 발주에서 그 아이템만 제거
+  // 발주에 남은 아이템 없으면 발주도 함께 납품완료 처리
+  const handleFinalizeItem = async (p, it) => {
+    if (!it || !it.id) { alert('아이템 정보가 없습니다.'); return; }
+    const hospId = p.hospital_id;
+    if (!hospId) {
+      alert(`병원 정보를 찾을 수 없습니다.\n먼저 발주에 병원을 연결해주세요.`);
+      return;
+    }
+    const itemLabel = [it.item_name, it.model_name].filter(Boolean).join(' ') || '아이템';
+    if (!confirm(
+      `[${p.po_no || '-'}] ${p.hospital_name || '병원'} — 「${itemLabel}」 (${it.quantity || 1}개)\n\n이 아이템만 병원관리 납품이력에 등록하고 발주에서 제거합니다.\n같은 발주의 다른 아이템은 유지됩니다.\n\n계속할까요?`
+    )) return;
+
+    try {
+      const qty = Number(it.quantity) || 0;
+      const unit = Number(it.sale_price) || 0;
+      const supply = qty * unit;
+      const vat = Math.round(supply * 0.1);
+      const total = supply + vat;
+      const today = new Date().toISOString().slice(0, 10);
+
+      await dbSaveDelivery({
+        hospital_id: hospId,
+        delivered_date: today,
+        doc_no: `${p.po_no || 'PO'}-${it.id.slice(0, 6)}`,
+        supply_amount: supply,
+        vat, total_amount: total,
+        notes: `발주 진행에서 아이템 개별 등록 (${p.po_no || ''} · ${itemLabel})`.trim(),
+      }, [{
+        item_name: it.item_name || '',
+        model_name: it.model_name || '',
+        spec: null, unit: null,
+        quantity: qty, unit_price: unit,
+        supply_amount: supply, vat, total_amount: total,
+      }]);
+
+      // 발주에서 이 아이템 삭제
+      await sb.from('purchase_order_items').delete().eq('id', it.id);
+
+      // 발주 total_amount 재계산 (남은 아이템 기준 · 매입가 × 수량)
+      const remaining = (p.purchase_order_items || []).filter(x => x.id !== it.id);
+      const newTotal = remaining.reduce((s, x) => s + (Number(x.unit_price) || 0) * (Number(x.quantity) || 0), 0);
+
+      if (remaining.length === 0) {
+        // 남은 아이템 없음 → 발주도 납품완료 처리
+        await dbUpdatePurchaseOrder(p.id, { total_amount: 0, status: '납품완료', is_active: false });
+        showToast(`[${p.po_no}] 마지막 아이템 저장 · 발주도 납품완료 처리`);
+      } else {
+        await dbUpdatePurchaseOrder(p.id, { total_amount: newTotal });
+        showToast(`「${itemLabel}」 저장됨 (발주에는 ${remaining.length}개 남음)`);
+      }
+      reload();
+    } catch (e) {
+      console.error(e);
+      alert('저장 실패: ' + (e.message || e));
+    }
+  };
+
   const handleResend = (p) => {
     const lines = (p.purchase_order_items || []).map(it => `· ${it.item_name || '-'}${it.model_name ? ' ('+it.model_name+')':''} × ${it.quantity || 1}`);
     const text = [
@@ -16528,13 +16587,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                                 </button>
                               )}
                             </td>
-                            {/* 발주 취소 — 첫 행만 (PO 단위). 저장 버튼 함께 배치 */}
-                            <td className="px-2 py-1.5 text-center align-top">
-                              {isFirst && !viewer && groupBy === 'hospital' && p.hospital_id && (
-                                <button onClick={() => handleFinalizePo(p)}
-                                  title="이 발주만 병원관리 납품이력에 저장하고 목록에서 제거"
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors mr-0.5">
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+                            {/* 발주 액션 — 첫 행: 취소, 모든 행: 이 아이템만 저장 */}
+                            <td className="px-2 py-1.5 text-center align-top whitespace-nowrap">
+                              {it && !viewer && groupBy === 'hospital' && p.hospital_id && (
+                                <button onClick={() => handleFinalizeItem(p, it)}
+                                  title="이 아이템만 병원관리 납품이력에 저장하고 발주에서 제거"
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-emerald-600 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 transition-colors mr-0.5">
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                                 </button>
                               )}
                               {isFirst && (
