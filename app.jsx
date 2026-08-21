@@ -14751,7 +14751,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         const [poData, cl] = await Promise.all([
           sb.from('purchase_orders')
             .select('id, po_no, created_at, hospital_id, hospital_name, status, is_active, purchase_order_items(item_name, model_name, quantity, unit_price, sale_price)')
-            .eq('is_active', true).neq('status', '취소')
+            .neq('status', '취소')
             .gte('created_at', w.start + 'T00:00:00').lte('created_at', w.end + 'T23:59:59')
             .then(r => r.data || []),
           sb.from('cash_balance_log').select('id, log_date, delta, counterparty, entry_type, memo')
@@ -14994,7 +14994,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                 </tbody>
               </table>
             </div>
-            <div className="text-[10px] text-slate-500 mt-1">※ 발주 아이템 기준 · 매출가·매입가 × 수량 · 발주 등록일 (주) 기준 · 취소·비활성 발주 제외</div>
+            <div className="text-[10px] text-slate-500 mt-1">※ 발주 아이템 기준 · 매출가·매입가 × 수량 · 발주 등록일(주) 기준 · 취소 발주만 제외 (납품완료 포함)</div>
           </div>
 
           <div className="mb-3">
@@ -15675,6 +15675,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [filter, setFilter] = useState('all'); // all | ongoing | done
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [filterHospId, setFilterHospId] = useState('');
+  const [filterVendorId, setFilterVendorId] = useState('');
+  const [filterStatuses, setFilterStatuses] = useState(new Set()); // 다중 선택 (빈 Set = 전체)
   const [expanded, setExpanded] = useState({}); // poId → bool
   const [expandedGroups, setExpandedGroups] = useState({}); // groupName → bool (디폴트: 접힘)
   const [toast, setToast] = useState(null);
@@ -15686,7 +15691,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     try {
       // App 캐시 있으면 hospitals/manufacturers fetch 생략 (네트워크 절감)
       const fetches = [
-        sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
+        // 취소 발주만 제외. 납품완료된 발주(is_active=false)도 이력으로 노출.
+        // 정렬: 발주번호(po_no) 내림차순 (최신순)
+        sb.from('purchase_orders').select('*, purchase_order_items(*)').neq('status', '취소').order('po_no',{ascending:false}).then(r => r.data || []),
         dbLoadAllContracts(),
       ];
       if (!appHospitals) fetches.push(dbLoadHospitals());
@@ -15766,13 +15773,19 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     return enriched.filter(p => {
       if (filter === 'done' && !p.allDone) return false;
       if (filter === 'ongoing' && p.allDone) return false;
+      const day = (p.created_at || '').slice(0, 10);
+      if (dateFrom && day < dateFrom) return false;
+      if (dateTo && day > dateTo) return false;
+      if (filterHospId && p.hospital_id !== filterHospId) return false;
+      if (filterVendorId && p.manufacturer_id !== filterVendorId) return false;
+      if (filterStatuses.size > 0 && !filterStatuses.has(p.status || '')) return false;
       if (q) {
         const hay = `${p.po_no} ${p.hospName} ${p.manufacturer_name || ''} ${p.vendor_name || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [enriched, filter, search]);
+  }, [enriched, filter, search, dateFrom, dateTo, filterHospId, filterVendorId, filterStatuses]);
 
   // 그룹화 (병원별: 계약 단위로 카드 분리 / 거래처별: 거래처명 단위)
   const groupedByHosp = useMemo(() => {
@@ -16204,6 +16217,39 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           ))}
         </div>
 
+        {/* 상세 필터 바 (기간 · 병원 · 거래처 · 상태 다중) */}
+        <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-3 flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-slate-500">기간</span>
+          <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발주 등록일 시작" />
+          <span className="text-slate-400">~</span>
+          <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발주 등록일 종료" />
+          <select value={filterHospId} onChange={e=>setFilterHospId(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs bg-white min-w-[130px] max-w-[220px]" title="병원">
+            <option value="">병원 전체</option>
+            {[...hospitals].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+          <select value={filterVendorId} onChange={e=>setFilterVendorId(e.target.value)}
+            className="border border-slate-200 rounded px-2 py-1 text-xs bg-white min-w-[130px] max-w-[220px]" title="거래처">
+            <option value="">거래처 전체</option>
+            {[...vendors].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+          <div className="flex items-center gap-1 border border-slate-200 rounded p-0.5">
+            {['준비중','발주완료','납품완료'].map(s => {
+              const on = filterStatuses.has(s);
+              return (
+                <button key={s} onClick={()=>setFilterStatuses(p=>{const n=new Set(p);n.has(s)?n.delete(s):n.add(s);return n;})}
+                  className={`px-2 py-0.5 text-[11px] rounded ${on?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-50'}`}>{s}</button>
+              );
+            })}
+          </div>
+          {(dateFrom || dateTo || filterHospId || filterVendorId || filterStatuses.size) ? (
+            <button onClick={()=>{setDateFrom('');setDateTo('');setFilterHospId('');setFilterVendorId('');setFilterStatuses(new Set());}}
+              className="ml-1 text-[11px] text-slate-500 hover:text-slate-800 border border-slate-200 rounded px-2 py-0.5" title="필터 전체 해제">✕ 초기화</button>
+          ) : null}
+          <span className="ml-auto text-[11px] text-slate-400">정렬: 발주번호 최신순</span>
+        </div>
         {/* 필터 바 */}
         <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
           <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
