@@ -14700,7 +14700,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    주별 영업 리포트 — 세금계산서 기준, 병원별 매출/매입/이익 + 기타 이익/지출
    ============================================================ */
-function WeeklyReport({ hospitals = [] }) {
+function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const getMonday = (dt) => {
     const d = new Date(dt); const day = d.getDay();
     const diff = day === 0 ? -6 : 1 - day;
@@ -14712,27 +14712,37 @@ function WeeklyReport({ hospitals = [] }) {
 
   const weeks = useMemo(() => {
     const list = []; const now = new Date();
+    const todayIso = iso(now);
+    // 미래 주를 포함해 12주 생성. 시작일(월요일)이 오늘보다 미래면 disabled.
     for (let i = 0; i < 12; i++) {
       const mon = getMonday(now); mon.setDate(mon.getDate() - i * 7);
       const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
       const wom = Math.ceil(mon.getDate() / 7);
+      const disabled = iso(mon) > todayIso;
       list.push({
-        start: iso(mon), end: iso(sun),
-        label: `${mon.getFullYear()}년 ${mon.getMonth()+1}월 ${wom}주차 · ${fmtMD(mon)}(월) ~ ${fmtMD(sun)}(일)`,
+        start: iso(mon), end: iso(sun), disabled,
+        label: `${mon.getFullYear()}년 ${mon.getMonth()+1}월 ${wom}주차 · ${fmtMD(mon)}(월) ~ ${fmtMD(sun)}(일)${disabled ? ' (아직 시작 안 됨)' : ''}`,
       });
     }
     return list;
   }, []);
 
-  const [wi, setWi] = useState(0);
+  // 초기: 활성화된 첫 주 선택 (미래 주 skip)
+  const [wi, setWi] = useState(() => Math.max(0, weeks.findIndex(w => !w.disabled)));
   const [saleTx, setSaleTx] = useState([]);
   const [purTx, setPurTx] = useState([]);
   const [cLogs, setCLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const w = weeks[wi];
 
+  // 주 바뀌면 부모에게 통지 (기간 필터 통일용)
+  useEffect(() => {
+    if (w && typeof onWeekChange === 'function') onWeekChange(w.start, w.end);
+  }, [w?.start, w?.end]);
+
   useEffect(() => {
     if (!w) return;
+    if (w.disabled) { setSaleTx([]); setPurTx([]); setCLogs([]); return; }
     let cancelled = false;
     setLoading(true);
     (async () => {
@@ -14740,7 +14750,7 @@ function WeeklyReport({ hospitals = [] }) {
         const [saleT, purT, cl] = await Promise.all([
           sb.from('tax_invoices').select('id, issue_date, hospital_id, amount, party_name, memo')
             .eq('kind', 'sale').gte('issue_date', w.start).lte('issue_date', w.end).then(r => r.data || []),
-          sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, po_id, purchase_orders!po_id(hospital_id, hospital_name)')
+          sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, po_id, purchase_orders!po_id(hospital_id, hospital_name, purchase_order_items(item_name, model_name, quantity))')
             .eq('kind', 'purchase').gte('issue_date', w.start).lte('issue_date', w.end).then(r => r.data || []),
           sb.from('cash_balance_log').select('id, log_date, delta, counterparty, entry_type, memo')
             .gte('log_date', w.start).lte('log_date', w.end).then(r => r.data || []),
@@ -14753,25 +14763,34 @@ function WeeklyReport({ hospitals = [] }) {
 
   const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭 병원)';
 
-  // 병원별 매출/매입/이익
+  // 병원별 매출/매입/이익 + 발주 품목
   const byHosp = useMemo(() => {
     const m = new Map();
     saleTx.forEach(t => {
       const hid = t.hospital_id || '__unassigned__';
-      const v = m.get(hid) || { id: hid, name: t.hospital_id ? hospName(t.hospital_id) : (t.party_name || '(병원 미배정)'), sale: 0, purchase: 0, saleItems: [], purItems: [] };
+      const v = m.get(hid) || { id: t.hospital_id || null, name: t.hospital_id ? hospName(t.hospital_id) : (t.party_name || '(병원 미배정)'), sale: 0, purchase: 0, itemLabels: [] };
       v.sale += Number(t.amount) || 0;
-      v.saleItems.push(t);
       m.set(hid, v);
     });
     purTx.forEach(t => {
       const hid = t.purchase_orders?.hospital_id;
       if (!hid) return; // 매입계산서에 발주 매칭 없으면 병원 매입에 반영 안 함
-      const v = m.get(hid) || { id: hid, name: hospName(hid), sale: 0, purchase: 0, saleItems: [], purItems: [] };
+      const v = m.get(hid) || { id: hid, name: hospName(hid), sale: 0, purchase: 0, itemLabels: [] };
       v.purchase += Number(t.amount) || 0;
-      v.purItems.push(t);
+      // 매칭된 발주의 아이템 텍스트 (품목 + 모델) 병합
+      const items = t.purchase_orders?.purchase_order_items || [];
+      items.forEach(it => {
+        const label = [it.item_name, it.model_name].filter(Boolean).join(' ') || '-';
+        if (!v.itemLabels.includes(label)) v.itemLabels.push(label);
+      });
       m.set(hid, v);
     });
-    return Array.from(m.values()).map(v => ({ ...v, profit: v.sale - v.purchase })).sort((a,b) => b.sale - a.sale);
+    return Array.from(m.values()).map(v => ({
+      ...v,
+      profit: v.sale - v.purchase,
+      needsPurchase: v.sale > 0 && v.purchase === 0, // 매출 있는데 매입 미매칭
+      itemsText: v.itemLabels.length === 0 ? '' : v.itemLabels[0] + (v.itemLabels.length > 1 ? ` 외 ${v.itemLabels.length - 1}개` : ''),
+    })).sort((a,b) => b.sale - a.sale);
   }, [saleTx, purTx, hospitals]);
 
   // 발주 매칭 안 된 매입계산서 (기타 매입으로 처리)
@@ -14913,8 +14932,8 @@ function WeeklyReport({ hospitals = [] }) {
         </div>
         <div className="flex items-center gap-2">
           <select value={wi} onChange={e => setWi(Number(e.target.value))}
-            className="border border-slate-200 rounded px-3 py-1.5 text-xs bg-white min-w-[280px]">
-            {weeks.map((wk, i) => <option key={i} value={i}>{wk.label}</option>)}
+            className="border border-slate-200 rounded px-3 py-1.5 text-xs bg-white min-w-[320px]">
+            {weeks.map((wk, i) => <option key={i} value={i} disabled={wk.disabled}>{wk.label}</option>)}
           </select>
           <button onClick={handlePrint} disabled={loading}
             className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold disabled:opacity-50">📄 PDF 인쇄</button>
@@ -14948,12 +14967,23 @@ function WeeklyReport({ hospitals = [] }) {
                 <tbody>
                   {byHosp.length === 0 ? (
                     <tr><td colSpan={4} className="text-center text-slate-400 p-3">이번 주 세금계산서 발행된 병원이 없습니다.</td></tr>
-                  ) : byHosp.map(h => (
-                    <tr key={h.id} className="border-t border-slate-100">
-                      <td className="px-2 py-1.5">{h.name}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-blue-700">{fmt(h.sale)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-rose-700">{fmt(h.purchase)}</td>
-                      <td className={`px-2 py-1.5 text-right font-mono font-semibold ${h.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(h.profit)}</td>
+                  ) : byHosp.map((h, i) => (
+                    <tr key={h.id || i} className="border-t border-slate-100 align-top">
+                      <td className="px-2 py-2">
+                        {h.id ? (
+                          <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
+                            className="text-blue-600 hover:underline font-medium text-left">{h.name}</button>
+                        ) : (
+                          <span className="text-slate-700 font-medium">{h.name}</span>
+                        )}
+                        {h.itemsText && <div className="text-[10px] text-slate-500 mt-0.5">{h.itemsText}</div>}
+                        {h.needsPurchase && (
+                          <div className="text-[10px] text-rose-600 mt-0.5 font-semibold">⚠ 매입계산서 발행 필요</div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-blue-700">{fmt(h.sale)}</td>
+                      <td className="px-2 py-2 text-right font-mono text-rose-700">{fmt(h.purchase)}</td>
+                      <td className={`px-2 py-2 text-right font-mono font-semibold ${h.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(h.profit)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -15031,6 +15061,7 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
   }, []);
   const [from, setFrom] = useState(defaultRange.from);
   const [to, setTo] = useState(defaultRange.to);
+  const [histHosp, setHistHosp] = useState(null); // {id, name} — 병원 원장 모달
 
   const inRange = (d) => {
     if (!d) return false;
@@ -15170,33 +15201,22 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
 
   return (
     <div className="p-4 space-y-5 overflow-auto" style={{maxHeight: 'calc(100vh - 260px)'}}>
-      <WeeklyReport hospitals={hospitals} />
-      {/* 통장잔액 (현재 시점) */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
-        <div>
-          <div className="text-xs text-slate-500 mb-1">통장잔액 <span className="text-[10px] text-slate-400">(최근 기록)</span></div>
-          <div className={`text-2xl font-bold ${cashCurrent != null && cashCurrent < 0 ? 'text-red-600' : 'text-slate-900'}`}>
-            {cashCurrent != null ? cashCurrent.toLocaleString() + '원' : '—'}
-          </div>
-        </div>
-        {cashLogs[0] && <div className="text-xs text-slate-400">{cashLogs[0].log_date}</div>}
+      <WeeklyReport
+        hospitals={hospitals}
+        onOpenHospital={(id, name) => setHistHosp({ id, name })}
+        onWeekChange={(s, e) => { setFrom(s); setTo(e); }}
+      />
+
+      {/* 하단 요약은 위 주 선택 범위를 그대로 사용 */}
+      <div className="text-xs text-slate-500 flex items-center gap-2">
+        <span className="font-semibold">아래 요약 기준</span>
+        <span className="text-slate-400">{from || '—'} ~ {to || '—'}</span>
       </div>
 
-      {/* 기간 */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500">기간</span>
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-sm" />
-        <span className="text-xs text-slate-400">~</span>
-        <input type="date" value={to} onChange={e => setTo(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-sm" />
-        {(from || to) && <button onClick={() => { setFrom(''); setTo(''); }} className="text-xs text-slate-500 hover:text-slate-700">전체</button>}
-        <span className="ml-auto text-xs text-slate-400">{(from || to) ? '선택 기간' : '전체 기간'} 기준</span>
-      </div>
-
-      {/* 통장·외상 요약 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* 통장 입금 / 출금 (줄돈 제거) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Card label="통장 입금" value={summary.cashIn} color="bg-emerald-50 border-emerald-200 text-emerald-800" />
         <Card label="통장 출금" value={summary.cashOut} color="bg-rose-50 border-rose-200 text-rose-800" />
-        <Card label="줄 돈 (거래처 외상잔액 +)" value={summary.totalBalance} color="bg-slate-100 border-slate-300 text-slate-900" />
       </div>
 
       {/* 유형별 요약 (기간 기준) */}
@@ -15337,6 +15357,14 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
       <div className="text-xs text-slate-400 text-center">
         ※ 매입 = 이월·매입·조정·취소 합산(부호 반영) · 지급 = 입금(payment) · 통장 입출금은 cash 로그 기준
       </div>
+
+      {histHosp && (
+        <HospitalLedgerModal
+          hospitalId={histHosp.id}
+          name={histHosp.name}
+          onClose={() => setHistHosp(null)}
+        />
+      )}
     </div>
   );
 }
