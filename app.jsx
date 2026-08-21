@@ -14873,7 +14873,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       </div>
 
       <div class="section">
-        <div class="sec-title">① 거래한 병원 (${byHosp.length}개)</div>
+        <div class="sec-title">① 거래한 병원 (${byHosp.length}개) · 매출 ${fmt(totals.hospSale)} · 매입 ${fmt(totals.hospPur)} · <span style="color:${totals.hospProfit<0?'#c00':'#0070c0'};">이익 ${fmt(totals.hospProfit)}</span></div>
         <table>
           <thead><tr><th style="width:30px">No</th><th>병원명</th>
           <th style="width:120px">매출</th><th style="width:120px">매입</th><th style="width:120px">이익</th></tr></thead>
@@ -14952,7 +14952,15 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
           </div>
 
           <div className="mb-3">
-            <div className="text-xs font-semibold text-slate-700 mb-1.5">① 거래한 병원 ({byHosp.length}개)</div>
+            <div className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-2 flex-wrap">
+              <span>① 거래한 병원 ({byHosp.length}개)</span>
+              <span className="text-slate-400 font-normal">·</span>
+              <span className="text-blue-700 font-mono">매출 {fmt(totals.hospSale)}</span>
+              <span className="text-slate-400 font-normal">·</span>
+              <span className="text-rose-700 font-mono">매입 {fmt(totals.hospPur)}</span>
+              <span className="text-slate-400 font-normal">·</span>
+              <span className={`font-mono font-bold ${totals.hospProfit < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>이익 {fmt(totals.hospProfit)}</span>
+            </div>
             <div className="border border-slate-200 rounded overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-500"><tr>
