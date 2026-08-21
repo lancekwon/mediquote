@@ -14701,9 +14701,10 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
    주별 영업 리포트 — 세금계산서 기준, 병원별 매출/매입/이익 + 기타 이익/지출
    ============================================================ */
 function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
-  const getMonday = (dt) => {
-    const d = new Date(dt); const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
+  // 주 시작 = 토요일 (금요일 회의 기준). 토(0)/일(-1)/월(-2)/화(-3)/수(-4)/목(-5)/금(-6)
+  const getWeekStart = (dt) => {
+    const d = new Date(dt); const day = d.getDay(); // 0=일 ~ 6=토
+    const diff = day === 6 ? 0 : -(day + 1);
     d.setDate(d.getDate() + diff); d.setHours(0,0,0,0);
     return d;
   };
@@ -14713,15 +14714,15 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const weeks = useMemo(() => {
     const list = []; const now = new Date();
     const todayIso = iso(now);
-    // 미래 주를 포함해 12주 생성. 시작일(월요일)이 오늘보다 미래면 disabled.
+    // 미래 주를 포함해 12주 생성. 시작일(토요일)이 오늘보다 미래면 disabled.
     for (let i = 0; i < 12; i++) {
-      const mon = getMonday(now); mon.setDate(mon.getDate() - i * 7);
-      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-      const wom = Math.ceil(mon.getDate() / 7);
-      const disabled = iso(mon) > todayIso;
+      const sat = getWeekStart(now); sat.setDate(sat.getDate() - i * 7);
+      const fri = new Date(sat); fri.setDate(sat.getDate() + 6);
+      const wom = Math.ceil(sat.getDate() / 7);
+      const disabled = iso(sat) > todayIso;
       list.push({
-        start: iso(mon), end: iso(sun), disabled,
-        label: `${mon.getFullYear()}년 ${mon.getMonth()+1}월 ${wom}주차 · ${fmtMD(mon)}(월) ~ ${fmtMD(sun)}(일)${disabled ? ' (아직 시작 안 됨)' : ''}`,
+        start: iso(sat), end: iso(fri), disabled,
+        label: `${sat.getFullYear()}년 ${sat.getMonth()+1}월 ${wom}주차 · ${fmtMD(sat)}(토) ~ ${fmtMD(fri)}(금)${disabled ? ' (아직 시작 안 됨)' : ''}`,
       });
     }
     return list;
