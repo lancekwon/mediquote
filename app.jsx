@@ -14834,11 +14834,11 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   // 초기: 활성화된 첫 항목 선택 (미래 skip). period 변경 시 리셋.
   const [wi, setWi] = useState(0);
   useEffect(() => { setWi(Math.max(0, weeks.findIndex(w => !w.disabled))); }, [periodType, weeks]);
-  const [pos, setPos] = useState([]); // 발주 (+ 아이템) — 매출/매입 계산 소스
+  const [saleTx, setSaleTx] = useState([]);  // 매출 세금계산서
+  const [purTx, setPurTx] = useState([]);    // 매입 세금계산서 (+ 발주 join)
   const [cLogs, setCLogs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0); // 강제 재로드 트리거
-  const [missingModal, setMissingModal] = useState(null); // {hospName, items}
+  const [reloadKey, setReloadKey] = useState(0);
   const w = weeks[wi];
 
   // 주 바뀌면 부모에게 통지 (기간 필터 통일용)
@@ -14848,22 +14848,21 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
 
   useEffect(() => {
     if (!w) return;
-    if (w.disabled) { setPos([]); setCLogs([]); return; }
+    if (w.disabled) { setSaleTx([]); setPurTx([]); setCLogs([]); return; }
     let cancelled = false;
     setLoading(true);
     (async () => {
       try {
-        // 발주 created_at 기준 (토~금) · 취소 제외 · is_active=true
-        const [poData, cl] = await Promise.all([
-          sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, status, is_active, purchase_order_items(item_name, model_name, quantity, unit_price, sale_price)')
-            .neq('status', '취소')
-            .gte('created_at', w.start + 'T00:00:00').lte('created_at', w.end + 'T23:59:59')
-            .then(r => r.data || []),
+        // 세금계산서 issue_date 기준
+        const [saleT, purT, cl] = await Promise.all([
+          sb.from('tax_invoices').select('id, issue_date, hospital_id, amount, party_name, memo')
+            .eq('kind', 'sale').gte('issue_date', w.start).lte('issue_date', w.end).then(r => r.data || []),
+          sb.from('tax_invoices').select('id, issue_date, amount, party_name, memo, po_id, purchase_orders!po_id(hospital_id, hospital_name, purchase_order_items(item_name, model_name, quantity))')
+            .eq('kind', 'purchase').gte('issue_date', w.start).lte('issue_date', w.end).then(r => r.data || []),
           sb.from('cash_balance_log').select('id, log_date, delta, counterparty, entry_type, memo')
             .gte('log_date', w.start).lte('log_date', w.end).then(r => r.data || []),
         ]);
-        if (!cancelled) { setPos(poData); setCLogs(cl); }
+        if (!cancelled) { setSaleTx(saleT); setPurTx(purT); setCLogs(cl); }
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -14871,29 +14870,27 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
 
   const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭 병원)';
 
-  // 병원별 매출/매입/이익 + 발주 품목 (발주 아이템 기준)
+  // 병원별 매출/매입/이익 (세금계산서 기준)
+  //   매출: tax_invoices(sale).hospital_id 별 amount 합
+  //   매입: tax_invoices(purchase).po_id → purchase_orders.hospital_id 별 amount 합
   const byHosp = useMemo(() => {
     const m = new Map();
-    pos.forEach(p => {
-      const hid = p.hospital_id || '__unassigned__';
+    saleTx.forEach(t => {
+      const hid = t.hospital_id || `__unassigned__:${t.party_name || t.id}`;
       const v = m.get(hid) || {
-        id: p.hospital_id || null,
-        name: p.hospital_id ? hospName(p.hospital_id) : (p.hospital_name || '(병원 미배정)'),
-        sale: 0, purchase: 0, itemLabels: [], missingItems: [],
+        id: t.hospital_id || null,
+        name: t.hospital_id ? hospName(t.hospital_id) : (t.party_name || '(병원 미배정)'),
+        sale: 0, purchase: 0, itemLabels: [],
       };
-      (p.purchase_order_items || []).forEach(it => {
-        const qty = Number(it.quantity) || 0;
-        const sale = (Number(it.sale_price) || 0) * qty;
-        const pur = (Number(it.unit_price) || 0) * qty;
-        v.sale += sale;
-        v.purchase += pur;
-        if (qty > 0 && !it.unit_price) {
-          v.missingItems.push({
-            id: it.id, po_no: p.po_no, po_id: p.id,
-            item_name: it.item_name, model_name: it.model_name,
-            quantity: qty, sale_price: Number(it.sale_price) || 0,
-          });
-        }
+      v.sale += Number(t.amount) || 0;
+      m.set(hid, v);
+    });
+    purTx.forEach(t => {
+      const hid = t.purchase_orders?.hospital_id;
+      if (!hid) return; // 발주 매칭 없는 매입계산서는 미분류 매입으로 별도 처리
+      const v = m.get(hid) || { id: hid, name: hospName(hid), sale: 0, purchase: 0, itemLabels: [] };
+      v.purchase += Number(t.amount) || 0;
+      (t.purchase_orders?.purchase_order_items || []).forEach(it => {
         const label = [it.item_name, it.model_name].filter(Boolean).join(' ') || '-';
         if (!v.itemLabels.includes(label)) v.itemLabels.push(label);
       });
@@ -14902,10 +14899,14 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     return Array.from(m.values()).map(v => ({
       ...v,
       profit: v.sale - v.purchase,
-      missingPrice: v.missingItems.length > 0,
+      needsPurTx: v.sale > 0 && v.purchase === 0, // 매출계산서 있는데 매입계산서 매칭 없음
       itemsText: v.itemLabels.length === 0 ? '' : v.itemLabels[0] + (v.itemLabels.length > 1 ? ` 외 ${v.itemLabels.length - 1}개` : ''),
     })).sort((a,b) => b.sale - a.sale);
-  }, [pos, hospitals]);
+  }, [saleTx, purTx, hospitals]);
+
+  // 발주 매칭 안 된 매입계산서 (미분류 매입)
+  const unmatchedPur = useMemo(() => purTx.filter(t => !t.purchase_orders?.hospital_id), [purTx]);
+  const unmatchedPurSum = useMemo(() => unmatchedPur.reduce((s,t) => s + (Number(t.amount) || 0), 0), [unmatchedPur]);
 
   const INCOME_TYPES = ['광고 매출', '수수료', '잡수입'];
   const EXPENSE_TYPES = ['운영비', '잡지출'];
@@ -14919,8 +14920,11 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     const hospPur = byHosp.reduce((s, h) => s + h.purchase, 0);
     const extraIn = extraIncome.reduce((s, x) => s + x.amount, 0);
     const extraOut = extraExpense.reduce((s, x) => s + x.amount, 0);
-    return { hospSale, hospPur, hospProfit: hospSale - hospPur, extraIn, extraOut, net: (hospSale - hospPur) + extraIn - extraOut };
-  }, [byHosp, extraIncome, extraExpense]);
+    const hospProfit = hospSale - hospPur;
+    // 종합 순이익 = 병원 이익 − 미분류 매입 + 기타 이익 − 기타 지출
+    const net = hospProfit - unmatchedPurSum + extraIn - extraOut;
+    return { hospSale, hospPur, hospProfit, extraIn, extraOut, net };
+  }, [byHosp, extraIncome, extraExpense, unmatchedPurSum]);
 
   const fmt = (n) => (n || 0).toLocaleString('ko-KR');
   const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
@@ -14995,7 +14999,8 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
             <td class="r">${fmt(totals.hospSale)}</td><td class="r">${fmt(totals.hospPur)}</td>
             <td class="r ${totals.hospProfit<0?'neg':''}">${fmt(totals.hospProfit)}</td></tr></tfoot>` : ''}
         </table>
-        ${byHosp.some(h => h.missingPrice) ? `<div style="font-size:10px;color:#c00;margin-top:4px;">⚠ 매입가(unit_price) 미입력 아이템이 있는 병원이 있습니다. 실제 이익이 표시값보다 낮을 수 있습니다.</div>` : ''}
+        ${unmatchedPur.length > 0 ? `<div style="font-size:10px;color:#b45309;margin-top:4px;">⚠ 미분류 매입 ${unmatchedPur.length}건 · ${fmt(unmatchedPurSum)}원 (발주 매칭 안 됨 · 종합에서 별도 차감)</div>` : ''}
+        ${byHosp.some(h => h.needsPurTx) ? `<div style="font-size:10px;color:#c00;margin-top:4px;">⚠ 매출계산서는 있는데 매입계산서(발주 매칭) 없는 병원이 있습니다. 실제 이익이 표시값보다 낮을 수 있습니다.</div>` : ''}
       </div>
 
       <div class="section">
@@ -15017,7 +15022,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       </div>
 
       <div class="net-box">
-        <div class="lbl">종합 순이익  =  병원 이익  +  기타 이익  −  기타 지출</div>
+        <div class="lbl">종합 순이익  =  병원 이익  −  미분류 매입  +  기타 이익  −  기타 지출</div>
         <div class="val" style="${totals.net<0?'color:#c00;':''}">${fmt(totals.net)} 원</div>
       </div>
 
@@ -15037,7 +15042,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
         <div>
-          <div className="text-sm font-bold text-slate-800">📊 {periodType === 'month' ? '월별' : '주별'} 영업 리포트 (발주 등록일 기준)</div>
+          <div className="text-sm font-bold text-slate-800">📊 {periodType === 'month' ? '월별' : '주별'} 영업 리포트 (세금계산서 발행일 기준)</div>
           <div className="text-[11px] text-slate-500">병원별 매출·매입·이익 + 기타 이익·지출을 {periodType === 'month' ? '월' : '주'} 단위로 집계</div>
         </div>
         <div className="flex items-center gap-2">
@@ -15066,7 +15071,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
             <Card label="기타 지출" value={totals.extraOut} color="bg-amber-50" />
           </div>
           <div className={`rounded p-3 text-center mb-4 ${totals.net < 0 ? 'bg-rose-50 border border-rose-200' : 'bg-yellow-50 border border-yellow-200'}`}>
-            <span className="text-xs font-semibold text-slate-600">종합 순이익 (병원 이익 + 기타 이익 − 기타 지출)</span>
+            <span className="text-xs font-semibold text-slate-600">종합 순이익 (병원 이익 − 미분류 매입 + 기타 이익 − 기타 지출)</span>
             <span className={`ml-3 text-xl font-bold font-mono ${totals.net < 0 ? 'text-rose-700' : 'text-slate-900'}`}>{fmt(totals.net)}원</span>
           </div>
 
@@ -15090,7 +15095,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                 </tr></thead>
                 <tbody>
                   {byHosp.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">이 {periodType === 'month' ? '달' : '주'} 발주 등록된 병원이 없습니다.</td></tr>
+                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">이 {periodType === 'month' ? '달' : '주'} 세금계산서 발행된 병원이 없습니다.</td></tr>
                   ) : byHosp.map((h, i) => (
                     <tr key={h.id || i} className="border-t border-slate-100 align-top">
                       <td className="px-2 py-2">
@@ -15101,11 +15106,8 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                           <span className="text-slate-700 font-medium">{h.name}</span>
                         )}
                         {h.itemsText && <div className="text-[10px] text-slate-500 mt-0.5">{h.itemsText}</div>}
-                        {h.missingPrice && (
-                          <button type="button" onClick={() => setMissingModal({ hospName: h.name, items: h.missingItems })}
-                            className="text-[10px] text-rose-600 mt-0.5 font-semibold hover:bg-rose-50 rounded px-1 py-0.5 text-left" title="클릭하여 매입가 입력">
-                            ⚠ 매입가 미입력 {h.missingItems.length}건 · 입력하기
-                          </button>
+                        {h.needsPurTx && (
+                          <div className="text-[10px] text-rose-600 mt-0.5 font-semibold">⚠ 매입계산서 없음 (발주 매칭된 매입계산서 필요)</div>
                         )}
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-blue-700">{fmt(h.sale)}</td>
@@ -15116,7 +15118,16 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                 </tbody>
               </table>
             </div>
-            <div className="text-[10px] text-slate-500 mt-1">※ 발주 아이템 기준 · 매출가·매입가 × 수량 · 발주 등록일(주) 기준 · 취소 발주만 제외 (납품완료 포함)</div>
+            <div className="text-[10px] text-slate-500 mt-1">※ 세금계산서 기준 · 매출은 hospital_id, 매입은 발주 매칭(po_id → 발주.hospital_id) · issue_date가 기간 안</div>
+            {unmatchedPur.length > 0 && (
+              <div className="mt-2 border border-amber-200 bg-amber-50 rounded p-2 text-[11px]">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-amber-800">⚠ 미분류 매입 (발주 매칭 안 된 매입계산서)</span>
+                  <span className="font-mono font-bold text-amber-800">{fmt(unmatchedPurSum)}원 · {unmatchedPur.length}건</span>
+                </div>
+                <div className="text-amber-700">이 금액은 특정 병원 매입에 반영되지 않고 종합 순이익에서만 차감됩니다. 거래처 원장의 미매칭 뱃지에서 발주를 매칭하면 병원별로 배정됩니다.</div>
+              </div>
+            )}
           </div>
 
           <div className="mb-3">
@@ -15171,14 +15182,6 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
             </div>
           </div>
         </>
-      )}
-      {missingModal && (
-        <MissingPriceModal
-          hospName={missingModal.hospName}
-          items={missingModal.items}
-          onClose={() => setMissingModal(null)}
-          onSaved={(n) => { setMissingModal(null); setReloadKey(k => k + 1); }}
-        />
       )}
     </div>
   );
