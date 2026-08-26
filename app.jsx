@@ -14697,6 +14697,93 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
 /* ============================================================
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
+/* 매입가 미입력 아이템 일괄 입력 모달 */
+function MissingPriceModal({ hospName, items, onClose, onSaved }) {
+  const [vals, setVals] = useState(() => Object.fromEntries(items.map(it => [it.id, ''])));
+  const [saving, setSaving] = useState(false);
+
+  const parse = v => Number(String(v || '').replace(/[^0-9]/g, '')) || 0;
+  const filledCount = items.filter(it => parse(vals[it.id]) > 0).length;
+
+  const handleSave = async () => {
+    if (filledCount === 0) { alert('매입가를 하나 이상 입력하세요.'); return; }
+    setSaving(true);
+    try {
+      const targets = items.filter(it => parse(vals[it.id]) > 0);
+      await Promise.all(targets.map(it =>
+        sb.from('purchase_order_items').update({ unit_price: parse(vals[it.id]) }).eq('id', it.id)
+      ));
+      onSaved && onSaved(targets.length);
+    } catch (e) {
+      alert('저장 실패: ' + (e.message || e));
+    } finally { setSaving(false); }
+  };
+
+  const fillFromSaleRatio = (ratio) => {
+    setVals(prev => {
+      const next = { ...prev };
+      items.forEach(it => {
+        if (it.sale_price > 0) next[it.id] = String(Math.round(it.sale_price * ratio));
+      });
+      return next;
+    });
+  };
+
+  return (
+    <ModalShell title={`매입가 입력 — ${hospName}`} subtitle={`매입가 미입력 아이템 ${items.length}건`} onClose={onClose} wide z={70}>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className="text-xs text-slate-500">일괄 채우기 (매출가 기준):</span>
+        <button onClick={()=>fillFromSaleRatio(0.7)} className="text-[11px] border border-slate-200 rounded px-2 py-1 hover:bg-slate-50">×70%</button>
+        <button onClick={()=>fillFromSaleRatio(0.8)} className="text-[11px] border border-slate-200 rounded px-2 py-1 hover:bg-slate-50">×80%</button>
+        <button onClick={()=>fillFromSaleRatio(0.9)} className="text-[11px] border border-slate-200 rounded px-2 py-1 hover:bg-slate-50">×90%</button>
+        <button onClick={()=>setVals(Object.fromEntries(items.map(it => [it.id, ''])))} className="text-[11px] text-slate-500 hover:text-slate-700">초기화</button>
+      </div>
+      <div className="border border-slate-200 rounded overflow-hidden max-h-[55vh] overflow-y-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500 sticky top-0">
+            <tr>
+              <th className="px-2 py-1.5 text-left w-24">발주번호</th>
+              <th className="px-2 py-1.5 text-left">품목 · 모델</th>
+              <th className="px-2 py-1.5 text-center w-12">수량</th>
+              <th className="px-2 py-1.5 text-right w-28">매출가</th>
+              <th className="px-2 py-1.5 text-right w-36">매입가 입력</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(it => (
+              <tr key={it.id} className="border-t border-slate-100">
+                <td className="px-2 py-1.5 font-mono text-slate-500">{it.po_no || '-'}</td>
+                <td className="px-2 py-1.5">
+                  <div className="text-slate-800">{it.item_name || '-'}</div>
+                  {it.model_name && <div className="text-[10px] text-slate-500">{it.model_name}</div>}
+                </td>
+                <td className="px-2 py-1.5 text-center text-slate-700">{it.quantity}</td>
+                <td className="px-2 py-1.5 text-right font-mono text-emerald-700">{(it.sale_price || 0).toLocaleString()}</td>
+                <td className="px-2 py-1.5 text-right">
+                  <input type="text" value={vals[it.id] === '' ? '' : Number(vals[it.id] || 0).toLocaleString()}
+                    onChange={e => setVals(p => ({...p, [it.id]: e.target.value.replace(/[^0-9]/g,'')}))}
+                    placeholder="0"
+                    className="w-32 border border-slate-200 rounded px-2 py-1 text-xs tnum text-right focus:outline-none focus:border-blue-400" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-3 mt-3 border-t border-slate-100">
+        <div className="text-xs text-slate-500">{filledCount} / {items.length}건 입력됨</div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
+          <button onClick={handleSave} disabled={saving || filledCount === 0}
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold disabled:opacity-40">
+            {saving ? '저장 중…' : `${filledCount}건 저장`}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 /* ============================================================
    주별 영업 리포트 — 발주 등록일 기준, 병원별 매출/매입/이익 + 기타 이익/지출
    ============================================================ */
@@ -14750,6 +14837,8 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const [pos, setPos] = useState([]); // 발주 (+ 아이템) — 매출/매입 계산 소스
   const [cLogs, setCLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0); // 강제 재로드 트리거
+  const [missingModal, setMissingModal] = useState(null); // {hospName, items}
   const w = weeks[wi];
 
   // 주 바뀌면 부모에게 통지 (기간 필터 통일용)
@@ -14778,7 +14867,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [w?.start, w?.end]);
+  }, [w?.start, w?.end, reloadKey]);
 
   const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭 병원)';
 
@@ -14790,7 +14879,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       const v = m.get(hid) || {
         id: p.hospital_id || null,
         name: p.hospital_id ? hospName(p.hospital_id) : (p.hospital_name || '(병원 미배정)'),
-        sale: 0, purchase: 0, itemLabels: [], missingPrice: false,
+        sale: 0, purchase: 0, itemLabels: [], missingItems: [],
       };
       (p.purchase_order_items || []).forEach(it => {
         const qty = Number(it.quantity) || 0;
@@ -14798,7 +14887,13 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         const pur = (Number(it.unit_price) || 0) * qty;
         v.sale += sale;
         v.purchase += pur;
-        if (qty > 0 && !it.unit_price) v.missingPrice = true;
+        if (qty > 0 && !it.unit_price) {
+          v.missingItems.push({
+            id: it.id, po_no: p.po_no, po_id: p.id,
+            item_name: it.item_name, model_name: it.model_name,
+            quantity: qty, sale_price: Number(it.sale_price) || 0,
+          });
+        }
         const label = [it.item_name, it.model_name].filter(Boolean).join(' ') || '-';
         if (!v.itemLabels.includes(label)) v.itemLabels.push(label);
       });
@@ -14807,6 +14902,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     return Array.from(m.values()).map(v => ({
       ...v,
       profit: v.sale - v.purchase,
+      missingPrice: v.missingItems.length > 0,
       itemsText: v.itemLabels.length === 0 ? '' : v.itemLabels[0] + (v.itemLabels.length > 1 ? ` 외 ${v.itemLabels.length - 1}개` : ''),
     })).sort((a,b) => b.sale - a.sale);
   }, [pos, hospitals]);
@@ -15006,7 +15102,10 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                         )}
                         {h.itemsText && <div className="text-[10px] text-slate-500 mt-0.5">{h.itemsText}</div>}
                         {h.missingPrice && (
-                          <div className="text-[10px] text-rose-600 mt-0.5 font-semibold">⚠ 매입가 미입력 아이템 있음</div>
+                          <button type="button" onClick={() => setMissingModal({ hospName: h.name, items: h.missingItems })}
+                            className="text-[10px] text-rose-600 mt-0.5 font-semibold hover:bg-rose-50 rounded px-1 py-0.5 text-left" title="클릭하여 매입가 입력">
+                            ⚠ 매입가 미입력 {h.missingItems.length}건 · 입력하기
+                          </button>
                         )}
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-blue-700">{fmt(h.sale)}</td>
@@ -15072,6 +15171,14 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
             </div>
           </div>
         </>
+      )}
+      {missingModal && (
+        <MissingPriceModal
+          hospName={missingModal.hospName}
+          items={missingModal.items}
+          onClose={() => setMissingModal(null)}
+          onSaved={(n) => { setMissingModal(null); setReloadKey(k => k + 1); }}
+        />
       )}
     </div>
   );
