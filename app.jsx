@@ -14711,25 +14711,42 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const fmtMD = d => `${d.getMonth()+1}/${d.getDate()}`;
 
+  const [periodType, setPeriodType] = useState('week'); // 'week' | 'month'
+
   const weeks = useMemo(() => {
     const list = []; const now = new Date();
     const todayIso = iso(now);
-    // 미래 주를 포함해 12주 생성. 시작일(토요일)이 오늘보다 미래면 disabled.
-    for (let i = 0; i < 12; i++) {
-      const sat = getWeekStart(now); sat.setDate(sat.getDate() - i * 7);
-      const fri = new Date(sat); fri.setDate(sat.getDate() + 6);
-      const wom = Math.ceil(sat.getDate() / 7);
-      const disabled = iso(sat) > todayIso;
-      list.push({
-        start: iso(sat), end: iso(fri), disabled,
-        label: `${sat.getFullYear()}년 ${sat.getMonth()+1}월 ${wom}주차 · ${fmtMD(sat)}(토) ~ ${fmtMD(fri)}(금)${disabled ? ' (아직 시작 안 됨)' : ''}`,
-      });
+    if (periodType === 'month') {
+      // 최근 12개월 (이번 달부터 뒤로). 시작일(1일)이 오늘보다 미래면 disabled — 실제로는 항상 false지만 안전상 유지
+      for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const start = new Date(d.getFullYear(), d.getMonth(), 1);
+        const end = new Date(d.getFullYear(), d.getMonth() + 1, 0); // 말일
+        const disabled = iso(start) > todayIso;
+        list.push({
+          start: iso(start), end: iso(end), disabled,
+          label: `${start.getFullYear()}년 ${start.getMonth()+1}월 · ${fmtMD(start)} ~ ${fmtMD(end)}${disabled ? ' (아직 시작 안 됨)' : ''}`,
+        });
+      }
+    } else {
+      // 주별 (토~금). 미래 주는 disabled.
+      for (let i = 0; i < 12; i++) {
+        const sat = getWeekStart(now); sat.setDate(sat.getDate() - i * 7);
+        const fri = new Date(sat); fri.setDate(sat.getDate() + 6);
+        const wom = Math.ceil(sat.getDate() / 7);
+        const disabled = iso(sat) > todayIso;
+        list.push({
+          start: iso(sat), end: iso(fri), disabled,
+          label: `${sat.getFullYear()}년 ${sat.getMonth()+1}월 ${wom}주차 · ${fmtMD(sat)}(토) ~ ${fmtMD(fri)}(금)${disabled ? ' (아직 시작 안 됨)' : ''}`,
+        });
+      }
     }
     return list;
-  }, []);
+  }, [periodType]);
 
-  // 초기: 활성화된 첫 주 선택 (미래 주 skip)
-  const [wi, setWi] = useState(() => Math.max(0, weeks.findIndex(w => !w.disabled)));
+  // 초기: 활성화된 첫 항목 선택 (미래 skip). period 변경 시 리셋.
+  const [wi, setWi] = useState(0);
+  useEffect(() => { setWi(Math.max(0, weeks.findIndex(w => !w.disabled))); }, [periodType, weeks]);
   const [pos, setPos] = useState([]); // 발주 (+ 아이템) — 매출/매입 계산 소스
   const [cLogs, setCLogs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -14861,7 +14878,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         </div>
         <div>출력일 ${iso(new Date())}</div>
       </div>
-      <div class="title">주 별 영 업 리 포 트</div>
+      <div class="title">${periodType === 'month' ? '월 별' : '주 별'} 영 업 리 포 트</div>
       <div class="period">${w.label}</div>
 
       <div class="summary">
@@ -14924,12 +14941,18 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
         <div>
-          <div className="text-sm font-bold text-slate-800">📊 주별 영업 리포트 (발주 등록일 기준)</div>
-          <div className="text-[11px] text-slate-500">병원별 매출·매입·이익 + 기타 이익·지출을 주 단위로 집계</div>
+          <div className="text-sm font-bold text-slate-800">📊 {periodType === 'month' ? '월별' : '주별'} 영업 리포트 (발주 등록일 기준)</div>
+          <div className="text-[11px] text-slate-500">병원별 매출·매입·이익 + 기타 이익·지출을 {periodType === 'month' ? '월' : '주'} 단위로 집계</div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex gap-0.5 border border-slate-200 rounded p-0.5">
+            <button onClick={() => setPeriodType('week')}
+              className={`px-2.5 py-1 text-xs rounded ${periodType==='week' ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>주별</button>
+            <button onClick={() => setPeriodType('month')}
+              className={`px-2.5 py-1 text-xs rounded ${periodType==='month' ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>월별</button>
+          </div>
           <select value={wi} onChange={e => setWi(Number(e.target.value))}
-            className="border border-slate-200 rounded px-3 py-1.5 text-xs bg-white min-w-[320px]">
+            className="border border-slate-200 rounded px-3 py-1.5 text-xs bg-white min-w-[280px]">
             {weeks.map((wk, i) => <option key={i} value={i} disabled={wk.disabled}>{wk.label}</option>)}
           </select>
           <button onClick={handlePrint} disabled={loading}
@@ -14971,7 +14994,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                 </tr></thead>
                 <tbody>
                   {byHosp.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">이번 주 세금계산서 발행된 병원이 없습니다.</td></tr>
+                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">이 {periodType === 'month' ? '달' : '주'} 발주 등록된 병원이 없습니다.</td></tr>
                   ) : byHosp.map((h, i) => (
                     <tr key={h.id || i} className="border-t border-slate-100 align-top">
                       <td className="px-2 py-2">
