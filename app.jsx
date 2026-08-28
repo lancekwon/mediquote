@@ -16889,9 +16889,14 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                         return (
                           <tr key={`${p.id}-${it?.id || 'empty'}`}
                             className={`hover:bg-slate-50 ${isFirst ? 'border-t-2 border-slate-200' : 'border-t border-slate-50'}`}>
-                            {/* 발주번호: 첫 행만 */}
+                            {/* 발주번호 + 담당자: 첫 행만 */}
                             <td className="px-2 py-1.5 text-xs font-mono text-slate-600 align-top">
-                              {isFirst ? (p.po_no || '—') : ''}
+                              {isFirst && (
+                                <div className="flex items-center gap-1.5">
+                                  <EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} />
+                                  <span>{p.po_no || '—'}</span>
+                                </div>
+                              )}
                             </td>
                             {/* 거래처/병원: 첫 행만 */}
                             <td className="px-2 py-1.5 align-top">
@@ -17116,6 +17121,52 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         );
       })()}
     </div>
+  );
+}
+
+// 발주 담당자 인라인 편집 — 뱃지 클릭 → 3개 버튼 나옴 → 하나 선택 → 즉시 저장
+function EditableOwner({ po, setPos, reload, showToast }) {
+  const [open, setOpen] = useState(false);
+  const cur = po.owner || '';
+  const c = cur && PO_OWNER_COLOR[cur];
+
+  const save = async (newOwner) => {
+    setOpen(false);
+    if ((newOwner || '') === (cur || '')) return;
+    setPos(prev => prev.map(x => x.id === po.id ? { ...x, owner: newOwner || null } : x));
+    try {
+      await dbUpdatePurchaseOrder(po.id, { owner: newOwner || null });
+    } catch (e) {
+      showToast && showToast('저장 실패: ' + (e.message || e), 'error');
+      reload && reload();
+    }
+  };
+
+  if (open) {
+    return (
+      <div className="inline-flex items-center gap-0.5 border border-blue-400 rounded p-0.5 bg-white shadow-sm">
+        {PO_OWNERS.map(o => {
+          const oc = PO_OWNER_COLOR[o];
+          const active = cur === o;
+          return (
+            <button key={o} type="button" onClick={() => save(o)}
+              className={`w-5 h-5 rounded-full text-[10px] font-bold ${active ? `${oc.bg} ${oc.text}` : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+              title={`${o} 담당`}>
+              {o}
+            </button>
+          );
+        })}
+        <button type="button" onClick={() => save('')}
+          className="w-5 h-5 rounded text-[10px] text-slate-400 hover:text-rose-600 hover:bg-rose-50" title="담당 해제">✕</button>
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={() => setOpen(true)}
+      title={cur ? `담당: ${cur} · 클릭하여 변경` : '담당 지정'}
+      className={`w-5 h-5 rounded-full text-[10px] font-bold transition-all ${c ? `${c.bg} ${c.text}` : 'bg-white border border-dashed border-slate-300 text-slate-300 hover:border-slate-400 hover:text-slate-500'}`}>
+      {cur || '?'}
+    </button>
   );
 }
 
