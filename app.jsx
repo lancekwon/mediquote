@@ -16921,27 +16921,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             </td>
                             {/* 수량 */}
                             <td className="px-2 py-1.5 text-center text-slate-700">{it?.quantity || (it ? 1 : '')}</td>
-                            {/* 매출가 */}
-                            <td className="px-2 py-1.5 text-right tnum text-emerald-700 text-xs align-top">
-                              {it && it.sale_price != null && it.sale_price > 0 ? (
-                                <>
-                                  <div>{Number(it.sale_price).toLocaleString()}</div>
-                                  {Number(it.quantity || 1) > 1 && (
-                                    <div className="text-[10px] text-emerald-600 mt-0.5 font-semibold">= {(Number(it.sale_price) * Number(it.quantity || 1)).toLocaleString()}</div>
-                                  )}
-                                </>
-                              ) : (it ? <span className="text-slate-300">—</span> : '')}
+                            {/* 매출가 — 인라인 편집 */}
+                            <td className="px-1 py-1 text-right align-top">
+                              {it ? <EditablePrice po={p} item={it} field="sale_price" setPos={setPos} reload={reload} showToast={showToast} /> : ''}
                             </td>
-                            {/* 매입가 */}
-                            <td className="px-2 py-1.5 text-right tnum text-slate-600 text-xs align-top">
-                              {it && it.unit_price != null && it.unit_price > 0 ? (
-                                <>
-                                  <div>{Number(it.unit_price).toLocaleString()}</div>
-                                  {Number(it.quantity || 1) > 1 && (
-                                    <div className="text-[10px] text-slate-500 mt-0.5 font-semibold">= {(Number(it.unit_price) * Number(it.quantity || 1)).toLocaleString()}</div>
-                                  )}
-                                </>
-                              ) : (it ? <span className="text-slate-300">—</span> : '')}
+                            {/* 매입가 — 인라인 편집 */}
+                            <td className="px-1 py-1 text-right align-top">
+                              {it ? <EditablePrice po={p} item={it} field="unit_price" setPos={setPos} reload={reload} showToast={showToast} /> : ''}
                             </td>
                             {/* 납기일 — 첫 행만 (편집 가능) */}
                             <td className="px-2 py-1.5 text-center align-top">
@@ -17130,6 +17116,89 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         );
       })()}
     </div>
+  );
+}
+
+// 인라인 편집 매입가·매출가 셀 — field: 'unit_price' | 'sale_price'
+function EditablePrice({ po, item, field, setPos, reload, showToast }) {
+  const cur = Number(item[field] || 0);
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(cur ? cur.toLocaleString() : '');
+  useEffect(() => {
+    const c = Number(item[field] || 0);
+    setVal(c ? c.toLocaleString() : '');
+  }, [item[field]]);
+
+  const isSale = field === 'sale_price';
+  const colorCls = isSale ? 'text-emerald-700' : 'text-slate-600';
+  const qty = Number(item.quantity || 1);
+
+  const save = async () => {
+    const newPrice = Number((val || '').replace(/[^0-9]/g, '')) || 0;
+    if (newPrice === cur) { setEditing(false); return; }
+    // 낙관적 UI: setPos 로 item 갱신 + PO 총액 재계산
+    setPos(prev => prev.map(p => {
+      if (p.id !== po.id) return p;
+      const newItems = (p.purchase_order_items || []).map(x =>
+        x.id === item.id ? { ...x, [field]: newPrice } : x
+      );
+      const total_amount = newItems.reduce((s, x) => s + (Number(x.unit_price) || 0) * (Number(x.quantity) || 0), 0);
+      const sale_amount = newItems.reduce((s, x) => s + (Number(x.sale_price) || 0) * (Number(x.quantity) || 0), 0);
+      return { ...p, purchase_order_items: newItems, total_amount, sale_amount };
+    }));
+    setEditing(false);
+    try {
+      await dbUpdatePoItem(item.id, { [field]: newPrice });
+      // PO 헤더 총액도 최신화 (다른 화면·리포트 캐시 대비)
+      const items = (po.purchase_order_items || []).map(x =>
+        x.id === item.id ? { ...x, [field]: newPrice } : x
+      );
+      const total_amount = items.reduce((s, x) => s + (Number(x.unit_price) || 0) * (Number(x.quantity) || 0), 0);
+      const sale_amount = items.reduce((s, x) => s + (Number(x.sale_price) || 0) * (Number(x.quantity) || 0), 0);
+      await dbUpdatePurchaseOrder(po.id, { total_amount, sale_amount });
+    } catch (e) {
+      showToast && showToast('저장 실패: ' + (e.message || e), 'error');
+      reload && reload();
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        type="text"
+        autoFocus
+        value={val}
+        onChange={e => {
+          const d = e.target.value.replace(/[^0-9]/g, '');
+          setVal(d ? Number(d).toLocaleString() : '');
+        }}
+        onFocus={e => e.target.select()}
+        onBlur={save}
+        onKeyDown={e => {
+          if (e.key === 'Enter') save();
+          if (e.key === 'Escape') { setVal(cur ? cur.toLocaleString() : ''); setEditing(false); }
+        }}
+        className={`w-24 border border-blue-400 rounded px-1.5 py-0.5 text-xs font-mono text-right tnum focus:outline-none ${colorCls}`}
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title={`클릭하여 ${isSale ? '매출가' : '매입가'} 수정`}
+      className={`text-xs ${colorCls} font-mono hover:bg-blue-50 rounded px-1.5 py-0.5 transition-colors text-right block w-full`}
+    >
+      {cur > 0 ? (
+        <>
+          <div>{cur.toLocaleString()}</div>
+          {qty > 1 && (
+            <div className={`text-[10px] mt-0.5 font-semibold ${isSale ? 'text-emerald-600' : 'text-slate-500'}`}>
+              = {(cur * qty).toLocaleString()}
+            </div>
+          )}
+        </>
+      ) : <span className="text-slate-300">—</span>}
+    </button>
   );
 }
 
