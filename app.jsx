@@ -16045,12 +16045,9 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
           onKeyDown={e=>{ if (e.key==='Enter' && !equipOpen) handleAdd(); }}
           placeholder="매출가" className={`w-32 ${inputCls} tnum text-right`}/>
         {/* 납품요청일 */}
-        <div className="flex flex-col">
-          <label className="text-[10px] text-slate-500 font-semibold mb-0.5">납품요청일</label>
-          <input type="date" value={form.deliveryDate}
-            onChange={e=>setForm(p=>({...p, deliveryDate:e.target.value}))}
-            className={inputCls} title="납품요청일"/>
-        </div>
+        <input type="date" value={form.deliveryDate}
+          onChange={e=>setForm(p=>({...p, deliveryDate:e.target.value}))}
+          className={inputCls} title="납품요청일"/>
         {/* 메모 */}
         <input type="text" value={form.memo}
           onChange={e=>setForm(p=>({...p, memo:e.target.value}))}
