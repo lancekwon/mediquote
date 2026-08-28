@@ -15113,7 +15113,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         // 발주 created_at 기준 · 취소 제외 (납품완료 포함)
         const [poData, cl] = await Promise.all([
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, status, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .select('id, po_no, created_at, hospital_id, hospital_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
             .neq('status', '취소')
             .gte('created_at', w.start + 'T00:00:00').lte('created_at', w.end + 'T23:59:59')
             .then(r => r.data || []),
@@ -15137,7 +15137,9 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         id: p.hospital_id || null,
         name: p.hospital_id ? hospName(p.hospital_id) : (p.hospital_name || '(병원 미배정)'),
         sale: 0, purchase: 0, itemLabels: [], items: [], missingItems: [],
+        owners: new Set(),
       };
+      if (p.owner) v.owners.add(p.owner);
       (p.purchase_order_items || []).forEach(it => {
         const qty = Number(it.quantity) || 0;
         const sp = Number(it.sale_price) || 0;
@@ -15164,6 +15166,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       profit: v.sale - v.purchase,
       missingPrice: v.missingItems.length > 0,
       itemsText: v.itemLabels.length === 0 ? '' : v.itemLabels[0] + (v.itemLabels.length > 1 ? ` 외 ${v.itemLabels.length - 1}개` : ''),
+      ownerList: Array.from(v.owners),
     })).sort((a,b) => b.sale - a.sale);
   }, [pos, hospitals]);
 
@@ -15192,7 +15195,9 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     const win = window.open('', '_blank', 'width=900,height=1100');
     if (!win) { alert('팝업이 차단되었습니다.'); return; }
     const hospRows = byHosp.map((h, i) => `
-      <tr><td class="c">${i+1}</td><td>${h.name}</td>
+      <tr><td class="c">${i+1}</td>
+      <td class="c">${(h.ownerList || []).join(',') || '-'}</td>
+      <td>${h.name}</td>
       <td class="r">${fmt(h.sale)}</td><td class="r">${fmt(h.purchase)}</td>
       <td class="r ${h.profit<0?'neg':''}">${fmt(h.profit)}</td></tr>`).join('');
     const incRows = extraIncome.map(x => `
@@ -15250,10 +15255,10 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       <div class="section">
         <div class="sec-title">① 거래한 병원 (${byHosp.length}개) · 매출 ${fmt(totals.hospSale)} · 매입 ${fmt(totals.hospPur)} · <span style="color:${totals.hospProfit<0?'#c00':'#0070c0'};">이익 ${fmt(totals.hospProfit)}</span></div>
         <table>
-          <thead><tr><th style="width:30px">No</th><th>병원명</th>
+          <thead><tr><th style="width:30px">No</th><th style="width:40px">담당</th><th>병원명</th>
           <th style="width:120px">매출</th><th style="width:120px">매입</th><th style="width:120px">이익</th></tr></thead>
-          <tbody>${hospRows || '<tr><td colspan="5" class="empty">거래 병원이 없습니다.</td></tr>'}</tbody>
-          ${byHosp.length ? `<tfoot><tr><td colspan="2" class="c">합계</td>
+          <tbody>${hospRows || '<tr><td colspan="6" class="empty">거래 병원이 없습니다.</td></tr>'}</tbody>
+          ${byHosp.length ? `<tfoot><tr><td colspan="3" class="c">합계</td>
             <td class="r">${fmt(totals.hospSale)}</td><td class="r">${fmt(totals.hospPur)}</td>
             <td class="r ${totals.hospProfit<0?'neg':''}">${fmt(totals.hospProfit)}</td></tr></tfoot>` : ''}
         </table>
@@ -15356,12 +15361,18 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                   ) : byHosp.map((h, i) => (
                     <tr key={h.id || i} className="border-t border-slate-100 align-top">
                       <td className="px-2 py-2">
-                        {h.id ? (
-                          <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
-                            className="text-blue-600 hover:underline font-medium text-left">{h.name}</button>
-                        ) : (
-                          <span className="text-slate-700 font-medium">{h.name}</span>
-                        )}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {h.ownerList && h.ownerList.map(o => {
+                            const c = PO_OWNER_COLOR[o] || { bg:'bg-slate-100', text:'text-slate-600' };
+                            return <span key={o} className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold text-center leading-5 ${c.bg} ${c.text}`} title={`담당: ${o}`}>{o}</span>;
+                          })}
+                          {h.id ? (
+                            <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
+                              className="text-blue-600 hover:underline font-medium text-left">{h.name}</button>
+                          ) : (
+                            <span className="text-slate-700 font-medium">{h.name}</span>
+                          )}
+                        </div>
                         {h.itemsText && <div className="text-[10px] text-slate-500 mt-0.5">{h.itemsText}</div>}
                         {h.missingPrice && (
                           <button type="button" onClick={() => setMissingModal({ hospName: h.name, items: h.missingItems })}
@@ -15837,6 +15848,12 @@ function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) 
 }
 
 /* 발주 진행 상단 — 세금계산서 스타일의 한 줄 입력 폼 (즉시 저장) */
+const PO_OWNERS = ['권', '성', '최'];
+const PO_OWNER_COLOR = {
+  '권': { bg:'bg-blue-100',    text:'text-blue-700',    ring:'ring-blue-400' },
+  '성': { bg:'bg-emerald-100', text:'text-emerald-700', ring:'ring-emerald-400' },
+  '최': { bg:'bg-amber-100',   text:'text-amber-700',   ring:'ring-amber-400' },
+};
 function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [], onSaved, showToast }) {
   const [form, setForm] = useState({
     hospital: null,       // { id, name }
@@ -15848,6 +15865,7 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
     salePrice: '',
     deliveryDate: '',
     memo: '',
+    owner: (() => { try { return localStorage.getItem('dwmedi.lastPoOwner') || ''; } catch { return ''; } })(),
   });
   const [pickerOpen, setPickerOpen] = useState(null); // 'hospital' | 'vendor'
   const [equipOpen, setEquipOpen] = useState(false);
@@ -15889,10 +15907,11 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
     setEquipOpen(false);
   };
 
-  const clearForm = () => setForm({
+  const clearForm = () => setForm(p => ({
     hospital: null, vendor: null, equipment: null, equipSearch: '',
     quantity: '1', purchasePrice: '', salePrice: '', deliveryDate: '', memo: '',
-  });
+    owner: p.owner, // 담당자는 세션 내 반복 저장이 편하니 유지
+  }));
 
   const handleAdd = async () => {
     if (!form.hospital) { alert('병원을 선택하세요.'); return; }
@@ -15937,8 +15956,10 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
         total_amount: itemRow.amount,
         sale_amount: qty * salePrice,
         delivery_date: form.deliveryDate || null,
+        owner: form.owner || null,
       }, [itemRow]);
-      showToast && showToast(`발주 ${poNo} 생성됨`);
+      if (form.owner) { try { localStorage.setItem('dwmedi.lastPoOwner', form.owner); } catch {} }
+      showToast && showToast(`발주 ${poNo} 생성됨${form.owner ? ` · ${form.owner}` : ''}`);
 
       clearForm();
       onSaved && onSaved();
@@ -15954,7 +15975,24 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
 
   return (
     <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
-      <div className="text-xs font-semibold text-slate-700 mb-2">빠른 발주 등록 <span className="text-slate-400 font-normal">(입력할 때마다 새 발주 번호 생성 · 개별 저장·삭제 · 기본 상태: 대기)</span></div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-semibold text-slate-700">빠른 발주 등록 <span className="text-slate-400 font-normal">(입력할 때마다 새 발주 번호 생성 · 개별 저장·삭제 · 기본 상태: 대기)</span></div>
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-slate-500 mr-1">담당</span>
+          {PO_OWNERS.map(o => {
+            const c = PO_OWNER_COLOR[o];
+            const active = form.owner === o;
+            return (
+              <button key={o} type="button"
+                onClick={() => setForm(p => ({...p, owner: active ? '' : o}))}
+                className={`w-7 h-7 rounded-full text-xs font-bold transition-all ${active ? `${c.bg} ${c.text} ring-2 ${c.ring}` : 'bg-white border border-slate-200 text-slate-400 hover:border-slate-400'}`}
+                title={active ? `${o} 담당 해제` : `${o} 담당으로 지정`}>
+                {o}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="flex gap-2 flex-wrap items-start">
         {/* 병원 */}
         <button type="button" onClick={()=>setPickerOpen('hospital')}
