@@ -769,6 +769,11 @@ async function dbLoadCashBalanceLog({ limit = 100 } = {}) {
   if (error) { console.error('dbLoadCashBalanceLog:', error); return []; }
   return data || [];
 }
+async function dbLoadAccounts() {
+  const { data, error } = await sb.from('accounts').select('*').eq('is_active', true).order('sort_order').order('name');
+  if (error) { console.error('dbLoadAccounts:', error); return []; }
+  return data || [];
+}
 async function dbInsertCashBalance(row) {
   const { data, error } = await sb.from('cash_balance_log').insert(row).select('id').single();
   if (error) throw error;
@@ -10984,7 +10989,7 @@ function TaxInvoiceTab({ onChanged }) {
    CASHFLOW TAB — 활성 발주 기반 자금 흐름 (병원/계약별)
    ============================================================ */
 /* 통장 출납 상단 — 세금계산서 스타일의 한 줄 입력 폼 (즉시 저장) */
-function QuickCashEntry({ balances = [], onSaved, showToast }) {
+function QuickCashEntry({ balances = [], accounts = [], onSaved, showToast }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [typeKey, setTypeKey] = useState('payment');
@@ -10995,10 +11000,34 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
   const [saving, setSaving] = useState(false);
+  // 계좌: 마지막 사용 계좌 기억 (localStorage)
+  const [accountId, setAccountId] = useState(() => {
+    try { return localStorage.getItem('dwmedi.lastAccountId') || ''; } catch { return ''; }
+  });
+  const [toAccountId, setToAccountId] = useState(''); // 이체 도착 계좌
+  // accounts 로드 후: 저장된 게 없거나 유효하지 않으면 첫 번째(=주계좌 국민은행)로
+  useEffect(() => {
+    if (!accounts.length) return;
+    const valid = accounts.some(a => a.id === accountId);
+    if (!valid) setAccountId(accounts[0].id);
+    // toAccountId 기본값: 출발 계좌와 다른 첫 번째
+    if (!accounts.some(a => a.id === toAccountId)) {
+      const other = accounts.find(a => a.id !== accountId);
+      if (other) setToAccountId(other.id);
+    }
+  }, [accounts, accountId, toAccountId]);
+  // 출발 계좌가 도착 계좌와 같아지면 도착을 다른 것으로 이동
+  useEffect(() => {
+    if (accountId && toAccountId && accountId === toAccountId) {
+      const other = accounts.find(a => a.id !== accountId);
+      if (other) setToAccountId(other.id);
+    }
+  }, [accountId, toAccountId, accounts]);
 
   const curType = ENTRY_TYPE_BY_KEY[typeKey];
-  const needsPicker = curType.needVendor || curType.needHospital === 'optional' || curType.needParty;
-  const freeTextParty = !needsPicker && curType.freeForm;
+  const isTransfer = !!curType.isTransfer;
+  const needsPicker = !isTransfer && (curType.needVendor || curType.needHospital === 'optional' || curType.needParty);
+  const freeTextParty = !isTransfer && !needsPicker && curType.freeForm;
 
   const changeType = (k) => {
     setTypeKey(k);
@@ -11008,16 +11037,30 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
   const handleAdd = async () => {
     const amt = Number((amount || '').toString().replace(/[,\s]/g, '')) || 0;
     if (!amt || amt === 0) return alert('금액을 입력하세요. (환불/취소는 −)');
-    if (curType.needVendor && !partyId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
-    if (curType.needParty && !partyId) return alert(`${curType.label}은(는) 거래처/병원을 선택해야 합니다.`);
-    // 병원 입금(collect)에서 병원 미선택 시 원장 반영이 안 되므로 경고
-    if (typeKey === 'collect' && !partyId) {
-      if (!confirm('병원을 선택하지 않으면 거래처 원장에 반영되지 않고 통장에만 기록됩니다. 그래도 진행할까요?')) return;
+    if (!accountId) return alert('통장을 선택하세요.');
+    if (isTransfer) {
+      if (!toAccountId) return alert('도착 통장을 선택하세요.');
+      if (accountId === toAccountId) return alert('출발/도착 통장이 같습니다.');
+      if (amt < 0) return alert('이체 금액은 양수여야 합니다. (반대 방향은 출발/도착을 바꿔서 입력)');
+    } else {
+      if (curType.needVendor && !partyId) return alert(`${curType.label}은(는) 거래처를 선택해야 합니다.`);
+      if (curType.needParty && !partyId) return alert(`${curType.label}은(는) 거래처/병원을 선택해야 합니다.`);
+      // 병원 입금(collect)에서 병원 미선택 시 원장 반영이 안 되므로 경고
+      if (typeKey === 'collect' && !partyId) {
+        if (!confirm('병원을 선택하지 않으면 거래처 원장에 반영되지 않고 통장에만 기록됩니다. 그래도 진행할까요?')) return;
+      }
     }
     setSaving(true);
     try {
-      const e = { date, typeKey, amount: amt, memo: memo.trim() || null };
-      if (curType.needVendor) {
+      const e = { date, typeKey, amount: amt, memo: memo.trim() || null, accountId };
+      if (isTransfer) {
+        const fromA = accounts.find(a => a.id === accountId);
+        const toA = accounts.find(a => a.id === toAccountId);
+        e.fromAccountId = accountId;
+        e.toAccountId = toAccountId;
+        e.fromAccountName = fromA ? fromA.name : '';
+        e.toAccountName = toA ? toA.name : '';
+      } else if (curType.needVendor) {
         e.manufacturerId = partyId; e.vendorName = partyName;
       } else if (typeKey === 'collect' && partyKindSel === 'hospital' && partyId) {
         e.hospitalId = partyId; e.hospitalName = partyName;
@@ -11029,10 +11072,18 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
         e.vendorName = partyName.trim() || null;
       }
       await dbSaveManualEntry(e);
+      try { localStorage.setItem('dwmedi.lastAccountId', accountId); } catch {}
       setPartyId(''); setPartyName(''); setPartyKindSel('');
       setAmount(''); setMemo('');
       onSaved && onSaved();
-      showToast && showToast(`${curType.label} 저장됨`);
+      if (isTransfer) {
+        const fromA = (accounts.find(a => a.id === accountId) || {}).name || '';
+        const toA = (accounts.find(a => a.id === toAccountId) || {}).name || '';
+        showToast && showToast(`이체 저장됨 · ${fromA} → ${toA}`);
+      } else {
+        const acctName = (accounts.find(a => a.id === accountId) || {}).name || '';
+        showToast && showToast(`${curType.label} 저장됨${acctName ? ` · ${acctName}` : ''}`);
+      }
     } catch (err) {
       alert('저장 실패: ' + (err.message || err));
     } finally {
@@ -11052,10 +11103,26 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
     <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
       <div className="text-xs font-semibold text-slate-700 mb-2">통장 거래 입력 (한 건씩 즉시 저장)</div>
       <div className="flex gap-2 flex-wrap items-center">
+        <select value={accountId} onChange={e => setAccountId(e.target.value)}
+          className="border border-slate-300 rounded px-2 py-1 text-sm bg-white font-semibold text-blue-700"
+          title={isTransfer ? '출발 통장' : '입출금 통장'}>
+          {accounts.length === 0 && <option value="">(계좌 없음)</option>}
+          {accounts.map(a => <option key={a.id} value={a.id}>{isTransfer ? '🡸' : '🏦'} {a.name}</option>)}
+        </select>
         <select value={typeKey} onChange={e => changeType(e.target.value)}
           className="border border-slate-300 rounded px-2 py-1 text-sm bg-white">
           {ENTRY_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
+        {isTransfer && (
+          <>
+            <span className="text-slate-400 text-sm">→</span>
+            <select value={toAccountId} onChange={e => setToAccountId(e.target.value)}
+              className="border border-slate-300 rounded px-2 py-1 text-sm bg-white font-semibold text-emerald-700"
+              title="도착 통장">
+              {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>🡺 {a.name}</option>)}
+            </select>
+          </>
+        )}
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           className="border border-slate-300 rounded px-2 py-1 text-sm"/>
         {needsPicker && (
@@ -11072,7 +11139,7 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
         <input type="text" value={amount === '' || amount === '-' ? amount : Number(amount).toLocaleString()}
           onChange={e => setAmount(e.target.value.replace(/[^0-9-]/g, '').replace(/(?!^)-/g, ''))}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
-          placeholder="금액 (환불/취소는 −)"
+          placeholder={isTransfer ? '이체 금액' : '금액 (환불/취소는 −)'}
           className="w-44 border border-slate-300 rounded px-2 py-1 text-sm tnum text-right"/>
         <input type="text" value={memo} onChange={e => setMemo(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
@@ -11081,8 +11148,17 @@ function QuickCashEntry({ balances = [], onSaved, showToast }) {
         {(() => {
           const amtNum = Number(amount) || 0;
           const isRefund = amtNum < 0;
-          const cls = isRefund ? 'bg-amber-500 hover:bg-amber-600' : (curType.cashDir < 0 ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600');
-          const label = saving ? '저장 중…' : isRefund ? '↩ 환불/취소' : (curType.cashDir < 0 ? '− 출금' : '+ 입금');
+          let cls, label;
+          if (isTransfer) {
+            cls = 'bg-indigo-500 hover:bg-indigo-600';
+            label = saving ? '저장 중…' : '↔ 이체';
+          } else if (isRefund) {
+            cls = 'bg-amber-500 hover:bg-amber-600';
+            label = saving ? '저장 중…' : '↩ 환불/취소';
+          } else {
+            cls = curType.cashDir < 0 ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600';
+            label = saving ? '저장 중…' : (curType.cashDir < 0 ? '− 출금' : '+ 입금');
+          }
           return (
             <button onClick={handleAdd} disabled={saving}
               className={`px-4 py-1 rounded text-sm font-semibold text-white ${cls} disabled:opacity-50`}>
@@ -11831,6 +11907,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [saleTax, setSaleTax] = useState([]); // 매출 세금계산서 (거래처 받을돈 집계용)
+  const [accounts, setAccounts] = useState([]); // 통장(계좌) 목록
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [hideZero, setHideZero] = useState(true);
@@ -11852,7 +11929,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [b, t, c, p, ab, at, hosp, ctr, er, st] = await Promise.all([
+      const [b, t, c, p, ab, at, hosp, ctr, er, st, ac] = await Promise.all([
         dbLoadPayableBalances(),
         dbLoadPayableTransactions(),
         dbLoadCashBalanceLog({ limit: 1000 }),
@@ -11863,6 +11940,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
         dbLoadAllContracts(),
         dbLoadExpectedRevenue(),
         sb.from('tax_invoices').select('manufacturer_id, hospital_id, amount, issue_date').eq('kind', 'sale').then(r => r.data || []),
+        dbLoadAccounts(),
       ]);
       setBalances(b);
       setTransactions(t);
@@ -11874,6 +11952,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       setContracts(ctr);
       setExpectedRev(er);
       setSaleTax(st);
+      setAccounts(ac);
     } catch (e) {
       console.error(e);
       showToast('데이터 로드 실패: ' + (e.message || e), 'error');
@@ -12149,7 +12228,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
           ) : (
-            <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} />
+            <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts} />
           )}
         </div>
 
@@ -12219,6 +12298,8 @@ const CASH_TAG_STYLE = {
   '운영비':          { bg:'bg-amber-100',   text:'text-amber-700' },
   '선지급':          { bg:'bg-violet-100',  text:'text-violet-700' },
   '잡지출':          { bg:'bg-rose-100',    text:'text-rose-700' },
+  '이체(출금)':      { bg:'bg-indigo-100',  text:'text-indigo-700' },
+  '이체(입금)':      { bg:'bg-indigo-100',  text:'text-indigo-700' },
 };
 const parseCashTag = (memo) => {
   const m = (memo || '').match(/^\[([^\]]+)\]\s*(.*)$/);
@@ -12241,14 +12322,21 @@ const cashRowDisplay = (l) => {
   return { tag: tag || '', counterparty: body, body: '' };
 };
 
-function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
+function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts = [] }) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('all'); // all | tag명
   const [viewMode, setViewMode] = useState('time'); // time | group
   const [collapsed, setCollapsed] = useState({}); // 그룹별 접힘 상태
-  // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋) — 전체 logs 기준
+  const [accountFilter, setAccountFilter] = useState('all'); // all | accountId
+  // 계좌 필터가 걸린 로그 — 잔액 누적·필터 모두 이 기준
+  const acctLogs = useMemo(() => {
+    if (accountFilter === 'all') return logs;
+    return logs.filter(l => (l.account_id || null) === accountFilter);
+  }, [logs, accountFilter]);
+
+  // 시간순 누적 잔액 계산 (balance_after 명시 행은 그 값으로 리셋) — 계좌 필터 반영
   const runningById = useMemo(() => {
-    const asc = [...logs].sort((a, b) =>
+    const asc = [...acctLogs].sort((a, b) =>
       (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
     let running = 0;
     const map = new Map();
@@ -12258,19 +12346,32 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
       map.set(r.id, running);
     });
     return map;
+  }, [acctLogs]);
+
+  // 계좌별 잔액 (전체 logs 기준으로 계산 — 필터와 무관하게 카드 표시)
+  const balanceByAccount = useMemo(() => {
+    const asc = [...logs].sort((a, b) =>
+      (a.log_date < b.log_date ? -1 : a.log_date > b.log_date ? 1 : (a.created_at || '') < (b.created_at || '') ? -1 : 1));
+    const m = new Map();
+    asc.forEach(r => {
+      const aid = r.account_id || '__none__';
+      if (r.balance_after != null) m.set(aid, r.balance_after);
+      else m.set(aid, (m.get(aid) || 0) + (r.delta || 0));
+    });
+    return m;
   }, [logs]);
 
-  // 사용 가능한 유형 목록 (실제 데이터에 있는 것만)
+  // 사용 가능한 유형 목록 (실제 데이터에 있는 것만) — 필터된 로그 기준
   const availableTags = useMemo(() => {
     const set = new Set();
-    logs.forEach(l => { const { tag } = parseCashTag(l.memo); if (tag) set.add(tag); });
+    acctLogs.forEach(l => { const { tag } = parseCashTag(l.memo); if (tag) set.add(tag); });
     return Array.from(set).sort();
-  }, [logs]);
+  }, [acctLogs]);
 
-  // 메모 검색 + 유형 필터 (잔액은 전체 누적 기준으로 유지, 표시만 필터)
+  // 메모 검색 + 유형 필터 (잔액은 계좌 필터 기준 누적으로 유지, 표시만 추가 필터)
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return logs.filter(l => {
+    return acctLogs.filter(l => {
       if (q && !((l.memo || '').toLowerCase().includes(q) || (l.counterparty || '').toLowerCase().includes(q))) return false;
       if (tagFilter !== 'all') {
         const { tag } = parseCashTag(l.memo);
@@ -12278,7 +12379,7 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
       }
       return true;
     });
-  }, [logs, search, tagFilter]);
+  }, [acctLogs, search, tagFilter]);
 
   // 유형별 그룹화 (group mode 용)
   const grouped = useMemo(() => {
@@ -12306,22 +12407,62 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
       alert('이 기록은 일괄지급에 연결되어 있습니다. 외상 거래원장 탭에서 해당 지급을 삭제하세요.');
       return;
     }
-    if (!confirm('이 통장 기록을 삭제하시겠습니까? (연결된 거래처 송금·병원 수금 내역도 함께 삭제됩니다)')) return;
+    const isTransfer = !!row.transfer_id;
+    const msg = isTransfer
+      ? '이 이체는 두 계좌에 페어로 기록되어 있습니다. 양쪽 모두 함께 삭제할까요?'
+      : '이 통장 기록을 삭제하시겠습니까? (연결된 거래처 송금·병원 수금 내역도 함께 삭제됩니다)';
+    if (!confirm(msg)) return;
     try {
-      // cash_log_id로 연결된 송금(payable)·수금(receivable) 둘 다 삭제 — 거래처 원장과 어긋남 방지
-      await sb.from('payable_transactions').delete().eq('cash_log_id', row.id);
-      await sb.from('receivable_transactions').delete().eq('cash_log_id', row.id);
-      await dbDeleteCashBalance(row.id);
-      showToast('통장 기록 삭제됨');
+      if (isTransfer) {
+        // transfer_id로 묶인 페어(출발·도착) 함께 삭제
+        await sb.from('cash_balance_log').delete().eq('transfer_id', row.transfer_id);
+      } else {
+        // cash_log_id로 연결된 송금(payable)·수금(receivable) 둘 다 삭제 — 거래처 원장과 어긋남 방지
+        await sb.from('payable_transactions').delete().eq('cash_log_id', row.id);
+        await sb.from('receivable_transactions').delete().eq('cash_log_id', row.id);
+        await dbDeleteCashBalance(row.id);
+      }
+      showToast(isTransfer ? '이체 페어 삭제됨' : '통장 기록 삭제됨');
       onReload();
     } catch (e) {
       showToast('삭제 실패: ' + (e.message || e), 'error');
     }
   };
+  const totalBalance = useMemo(() => {
+    let s = 0;
+    for (const v of balanceByAccount.values()) s += (v || 0);
+    return s;
+  }, [balanceByAccount]);
+  const acctById = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
+  const colCount = accountFilter === 'all' ? 9 : 8;
   return (
     <div>
+      {accounts.length > 0 && (
+        <div className="px-3 pt-3 pb-2 bg-slate-50 border-b border-slate-100">
+          <div className="flex gap-2 flex-wrap items-stretch">
+            <button
+              onClick={() => setAccountFilter('all')}
+              className={`px-3 py-2 rounded-lg border text-left transition-colors min-w-[130px] ${accountFilter === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+              <div className="text-[10px] font-semibold uppercase tracking-wide opacity-70">전체 잔액</div>
+              <div className="font-mono text-sm font-bold tnum mt-0.5">{totalBalance.toLocaleString()}</div>
+            </button>
+            {accounts.map(a => {
+              const bal = balanceByAccount.get(a.id) || 0;
+              const active = accountFilter === a.id;
+              return (
+                <button key={a.id}
+                  onClick={() => setAccountFilter(a.id)}
+                  className={`px-3 py-2 rounded-lg border text-left transition-colors min-w-[130px] ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                  <div className={`text-[10px] font-semibold uppercase tracking-wide ${active ? 'opacity-80' : 'text-slate-500'}`}>🏦 {a.name}</div>
+                  <div className={`font-mono text-sm font-bold tnum mt-0.5 ${!active && bal < 0 ? 'text-rose-600' : ''}`}>{bal.toLocaleString()}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="p-3 border-b border-slate-100 bg-white">
-        <QuickCashEntry balances={balances} onSaved={onReload} showToast={showToast} />
+        <QuickCashEntry balances={balances} accounts={accounts} onSaved={onReload} showToast={showToast} />
       </div>
       <div className="flex items-center gap-3 px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500 flex-wrap">
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -12340,13 +12481,17 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
             className={`px-2.5 py-1 text-xs rounded transition-colors ${viewMode === 'group' ? 'bg-slate-800 text-white font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
             title="유형별 그룹">유형별</button>
         </div>
-        <span>{(search || tagFilter !== 'all') ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}</span>
+        <span>
+          {accountFilter !== 'all' && <span className="mr-2 text-blue-600 font-semibold">[{(accounts.find(a=>a.id===accountFilter)||{}).name || '?'}]</span>}
+          {(search || tagFilter !== 'all' || accountFilter !== 'all') ? `${filtered.length}건 / 전체 ${logs.length}` : `전체 ${logs.length}건`}
+        </span>
       </div>
-      <div className="overflow-auto" style={{maxHeight:'calc(100vh - 280px)'}}>
+      <div className="overflow-auto" style={{maxHeight:'calc(100vh - 340px)'}}>
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10 shadow-[0_1px_0_0_#e2e8f0]">
           <tr>
             <th className="px-4 py-2.5 text-left w-28">날짜</th>
+            {accountFilter === 'all' && <th className="px-2 py-2.5 text-left w-24">통장</th>}
             <th className="px-4 py-2.5 text-left w-24">유형</th>
             <th className="px-4 py-2.5 text-right w-32">출금</th>
             <th className="px-4 py-2.5 text-right w-32">입금</th>
@@ -12365,6 +12510,11 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
                 return (
                   <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-2 text-slate-700 text-xs whitespace-nowrap">{l.log_date}</td>
+                    {accountFilter === 'all' && (
+                      <td className="px-2 py-2 text-[10px] text-slate-500 whitespace-nowrap">
+                        {l.account_id ? ((acctById.get(l.account_id) || {}).name || '?') : <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
                     <td className="px-4 py-2">
                       {tag ? (
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
@@ -12391,7 +12541,7 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
+                <tr><td colSpan={colCount} className="py-12 text-center text-slate-400 text-sm">{(search || tagFilter !== 'all' || accountFilter !== 'all') ? '검색 결과 없음' : '통장 기록이 없습니다'}</td></tr>
               )}
             </>
           ) : (
@@ -12404,7 +12554,7 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
                   <React.Fragment key={g.tag}>
                     <tr className="bg-slate-50 border-t-2 border-slate-300 cursor-pointer hover:bg-slate-100"
                       onClick={() => setCollapsed(p => ({...p, [g.tag]: !p[g.tag]}))}>
-                      <td colSpan={8} className="px-4 py-2">
+                      <td colSpan={colCount} className="px-4 py-2">
                         <div className="flex items-center gap-3">
                           <span className="text-slate-500 text-xs w-3 select-none">{isCollapsed ? '▶' : '▼'}</span>
                           <span className={`inline-block px-2.5 py-0.5 rounded text-xs font-semibold ${style.bg} ${style.text}`}>{g.tag}</span>
@@ -12424,6 +12574,11 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [] }) {
                       return (
                         <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
                           <td className="px-4 py-2 text-slate-700 text-xs whitespace-nowrap">{l.log_date}</td>
+                          {accountFilter === 'all' && (
+                            <td className="px-2 py-2 text-[10px] text-slate-500 whitespace-nowrap">
+                              {l.account_id ? ((acctById.get(l.account_id) || {}).name || '?') : <span className="text-slate-300">—</span>}
+                            </td>
+                          )}
                           <td className="px-4 py-2"><span className="text-[10px] text-slate-300">└</span></td>
                           <td className="px-4 py-2 text-right font-mono text-red-600">
                             {l.delta < 0 ? Math.abs(l.delta).toLocaleString() : ''}
@@ -14248,15 +14403,17 @@ const ENTRY_TYPES = [
   { key: 'advance',  label: '선지급',            needVendor: true, cashDir: -1, desc: '미리 보내는 돈 (예치/보증금 등). 거래처 선택 필수' },
   { key: 'etc_in',   label: '잡수입',            needVendor: false, cashDir: +1, freeForm: true, desc: '환불·세금환급·기타 비분류 입금' },
   { key: 'etc_out',  label: '잡지출',            needVendor: false, cashDir: -1, freeForm: true, desc: '기타 비분류 출금' },
+  { key: 'transfer', label: '↔ 계좌 이체',       needVendor: false, cashDir: 0,  isTransfer: true, desc: '내 통장 사이 이체. 총 잔액은 변하지 않음 (리포트·원장 반영 X)' },
 ];
 const ENTRY_TYPE_BY_KEY = Object.fromEntries(ENTRY_TYPES.map(t => [t.key, t]));
 
 // 거래 1건을 유형에 따라 DB에 반영
 async function dbSaveManualEntry(e) {
-  // e = { date, typeKey, manufacturerId, vendorName, amount, memo }
+  // e = { date, typeKey, manufacturerId, vendorName, amount, memo, accountId }
   const t = ENTRY_TYPE_BY_KEY[e.typeKey];
   if (!t) throw new Error('알 수 없는 유형: ' + e.typeKey);
   const amount = e.amount;
+  const accountId = e.accountId || null;
   if (t.key === 'purchase') {
     await dbInsertPayableTransaction({
       manufacturer_id: e.manufacturerId, tx_date: e.date, tx_type: 'purchase',
@@ -14270,6 +14427,7 @@ async function dbSaveManualEntry(e) {
       counterparty: e.vendorName || null,
       entry_type: '지급',
       memo: e.memo || null,
+      account_id: accountId,
     });
     await dbInsertPayableTransaction({
       manufacturer_id: e.manufacturerId, tx_date: e.date, tx_type: 'payment',
@@ -14284,6 +14442,7 @@ async function dbSaveManualEntry(e) {
       counterparty: e.hospitalName || null,
       entry_type: tag,
       memo: e.memo || null,
+      account_id: accountId,
     });
     if (e.expectedId) {
       // 신규: 예상매출 행 수금완료 처리
@@ -14311,6 +14470,7 @@ async function dbSaveManualEntry(e) {
       counterparty: e.vendorName || null,
       entry_type: t.label,
       memo: e.memo || null,
+      account_id: accountId,
     });
     await dbInsertReceivableTransaction({
       manufacturer_id: e.manufacturerId,
@@ -14326,12 +14486,40 @@ async function dbSaveManualEntry(e) {
       counterparty: e.vendorName || null,
       entry_type: '선지급',
       memo: e.memo || null,
+      account_id: accountId,
     });
     await dbInsertPayableTransaction({
       manufacturer_id: e.manufacturerId,
       tx_date: e.date, tx_type: 'payment',
       amount, memo: e.memo || null,
       cash_log_id: cashId,
+    });
+  } else if (t.key === 'transfer') {
+    // 계좌간 이체 — 통장 두 개, transfer_id로 페어링
+    if (!e.fromAccountId || !e.toAccountId) throw new Error('출발/도착 계좌를 모두 선택하세요.');
+    if (e.fromAccountId === e.toAccountId) throw new Error('출발/도착 계좌가 같습니다.');
+    if (amount <= 0) throw new Error('이체 금액은 양수여야 합니다.');
+    const tid = (crypto && crypto.randomUUID) ? crypto.randomUUID()
+      : ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&3|8)).toString(16);}));
+    const fromName = e.fromAccountName || '';
+    const toName = e.toAccountName || '';
+    // 출발
+    await dbInsertCashBalance({
+      log_date: e.date, delta: -amount,
+      counterparty: toName ? `→ ${toName}` : null,
+      entry_type: '이체(출금)',
+      memo: e.memo || null,
+      account_id: e.fromAccountId,
+      transfer_id: tid,
+    });
+    // 도착
+    await dbInsertCashBalance({
+      log_date: e.date, delta: amount,
+      counterparty: fromName ? `← ${fromName}` : null,
+      entry_type: '이체(입금)',
+      memo: e.memo || null,
+      account_id: e.toAccountId,
+      transfer_id: tid,
     });
   } else {
     // 나머지(opex/etc_in/etc_out/그 외) — 통장만
@@ -14342,6 +14530,7 @@ async function dbSaveManualEntry(e) {
       counterparty: e.vendorName || null,
       entry_type: tag,
       memo: e.memo || null,
+      account_id: accountId,
     });
   }
 }
@@ -15289,7 +15478,8 @@ function PayableReportTab({ transactions = [], balances = [], cashLogs = [], arB
     return true;
   };
   const fTx = useMemo(() => transactions.filter(t => (!from && !to) ? true : inRange(t.tx_date)), [transactions, from, to]);
-  const fCash = useMemo(() => cashLogs.filter(c => (!from && !to) ? true : inRange(c.log_date)), [cashLogs, from, to]);
+  // 계좌간 이체(transfer_id 있음)는 리포트에서 제외 — 내 통장 사이 이동일 뿐 수익·지출이 아님
+  const fCash = useMemo(() => cashLogs.filter(c => !c.transfer_id && ((!from && !to) ? true : inRange(c.log_date))), [cashLogs, from, to]);
 
   // 매입성(매입/이월/조정/취소) vs 지급(payment)
   const summary = useMemo(() => {
