@@ -10609,6 +10609,8 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
    ============================================================ */
 function TaxInvoiceTab({ onChanged }) {
   const [rows, setRows] = useState([]);
+  const [posForCheck, setPosForCheck] = useState([]); // 매출 계산서 미발행 진단용 발주
+  const [showMissing, setShowMissing] = useState(false); // 미발행 리스트 펼침 상태
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0,10);
   const [form, setForm] = useState({ kind: 'sale', issue_date: today, party_name: '', hospital_id: null, manufacturer_id: null, amount: '', memo: '', po_id: null, no_po: false });
@@ -10618,11 +10620,51 @@ function TaxInvoiceTab({ onChanged }) {
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const { data } = await sb.from('tax_invoices').select('*').order('issue_date', { ascending: false }).order('created_at', { ascending: false });
-    setRows(data || []);
+    const [tx, po] = await Promise.all([
+      sb.from('tax_invoices').select('*').order('issue_date', { ascending: false }).order('created_at', { ascending: false }).then(r => r.data || []),
+      // 5/29 결산 이후 발주만 대상 (그 이전은 이월 처리됨)
+      sb.from('purchase_orders')
+        .select('id, hospital_id, hospital_name, sale_amount, created_at, po_no, status, is_active')
+        .eq('is_active', true).neq('status', '취소')
+        .gte('created_at', '2026-05-29T00:00:00')
+        .not('hospital_id', 'is', null)
+        .then(r => r.data || []),
+    ]);
+    setRows(tx);
+    setPosForCheck(po);
     setLoading(false);
   }, []);
   useEffect(() => { reload(); }, [reload]);
+
+  // 병원별 매출 계산서 미발행 힌트
+  //  - 5/29 이후 발주 sale_amount 합 vs 5/29 이후 매출 계산서 amount 합
+  //  - 차이 > 0 인 병원 = 아직 안 끊은 게 있을 것으로 추정 (개별 발주 매칭은 미래 신규 발행분부터)
+  const missingSaleByHosp = useMemo(() => {
+    const salesByHosp = new Map();
+    rows.forEach(r => {
+      if (r.kind !== 'sale' || !r.hospital_id) return;
+      if ((r.issue_date || '') <= '2026-05-29') return;
+      salesByHosp.set(r.hospital_id, (salesByHosp.get(r.hospital_id) || 0) + (Number(r.amount) || 0));
+    });
+    const map = new Map();
+    posForCheck.forEach(p => {
+      if (!p.hospital_id) return;
+      const cur = map.get(p.hospital_id) || { hospital_id: p.hospital_id, hospital_name: p.hospital_name || '(병원)', poCount: 0, poSum: 0, poNos: [] };
+      cur.poCount += 1;
+      cur.poSum += Number(p.sale_amount || 0);
+      cur.poNos.push(p.po_no);
+      map.set(p.hospital_id, cur);
+    });
+    const list = [];
+    map.forEach(h => {
+      const invoiced = salesByHosp.get(h.hospital_id) || 0;
+      const diff = h.poSum - invoiced;
+      if (diff > 0) list.push({ ...h, invoiced, diff });
+    });
+    return list.sort((a, b) => b.diff - a.diff);
+  }, [rows, posForCheck]);
+
+  const missingTotal = useMemo(() => missingSaleByHosp.reduce((s, h) => s + h.diff, 0), [missingSaleByHosp]);
 
   // 매입 계산서 + 거래처 + 발행일이 확정되면 관련 발주 자동 추천
   useEffect(() => {
@@ -10756,8 +10798,74 @@ function TaxInvoiceTab({ onChanged }) {
     } catch (e) { alert('매칭 실패: ' + (e.message||e)); }
   };
 
+  // 미발행 힌트 행 클릭 → 매출 폼에 병원 pre-fill (금액은 사용자가 실제로 발행할 계산서 금액대로 입력)
+  const fillFromMissing = (h) => {
+    setForm(p => ({
+      ...p,
+      kind: 'sale',
+      hospital_id: h.hospital_id,
+      manufacturer_id: null,
+      party_name: h.hospital_name,
+      po_id: null, no_po: false,
+    }));
+    setShowMissing(false);
+    // 입력 폼으로 스크롤
+    setTimeout(() => document.querySelector('input[type="date"]')?.scrollIntoView({behavior:'smooth', block:'center'}), 50);
+  };
+
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
+      {/* 매출 계산서 미발행 힌트 */}
+      {missingSaleByHosp.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg overflow-hidden">
+          <button onClick={() => setShowMissing(v => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 hover:bg-amber-100 transition-colors">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-amber-600">⚠</span>
+              <span className="font-semibold text-amber-900">매출 계산서 미발행 발주</span>
+              <span className="text-amber-700">· 병원 {missingSaleByHosp.length}곳 · 예상 미발행액 {missingTotal.toLocaleString()}원</span>
+            </div>
+            <span className="text-amber-600 text-xs">{showMissing ? '접기 ▲' : '펼치기 ▼'}</span>
+          </button>
+          {showMissing && (
+            <div className="border-t border-amber-200 bg-white">
+              <div className="text-[10px] text-slate-500 px-3 py-1.5 bg-slate-50">
+                5/29 결산 이후 발주(sale_amount) 합 &gt; 5/29 이후 매출 계산서 합인 병원. 행 클릭 → 매출 폼에 병원 자동 입력. 정확한 발주-계산서 매칭은 앞으로 신규 발행분부터 됩니다.
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-3 py-1.5 text-left">병원</th>
+                    <th className="px-3 py-1.5 text-center w-16">발주</th>
+                    <th className="px-3 py-1.5 text-right w-32">발주 매출액</th>
+                    <th className="px-3 py-1.5 text-right w-32">발행된 계산서</th>
+                    <th className="px-3 py-1.5 text-right w-32">차이(미발행 추정)</th>
+                    <th className="px-3 py-1.5 text-center w-24"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {missingSaleByHosp.map(h => (
+                    <tr key={h.hospital_id} className="border-t border-slate-100 hover:bg-amber-50">
+                      <td className="px-3 py-1.5 text-slate-800">{h.hospital_name}</td>
+                      <td className="px-3 py-1.5 text-center text-slate-500">{h.poCount}건</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-600">{h.poSum.toLocaleString()}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-emerald-700">{h.invoiced.toLocaleString()}</td>
+                      <td className="px-3 py-1.5 text-right font-mono font-semibold text-amber-700">{h.diff.toLocaleString()}</td>
+                      <td className="px-3 py-1.5 text-center">
+                        <button onClick={() => fillFromMissing(h)}
+                          className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold">
+                          → 입력
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 입력 폼 — 엑셀형 한 줄 */}
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
         <div className="text-xs font-semibold text-slate-700 mb-2">세금계산서 입력</div>
