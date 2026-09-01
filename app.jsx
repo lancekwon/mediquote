@@ -10607,7 +10607,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
 /* ============================================================
    TAX INVOICE TAB — 매출/매입 세금계산서 (엑셀형 입력)
    ============================================================ */
-function TaxInvoiceTab({ onChanged }) {
+function TaxInvoiceTab({ onChanged, initialForm = null, onGoToPo = null }) {
   const [rows, setRows] = useState([]);
   const [posForCheck, setPosForCheck] = useState([]); // 매출 계산서 미발행 진단용 발주
   const [showMissing, setShowMissing] = useState(false); // 미발행 리스트 펼침 상태
@@ -10617,6 +10617,13 @@ function TaxInvoiceTab({ onChanged }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [poCandidates, setPoCandidates] = useState([]);
   const [poCandLoading, setPoCandLoading] = useState(false);
+
+  // 외부(통장 ⚠ 뱃지 등)에서 넘긴 prefill 반영
+  useEffect(() => {
+    if (!initialForm) return;
+    setForm(p => ({ ...p, ...initialForm, memo: p.memo }));
+    setTimeout(() => document.querySelector('input[type="date"]')?.scrollIntoView({behavior:'smooth', block:'center'}), 50);
+  }, [initialForm]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -10914,8 +10921,16 @@ function TaxInvoiceTab({ onChanged }) {
                 {poCandLoading ? (
                   <div className="text-xs text-slate-400 py-2">발주 검색 중…</div>
                 ) : poCandidates.length === 0 ? (
-                  <div className="text-xs text-slate-400 py-2">
-                    최근 60일 내 해당 거래처의 발주가 없습니다. 발주 없이 발생한 매입이면 위 체크박스를 선택하세요.
+                  <div className="text-xs text-slate-500 py-2 flex items-center gap-2 flex-wrap">
+                    <span>최근 60일 내 해당 거래처의 발주가 없습니다.</span>
+                    <span className="text-slate-400">·</span>
+                    <span>발주 없이 발생한 매입이면 위 체크박스 선택.</span>
+                    {onGoToPo && (
+                      <button type="button" onClick={onGoToPo}
+                        className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-semibold ml-1">
+                        → 발주 등록 화면으로
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -12017,6 +12032,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [saleTax, setSaleTax] = useState([]); // 매출 세금계산서 (거래처 받을돈 집계용)
   const [purchaseTax, setPurchaseTax] = useState([]); // 매입 세금계산서 (통장 힌트용)
   const [accounts, setAccounts] = useState([]); // 통장(계좌) 목록
+  const [taxinvPrefill, setTaxinvPrefill] = useState(null); // 통장 뱃지 → 세금계산서 폼 pre-fill
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [hideZero, setHideZero] = useState(true);
@@ -12335,13 +12351,28 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'cashflow' ? (
             <CashflowTab contracts={contracts} hospitals={hospitals} manufacturers={manufacturers} />
           ) : tab === 'taxinv' ? (
-            <TaxInvoiceTab onChanged={reload} />
+            <TaxInvoiceTab onChanged={reload} initialForm={taxinvPrefill} onGoToPo={nav?.poTracking} />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts}
               payTx={transactions} recvTx={arTransactions} purchaseTax={purchaseTax} saleTax={saleTax}
-              manufacturers={manufacturers} hospitals={hospitals} />
+              manufacturers={manufacturers} hospitals={hospitals}
+              onOpenTaxinv={(s) => {
+                // s = { kind:'purchase'|'sale', name, paid, invoiced, diff, ... } — 뱃지 원본 s를 그대로 받되 id 정보를 붙여줘야 함
+                // shortageByLog가 name만 넘겼으므로 id를 다시 찾음
+                const isPurchase = s.kind === 'purchase';
+                const target = isPurchase ? manufacturers.find(m => m.name === s.name) : hospitals.find(h => h.name === s.name);
+                setTaxinvPrefill({
+                  kind: isPurchase ? 'purchase' : 'sale',
+                  party_name: s.name,
+                  manufacturer_id: isPurchase ? (target?.id || null) : null,
+                  hospital_id: !isPurchase ? (target?.id || null) : null,
+                  amount: String(s.diff || ''),
+                });
+                setTab('taxinv');
+              }}
+            />
           )}
         </div>
 
@@ -12436,7 +12467,8 @@ const cashRowDisplay = (l) => {
 };
 
 function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts = [],
-  payTx = [], recvTx = [], purchaseTax = [], saleTax = [], manufacturers = [], hospitals = [] }) {
+  payTx = [], recvTx = [], purchaseTax = [], saleTax = [], manufacturers = [], hospitals = [],
+  onOpenTaxinv }) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('all'); // all | tag명
   const [viewMode, setViewMode] = useState('time'); // time | group
@@ -12657,12 +12689,12 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts =
           <tr>
             <th className="px-4 py-2.5 text-left w-28">날짜</th>
             {accountFilter === 'all' && <th className="px-2 py-2.5 text-left w-24">통장</th>}
-            <th className="px-4 py-2.5 text-left w-24">유형</th>
+            <th className="px-3 py-2.5 text-left w-44">유형</th>
             <th className="px-4 py-2.5 text-right w-32">출금</th>
             <th className="px-4 py-2.5 text-right w-32">입금</th>
             <th className="px-4 py-2.5 text-right w-32">잔액</th>
             <th className="px-4 py-2.5 text-left w-44">거래처</th>
-            <th className="px-4 py-2.5 text-left">메모</th>
+            <th className="px-4 py-2.5 text-left w-64">메모</th>
             <th className="px-4 py-2.5 text-center w-16"></th>
           </tr>
         </thead>
@@ -12680,18 +12712,19 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts =
                         {l.account_id ? ((acctById.get(l.account_id) || {}).name || '?') : <span className="text-slate-300">—</span>}
                       </td>
                     )}
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-1">
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1 whitespace-nowrap">
                         {tag ? (
-                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap ${style.bg} ${style.text}`}>{tag}</span>
                         ) : <span className="text-[11px] text-slate-300">—</span>}
                         {shortageByLog.has(l.id) && (() => {
                           const s = shortageByLog.get(l.id);
                           const label = s.kind === 'purchase' ? '매입 계산서 부족' : '매출 계산서 미발행';
                           return (
-                            <span
-                              title={`${s.name} · 통장 ${s.paid.toLocaleString()} vs 계산서 ${s.invoiced.toLocaleString()} → ${s.diff.toLocaleString()} ${label}`}
-                              className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold cursor-help">⚠ 계산서</span>
+                            <button type="button"
+                              onClick={() => onOpenTaxinv?.(s)}
+                              title={`${s.name} · 통장 ${s.paid.toLocaleString()} vs 계산서 ${s.invoiced.toLocaleString()} → ${s.diff.toLocaleString()} ${label}\n클릭하면 세금계산서 입력으로 이동`}
+                              className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold hover:bg-amber-200 hover:ring-1 hover:ring-amber-400 cursor-pointer whitespace-nowrap">⚠ 계산서</button>
                           );
                         })()}
                       </div>
