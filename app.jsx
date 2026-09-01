@@ -12015,6 +12015,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const [hospitals, setHospitals] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [saleTax, setSaleTax] = useState([]); // 매출 세금계산서 (거래처 받을돈 집계용)
+  const [purchaseTax, setPurchaseTax] = useState([]); // 매입 세금계산서 (통장 힌트용)
   const [accounts, setAccounts] = useState([]); // 통장(계좌) 목록
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -12037,7 +12038,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
   const reload = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [b, t, c, p, ab, at, hosp, ctr, er, st, ac] = await Promise.all([
+      const [b, t, c, p, ab, at, hosp, ctr, er, st, ac, pt] = await Promise.all([
         dbLoadPayableBalances(),
         dbLoadPayableTransactions(),
         dbLoadCashBalanceLog({ limit: 1000 }),
@@ -12049,6 +12050,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
         dbLoadExpectedRevenue(),
         sb.from('tax_invoices').select('manufacturer_id, hospital_id, amount, issue_date').eq('kind', 'sale').then(r => r.data || []),
         dbLoadAccounts(),
+        sb.from('tax_invoices').select('manufacturer_id, amount').eq('kind', 'purchase').then(r => r.data || []),
       ]);
       setBalances(b);
       setTransactions(t);
@@ -12061,6 +12063,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
       setExpectedRev(er);
       setSaleTax(st);
       setAccounts(ac);
+      setPurchaseTax(pt);
     } catch (e) {
       console.error(e);
       showToast('데이터 로드 실패: ' + (e.message || e), 'error');
@@ -12336,7 +12339,9 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
           ) : (
-            <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts} />
+            <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts}
+              payTx={transactions} recvTx={arTransactions} purchaseTax={purchaseTax} saleTax={saleTax}
+              manufacturers={manufacturers} hospitals={hospitals} />
           )}
         </div>
 
@@ -12430,12 +12435,64 @@ const cashRowDisplay = (l) => {
   return { tag: tag || '', counterparty: body, body: '' };
 };
 
-function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts = [] }) {
+function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts = [],
+  payTx = [], recvTx = [], purchaseTax = [], saleTax = [], manufacturers = [], hospitals = [] }) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('all'); // all | tag명
   const [viewMode, setViewMode] = useState('time'); // time | group
   const [collapsed, setCollapsed] = useState({}); // 그룹별 접힘 상태
   const [accountFilter, setAccountFilter] = useState('all'); // all | accountId
+
+  // 세금계산서 누락 힌트 계산 —
+  //   지급 로그(payment) → 그 거래처 총 지급 vs 총 매입 세금계산서. 지급 > 계산서면 계산서 부족.
+  //   수금 로그(collect) → 그 병원 총 수금 vs 총 매출 세금계산서. 수금 > 계산서면 매출 계산서 미발행.
+  const shortageByLog = useMemo(() => {
+    // 1. 로그 id → manufacturer_id (payable payment) / hospital_id (receivable collect)
+    const mfrByLog = new Map();
+    const hospByLog = new Map();
+    payTx.forEach(t => { if (t.cash_log_id && t.manufacturer_id && t.tx_type === 'payment') mfrByLog.set(t.cash_log_id, t.manufacturer_id); });
+    recvTx.forEach(t => { if (t.cash_log_id && t.hospital_id && t.tx_type === 'collect') hospByLog.set(t.cash_log_id, t.hospital_id); });
+
+    // 2. 거래처별 총 지급 vs 총 매입 계산서
+    const payByMfr = new Map(); const taxByMfr = new Map();
+    payTx.forEach(t => { if (t.tx_type === 'payment' && t.manufacturer_id) payByMfr.set(t.manufacturer_id, (payByMfr.get(t.manufacturer_id)||0) + Number(t.amount||0)); });
+    purchaseTax.forEach(t => { if (t.manufacturer_id) taxByMfr.set(t.manufacturer_id, (taxByMfr.get(t.manufacturer_id)||0) + Number(t.amount||0)); });
+    // 3. 병원별 총 수금 vs 총 매출 계산서 (5/29 이후 매출만 — 이월과 대칭)
+    const collByHosp = new Map(); const taxByHosp = new Map();
+    recvTx.forEach(t => { if (t.tx_type === 'collect' && t.hospital_id) collByHosp.set(t.hospital_id, (collByHosp.get(t.hospital_id)||0) + Number(t.amount||0)); });
+    saleTax.forEach(t => {
+      if (!t.hospital_id) return;
+      if ((t.issue_date || '') <= '2026-05-29') return;
+      taxByHosp.set(t.hospital_id, (taxByHosp.get(t.hospital_id)||0) + Number(t.amount||0));
+    });
+
+    // 4. 각 로그별 부족 판단 (여유 1원 이내는 매칭 취급)
+    const m = new Map();
+    logs.forEach(l => {
+      const mfrId = mfrByLog.get(l.id);
+      if (mfrId) {
+        const paid = payByMfr.get(mfrId) || 0;
+        const invoiced = taxByMfr.get(mfrId) || 0;
+        const diff = paid - invoiced;
+        if (diff > 1) {
+          const mfr = manufacturers.find(x => x.id === mfrId);
+          m.set(l.id, { kind:'purchase', name: mfr?.name || '거래처', paid, invoiced, diff });
+        }
+        return;
+      }
+      const hospId = hospByLog.get(l.id);
+      if (hospId) {
+        const collected = collByHosp.get(hospId) || 0;
+        const invoiced = taxByHosp.get(hospId) || 0;
+        const diff = collected - invoiced;
+        if (diff > 1) {
+          const h = hospitals.find(x => x.id === hospId);
+          m.set(l.id, { kind:'sale', name: h?.name || '병원', paid: collected, invoiced, diff });
+        }
+      }
+    });
+    return m;
+  }, [logs, payTx, recvTx, purchaseTax, saleTax, manufacturers, hospitals]);
   // 계좌 필터가 걸린 로그 — 잔액 누적·필터 모두 이 기준
   const acctLogs = useMemo(() => {
     if (accountFilter === 'all') return logs;
@@ -12624,9 +12681,20 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts =
                       </td>
                     )}
                     <td className="px-4 py-2">
-                      {tag ? (
-                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
-                      ) : <span className="text-[11px] text-slate-300">—</span>}
+                      <div className="flex items-center gap-1">
+                        {tag ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${style.bg} ${style.text}`}>{tag}</span>
+                        ) : <span className="text-[11px] text-slate-300">—</span>}
+                        {shortageByLog.has(l.id) && (() => {
+                          const s = shortageByLog.get(l.id);
+                          const label = s.kind === 'purchase' ? '매입 계산서 부족' : '매출 계산서 미발행';
+                          return (
+                            <span
+                              title={`${s.name} · 통장 ${s.paid.toLocaleString()} vs 계산서 ${s.invoiced.toLocaleString()} → ${s.diff.toLocaleString()} ${label}`}
+                              className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold cursor-help">⚠ 계산서</span>
+                          );
+                        })()}
+                      </div>
                     </td>
                     <td className="px-4 py-2 text-right font-mono text-red-600">
                       {l.delta < 0 ? Math.abs(l.delta).toLocaleString() : ''}
