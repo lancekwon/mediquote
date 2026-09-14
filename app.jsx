@@ -12357,7 +12357,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts}
               payTx={transactions} recvTx={arTransactions} purchaseTax={purchaseTax} saleTax={saleTax}
-              manufacturers={manufacturers} hospitals={hospitals}
+              arBalances={arBalances} manufacturers={manufacturers} hospitals={hospitals}
               onOpenTaxinv={(s) => {
                 // s = { kind:'purchase'|'sale', name, paid, invoiced, diff, ... } — 뱃지 원본 s를 그대로 받되 id 정보를 붙여줘야 함
                 // shortageByLog가 name만 넘겼으므로 id를 다시 찾음
@@ -12467,7 +12467,7 @@ const cashRowDisplay = (l) => {
 };
 
 function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts = [],
-  payTx = [], recvTx = [], purchaseTax = [], saleTax = [], manufacturers = [], hospitals = [],
+  payTx = [], recvTx = [], purchaseTax = [], saleTax = [], arBalances = [], manufacturers = [], hospitals = [],
   onOpenTaxinv }) {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('all'); // all | tag명
@@ -12476,8 +12476,10 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts =
   const [accountFilter, setAccountFilter] = useState('all'); // all | accountId
 
   // 세금계산서 누락 힌트 계산 —
-  //   지급 로그(payment) → 그 거래처 총 지급 vs 총 매입 세금계산서. 지급 > 계산서면 계산서 부족.
-  //   수금 로그(collect) → 그 병원 총 수금 vs 총 매출 세금계산서. 수금 > 계산서면 매출 계산서 미발행.
+  //   거래처 원장(v_payable_balance)의 총 매입(opening + 매입 세금계산서) vs 총 지급 대조.
+  //   지급이 매입보다 많으면 = 매입 세금계산서 부족.
+  //   병원 원장(v_receivable_balance)의 총 매출 vs 총 수금 대조.
+  //   수금이 매출보다 많으면 = 매출 계산서 미발행.
   const shortageByLog = useMemo(() => {
     // 1. 로그 id → manufacturer_id (payable payment) / hospital_id (receivable collect)
     const mfrByLog = new Map();
@@ -12485,46 +12487,42 @@ function CashBalanceTable({ logs, onReload, showToast, balances = [], accounts =
     payTx.forEach(t => { if (t.cash_log_id && t.manufacturer_id && t.tx_type === 'payment') mfrByLog.set(t.cash_log_id, t.manufacturer_id); });
     recvTx.forEach(t => { if (t.cash_log_id && t.hospital_id && t.tx_type === 'collect') hospByLog.set(t.cash_log_id, t.hospital_id); });
 
-    // 2. 거래처별 총 지급 vs 총 매입 계산서
-    const payByMfr = new Map(); const taxByMfr = new Map();
-    payTx.forEach(t => { if (t.tx_type === 'payment' && t.manufacturer_id) payByMfr.set(t.manufacturer_id, (payByMfr.get(t.manufacturer_id)||0) + Number(t.amount||0)); });
-    purchaseTax.forEach(t => { if (t.manufacturer_id) taxByMfr.set(t.manufacturer_id, (taxByMfr.get(t.manufacturer_id)||0) + Number(t.amount||0)); });
-    // 3. 병원별 총 수금 vs 총 매출 계산서 (5/29 이후 매출만 — 이월과 대칭)
-    const collByHosp = new Map(); const taxByHosp = new Map();
-    recvTx.forEach(t => { if (t.tx_type === 'collect' && t.hospital_id) collByHosp.set(t.hospital_id, (collByHosp.get(t.hospital_id)||0) + Number(t.amount||0)); });
-    saleTax.forEach(t => {
-      if (!t.hospital_id) return;
-      if ((t.issue_date || '') <= '2026-05-29') return;
-      taxByHosp.set(t.hospital_id, (taxByHosp.get(t.hospital_id)||0) + Number(t.amount||0));
-    });
+    // 2. v_payable_balance → 거래처별 총 매입/지급 (opening + 매입 계산서 포함)
+    const balByMfr = new Map(balances.map(b => [b.manufacturer_id, b]));
+    // 3. v_receivable_balance → 병원별 총 매출/수금
+    const balByHosp = new Map(arBalances.map(b => [b.hospital_id, b]));
 
     // 4. 각 로그별 부족 판단 (여유 1원 이내는 매칭 취급)
     const m = new Map();
     logs.forEach(l => {
       const mfrId = mfrByLog.get(l.id);
       if (mfrId) {
-        const paid = payByMfr.get(mfrId) || 0;
-        const invoiced = taxByMfr.get(mfrId) || 0;
-        const diff = paid - invoiced;
+        const b = balByMfr.get(mfrId);
+        if (!b) return;
+        const purchase = Number(b.total_purchase || 0);
+        const payment = Number(b.total_payment || 0);
+        const diff = payment - purchase; // 지급 > 매입 = 계산서 부족
         if (diff > 1) {
           const mfr = manufacturers.find(x => x.id === mfrId);
-          m.set(l.id, { kind:'purchase', name: mfr?.name || '거래처', paid, invoiced, diff });
+          m.set(l.id, { kind:'purchase', name: mfr?.name || b.manufacturer_name || '거래처', paid: payment, invoiced: purchase, diff });
         }
         return;
       }
       const hospId = hospByLog.get(l.id);
       if (hospId) {
-        const collected = collByHosp.get(hospId) || 0;
-        const invoiced = taxByHosp.get(hospId) || 0;
-        const diff = collected - invoiced;
+        const b = balByHosp.get(hospId);
+        if (!b) return;
+        const invoiced = Number(b.total_invoice || 0);
+        const collected = Number(b.total_collected || 0);
+        const diff = collected - invoiced; // 수금 > 매출 = 계산서 미발행
         if (diff > 1) {
           const h = hospitals.find(x => x.id === hospId);
-          m.set(l.id, { kind:'sale', name: h?.name || '병원', paid: collected, invoiced, diff });
+          m.set(l.id, { kind:'sale', name: h?.name || b.hospital_name || '병원', paid: collected, invoiced, diff });
         }
       }
     });
     return m;
-  }, [logs, payTx, recvTx, purchaseTax, saleTax, manufacturers, hospitals]);
+  }, [logs, payTx, recvTx, balances, arBalances, manufacturers, hospitals]);
   // 계좌 필터가 걸린 로그 — 잔액 누적·필터 모두 이 기준
   const acctLogs = useMemo(() => {
     if (accountFilter === 'all') return logs;
@@ -16402,8 +16400,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     const chks = checklistByPo.get(p.id) || [];
     const chkTotal = chks.length;
     const chkOpen = chks.filter(c => !c.done).length;
+    // 발주 진행 완료 판단: tracking_delivered 체크 OR status='납품완료'(병원관리 저장 삭제 등) OR 취소
     const trackingDone = !!p.tracking_delivered;
-    const allDone = trackingDone; // 발주 진행 = 별도 납품 체크 단일 기준
+    const allDone = trackingDone || p.status === '납품완료' || p.status === '취소';
     const ctr = contracts.find(c => c.id === p.contract_id);
     const hospName = ctr?.hospital_name || p.hospital_name || '(병원 미지정)';
     const firstModel = items[0]?.model_name || items[0]?.item_name || '';
@@ -16746,7 +16745,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       }, delItems);
 
       // 모든 PO 비활성화
-      await Promise.all(list.map(p => dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false })));
+      await Promise.all(list.map(p => dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() })));
       showToast(`${hospName} 발주가 병원관리 납품이력에 등록되었습니다.`);
       reload();
     } catch (e) {
@@ -16796,7 +16795,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         total_amount: grandTotal,
         notes: `발주 진행에서 개별 등록 (${p.po_no || ''})`.trim(),
       }, delItems);
-      await dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false });
+      await dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() });
       showToast(`[${p.po_no || '발주'}] 병원관리 납품이력에 등록됨`);
       reload();
     } catch (e) {
@@ -16851,7 +16850,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
 
       if (remaining.length === 0) {
         // 남은 아이템 없음 → 발주도 납품완료 처리
-        await dbUpdatePurchaseOrder(p.id, { total_amount: 0, status: '납품완료', is_active: false });
+        await dbUpdatePurchaseOrder(p.id, { total_amount: 0, status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() });
         showToast(`[${p.po_no}] 마지막 아이템 저장 · 발주도 납품완료 처리`);
       } else {
         await dbUpdatePurchaseOrder(p.id, { total_amount: newTotal });
