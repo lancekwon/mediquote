@@ -16607,6 +16607,12 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     const seal = (typeof SEAL_BASE64 !== 'undefined') ? SEAL_BASE64 : '';
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    // 합계 금액(수량 × 매출가) 내림차순 정렬 — 비싼 품목이 위로
+    allItems.sort((a, b) => {
+      const ta = (Number(a.it.quantity)||0) * (Number(a.it.sale_price)||0);
+      const tb = (Number(b.it.quantity)||0) * (Number(b.it.sale_price)||0);
+      return tb - ta;
+    });
     let grandTotal = 0;
     const rows = allItems.map(({ po, it }, i) => {
       const qty = Number(it.quantity)||0;
