@@ -16607,11 +16607,23 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     const seal = (typeof SEAL_BASE64 !== 'undefined') ? SEAL_BASE64 : '';
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-    // 합계 금액(수량 × 매출가) 내림차순 정렬 — 비싼 품목이 위로
+    // 정렬: 같은 품목(item_name+model_name)끼리 붙이고, 그룹 순서는 그룹 내 최고 총액 기준.
+    //       그룹 안에서는 총액 내림차순 (할인가 등이 아래로).
+    const groupKey = (it) => `${it.item_name || ''}||${it.model_name || ''}`;
+    const groupMax = new Map();
+    allItems.forEach(({ it }) => {
+      const k = groupKey(it);
+      const t = (Number(it.quantity)||0) * (Number(it.sale_price)||0);
+      if (!groupMax.has(k) || groupMax.get(k) < t) groupMax.set(k, t);
+    });
     allItems.sort((a, b) => {
+      const ka = groupKey(a.it), kb = groupKey(b.it);
+      const ma = groupMax.get(ka), mb = groupMax.get(kb);
+      if (ma !== mb) return mb - ma; // 그룹 최고가 내림차순
+      if (ka !== kb) return ka.localeCompare(kb); // 최고가가 동률이면 이름으로 안정 정렬
       const ta = (Number(a.it.quantity)||0) * (Number(a.it.sale_price)||0);
       const tb = (Number(b.it.quantity)||0) * (Number(b.it.sale_price)||0);
-      return tb - ta;
+      return tb - ta; // 그룹 내부는 총액 내림차순
     });
     let grandTotal = 0;
     const rows = allItems.map(({ po, it }, i) => {
