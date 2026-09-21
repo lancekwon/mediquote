@@ -15303,6 +15303,8 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [detailModal, setDetailModal] = useState(null); // {hospName, items} — 발주 품목 상세 팝업
   const [missingModal, setMissingModal] = useState(null); // {hospName, items} — 매입가 편집
+  const [expandedHosp, setExpandedHosp] = useState(new Set()); // 펼친 병원 id 집합
+  const [dels, setDels] = useState([]); // 기간 내 deliveries (할인 반영용)
   const w = weeks[wi];
 
   // 주 바뀌면 부모에게 통지 (기간 필터 통일용)
@@ -15318,16 +15320,21 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     (async () => {
       try {
         // 발주 created_at 기준 · 취소 제외 (납품완료 포함)
-        const [poData, cl] = await Promise.all([
+        const [poData, cl, dl] = await Promise.all([
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
             .neq('status', '취소')
             .gte('created_at', w.start + 'T00:00:00').lte('created_at', w.end + 'T23:59:59')
             .then(r => r.data || []),
           sb.from('cash_balance_log').select('id, log_date, delta, counterparty, entry_type, memo')
             .gte('log_date', w.start).lte('log_date', w.end).then(r => r.data || []),
+          // 이 주간에 납품(deliveries)된 할인 — 병원별 순이익 계산용
+          sb.from('deliveries')
+            .select('id, hospital_id, delivered_date, discount_items, discount_total, notes')
+            .gte('delivered_date', w.start).lte('delivered_date', w.end)
+            .then(r => r.data || []),
         ]);
-        if (!cancelled) { setPos(poData); setCLogs(cl); }
+        if (!cancelled) { setPos(poData); setCLogs(cl); setDels(dl); }
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -15335,7 +15342,17 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
 
   const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭 병원)';
 
-  // 병원별 매출/매입/이익 + 발주 품목 상세 (발주 아이템 기준)
+  // 병원별 할인 합 (해당 기간 delivered_date의 discount_total 합)
+  const discountByHosp = useMemo(() => {
+    const m = new Map();
+    dels.forEach(d => {
+      if (!d.hospital_id) return;
+      m.set(d.hospital_id, (m.get(d.hospital_id) || 0) + (Number(d.discount_total) || 0));
+    });
+    return m;
+  }, [dels]);
+
+  // 병원별 매출/매입/이익 + 거래처별 세부 (발주 아이템 기준)
   const byHosp = useMemo(() => {
     const m = new Map();
     pos.forEach(p => {
@@ -15345,14 +15362,24 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         name: p.hospital_id ? hospName(p.hospital_id) : (p.hospital_name || '(병원 미배정)'),
         sale: 0, purchase: 0, itemLabels: [], items: [], missingItems: [],
         owners: new Set(),
+        vendors: new Map(), // manufacturer_id → {name, sale, purchase, itemLabels[]}
       };
       if (p.owner) v.owners.add(p.owner);
+      // 거래처별 그룹
+      const vKey = p.manufacturer_id || `__novend__:${p.manufacturer_name || 'unknown'}`;
+      const vg = v.vendors.get(vKey) || {
+        id: p.manufacturer_id || null,
+        name: p.manufacturer_name || '(거래처 미배정)',
+        sale: 0, purchase: 0, itemLabels: [],
+      };
       (p.purchase_order_items || []).forEach(it => {
         const qty = Number(it.quantity) || 0;
         const sp = Number(it.sale_price) || 0;
         const up = Number(it.unit_price) || 0;
         v.sale += sp * qty;
         v.purchase += up * qty;
+        vg.sale += sp * qty;
+        vg.purchase += up * qty;
         v.items.push({
           id: it.id, po_no: p.po_no, po_id: p.id,
           item_name: it.item_name, model_name: it.model_name,
@@ -15365,17 +15392,29 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         });
         const label = [it.item_name, it.model_name].filter(Boolean).join(' ') || '-';
         if (!v.itemLabels.includes(label)) v.itemLabels.push(label);
+        if (!vg.itemLabels.includes(label)) vg.itemLabels.push(label);
       });
+      v.vendors.set(vKey, vg);
       m.set(hid, v);
     });
-    return Array.from(m.values()).map(v => ({
-      ...v,
-      profit: v.sale - v.purchase,
-      missingPrice: v.missingItems.length > 0,
-      itemsText: v.itemLabels.length === 0 ? '' : v.itemLabels[0] + (v.itemLabels.length > 1 ? ` 외 ${v.itemLabels.length - 1}개` : ''),
-      ownerList: Array.from(v.owners),
-    })).sort((a,b) => b.sale - a.sale);
-  }, [pos, hospitals]);
+    return Array.from(m.values()).map(v => {
+      const discount = v.id ? (discountByHosp.get(v.id) || 0) : 0;
+      const grossProfit = v.sale - v.purchase; // 할인 반영 전 (거래처 합)
+      const netProfit = grossProfit - discount; // 병원 순이익
+      return {
+        ...v,
+        vendorList: Array.from(v.vendors.values())
+          .map(vg => ({ ...vg, profit: vg.sale - vg.purchase }))
+          .sort((a,b) => b.sale - a.sale),
+        discount,
+        grossProfit,
+        profit: netProfit,
+        missingPrice: v.missingItems.length > 0,
+        itemsText: v.itemLabels.length === 0 ? '' : v.itemLabels[0] + (v.itemLabels.length > 1 ? ` 외 ${v.itemLabels.length - 1}개` : ''),
+        ownerList: Array.from(v.owners),
+      };
+    }).sort((a,b) => b.sale - a.sale);
+  }, [pos, hospitals, discountByHosp]);
 
   const INCOME_TYPES = ['광고 매출', '수수료', '잡수입'];
   const EXPENSE_TYPES = ['운영비', '잡지출'];
@@ -15387,11 +15426,12 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const totals = useMemo(() => {
     const hospSale = byHosp.reduce((s, h) => s + h.sale, 0);
     const hospPur = byHosp.reduce((s, h) => s + h.purchase, 0);
+    const hospDiscount = byHosp.reduce((s, h) => s + (h.discount || 0), 0);
     const extraIn = extraIncome.reduce((s, x) => s + x.amount, 0);
     const extraOut = extraExpense.reduce((s, x) => s + x.amount, 0);
-    const hospProfit = hospSale - hospPur;
+    const hospProfit = hospSale - hospPur - hospDiscount;
     const net = hospProfit + extraIn - extraOut;
-    return { hospSale, hospPur, hospProfit, extraIn, extraOut, net };
+    return { hospSale, hospPur, hospDiscount, hospProfit, extraIn, extraOut, net };
   }, [byHosp, extraIncome, extraExpense]);
 
   const fmt = (n) => (n || 0).toLocaleString('ko-KR');
@@ -15557,18 +15597,35 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
             <div className="border border-slate-200 rounded overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-500"><tr>
-                  <th className="px-2 py-1.5 text-left">병원명</th>
+                  <th className="px-2 py-1.5 text-left">병원명 / 거래처</th>
                   <th className="px-2 py-1.5 text-right w-28">매출</th>
                   <th className="px-2 py-1.5 text-right w-28">매입</th>
+                  <th className="px-2 py-1.5 text-right w-24">할인</th>
                   <th className="px-2 py-1.5 text-right w-28">이익</th>
                 </tr></thead>
                 <tbody>
                   {byHosp.length === 0 ? (
-                    <tr><td colSpan={4} className="text-center text-slate-400 p-3">이 {periodType === 'month' ? '달' : '주'} 발주 등록된 병원이 없습니다.</td></tr>
-                  ) : byHosp.map((h, i) => (
-                    <tr key={h.id || i} className="border-t border-slate-100 align-top">
+                    <tr><td colSpan={5} className="text-center text-slate-400 p-3">이 {periodType === 'month' ? '달' : '주'} 발주 등록된 병원이 없습니다.</td></tr>
+                  ) : byHosp.map((h, i) => {
+                    const isExpanded = h.id && expandedHosp.has(h.id);
+                    const hasMulti = h.vendorList && h.vendorList.length > 0;
+                    return (
+                    <React.Fragment key={h.id || i}>
+                    <tr className="border-t border-slate-100 align-top">
                       <td className="px-2 py-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
+                          {hasMulti && h.id && (
+                            <button type="button"
+                              onClick={() => setExpandedHosp(prev => {
+                                const s = new Set(prev);
+                                if (s.has(h.id)) s.delete(h.id); else s.add(h.id);
+                                return s;
+                              })}
+                              className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-700 text-[10px]"
+                              title={isExpanded ? '접기' : '거래처별 세부'}>
+                              {isExpanded ? '▼' : '▶'}
+                            </button>
+                          )}
                           {h.ownerList && h.ownerList.map(o => {
                             const c = PO_OWNER_COLOR[o] || { bg:'bg-slate-100', text:'text-slate-600' };
                             return <span key={o} className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold text-center leading-5 ${c.bg} ${c.text}`} title={`담당: ${o}`}>{o}</span>;
@@ -15596,9 +15653,23 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
                         <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.items })}
                           className="font-mono text-rose-700 hover:underline" title="발주 품목 상세">{fmt(h.purchase)}</button>
                       </td>
+                      <td className="px-2 py-2 text-right font-mono text-amber-700 text-[11px]">
+                        {h.discount > 0 ? `-${fmt(h.discount)}` : <span className="text-slate-300">—</span>}
+                      </td>
                       <td className={`px-2 py-2 text-right font-mono font-semibold ${h.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(h.profit)}</td>
                     </tr>
-                  ))}
+                    {isExpanded && h.vendorList.map((v, vi) => (
+                      <tr key={`${h.id}-v${vi}`} className="border-t border-slate-50 bg-slate-50/50 text-[11px]">
+                        <td className="px-2 py-1 pl-8 text-slate-600">└ {v.name}</td>
+                        <td className="px-2 py-1 text-right font-mono text-blue-700">{fmt(v.sale)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-rose-700">{fmt(v.purchase)}</td>
+                        <td className="px-2 py-1 text-right text-slate-300">—</td>
+                        <td className={`px-2 py-1 text-right font-mono ${v.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(v.profit)}</td>
+                      </tr>
+                    ))}
+                    </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -16719,7 +16790,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   };
 
   // 병원 그룹 발주 → deliveries 등록 + PO 목록에서 제거
-  const handleFinalizeToHospital = async (g) => {
+  // deliveryDate: 명세서 모달에서 받은 납품일자 (없으면 오늘)
+  // discountItems: [{memo, amount}, ...] — 할인 여러 개
+  const handleFinalizeToHospital = async (g, deliveryDate = null, discountItems = []) => {
     const list = g.list || [];
     if (list.length === 0) { alert('발주가 없습니다.'); return; }
     const hospName = g.hospName || '—';
@@ -16732,8 +16805,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     list.forEach(p => (p.purchase_order_items || []).forEach(it => allItems.push({ po: p, it })));
     if (allItems.length === 0) { alert('품목이 없습니다.'); return; }
 
+    const discountTotal = discountItems.reduce((s, x) => s + (Number(x.amount)||0), 0);
+    const discountLabel = discountTotal > 0 ? `\n할인: ${discountTotal.toLocaleString()}원 (${discountItems.length}건)` : '';
     if (!confirm(
-      `${hospName}의 발주 ${list.length}건 (품목 ${allItems.length}개)을 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거합니다.\n\n· 병원관리 → 해당 병원 → 납품이력에서 확인 가능\n· 발주 진행 리스트에서 사라집니다 (되돌리기 불가)\n\n계속할까요?`
+      `${hospName}의 발주 ${list.length}건 (품목 ${allItems.length}개)을 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거합니다.${discountLabel}\n\n· 병원관리 → 해당 병원 → 납품이력에서 확인 가능\n· 발주 진행 리스트에서 사라집니다 (되돌리기 불가)\n· PDF 명세서가 함께 인쇄됩니다\n\n계속할까요?`
     )) return;
 
     try {
@@ -16757,20 +16832,25 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         };
       });
       const today = new Date().toISOString().slice(0,10);
+      const delivered = deliveryDate || today;
       const poNos = list.map(p => p.po_no).filter(Boolean).join(', ');
       await dbSaveDelivery({
         hospital_id: hospId,
-        delivered_date: today,
+        delivered_date: delivered,
         doc_no: `PO-BATCH-${today.replace(/-/g,'')}`,
         supply_amount: supplyTotal,
         vat: vatTotal,
         total_amount: grandTotal,
         notes: `발주 진행에서 일괄 등록 (${poNos})`,
+        discount_items: discountItems,
+        discount_total: discountTotal,
       }, delItems);
 
       // 모든 PO 비활성화
       await Promise.all(list.map(p => dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() })));
       showToast(`${hospName} 발주가 병원관리 납품이력에 등록되었습니다.`);
+      // PDF 명세서도 자동 인쇄
+      handleHospitalStatementForGroup(g, delivered, discountTotal);
       reload();
     } catch (e) {
       console.error(e);
@@ -17293,40 +17373,78 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           onChanged={silentReload}
         />
       )}
-      {statementModal && (
+      {statementModal && (() => {
+        const items = statementModal.discountItems || [];
+        const totalDiscount = items.reduce((s, x) => s + (Number(x.amount)||0), 0);
+        const updateItem = (i, patch) => setStatementModal(p => ({...p, discountItems: (p.discountItems||[]).map((x,j)=>j===i?{...x,...patch}:x)}));
+        const addItem = () => setStatementModal(p => ({...p, discountItems: [...(p.discountItems||[]), {memo:'', amount:''}]}));
+        const removeItem = (i) => setStatementModal(p => ({...p, discountItems: (p.discountItems||[]).filter((_,j)=>j!==i)}));
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setStatementModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-100">
-              <div className="font-bold text-slate-900">거래명세서 · 납품일자 입력</div>
+              <div className="font-bold text-slate-900">거래명세서 · 납품일자 · 할인</div>
               <div className="text-xs text-slate-500 mt-1">{statementModal.g?.hospName || ''}</div>
             </div>
-            <div className="p-6 space-y-3">
+            <div className="p-6 space-y-3 overflow-y-auto">
               <label className="block text-xs font-semibold text-slate-600 mb-1">납품일자</label>
               <input type="date" value={statementModal.deliveryDate || ''}
                 onChange={e => setStatementModal(p => ({ ...p, deliveryDate: e.target.value }))}
                 autoFocus
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-              <div className="text-[11px] text-slate-400">이 날짜가 거래명세서의 <b>납품일자</b>에 인쇄됩니다. 발행일자는 오늘로 자동 표시됩니다.</div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1 pt-2">할인 금액 <span className="text-slate-400 font-normal">(선택)</span></label>
-              <input type="text"
-                value={statementModal.discount ? Number(String(statementModal.discount).replace(/[^0-9]/g,'')).toLocaleString('ko-KR') : ''}
-                onChange={e => setStatementModal(p => ({ ...p, discount: e.target.value.replace(/[^0-9]/g,'') }))}
-                placeholder="0"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right tnum focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-              <div className="text-[11px] text-slate-400">입력 시 명세서에 <b>소계 / 할인 / 총 합계</b> 3줄로 표시됩니다.</div>
+              <div className="text-[11px] text-slate-400">이 날짜가 거래명세서의 <b>납품일자</b>에 인쇄됩니다.</div>
+              <div className="pt-2 flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-600">할인 <span className="text-slate-400 font-normal">(선택 · 여러 개 가능)</span></label>
+                <button type="button" onClick={addItem}
+                  className="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700">+ 할인 추가</button>
+              </div>
+              {items.length === 0 && (
+                <div className="text-[11px] text-slate-400 text-center py-2">할인이 없습니다. [+ 할인 추가] 버튼으로 항목을 추가하세요.</div>
+              )}
+              {items.map((it, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input type="text" value={it.memo || ''} onChange={e => updateItem(i, {memo: e.target.value})}
+                    placeholder="할인 내용 (예: 선착순 이벤트)"
+                    className="flex-1 border border-slate-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+                  <input type="text" value={it.amount ? Number(String(it.amount).replace(/[^0-9]/g,'')).toLocaleString('ko-KR') : ''}
+                    onChange={e => updateItem(i, {amount: e.target.value.replace(/[^0-9]/g,'')})}
+                    placeholder="금액"
+                    className="w-32 border border-slate-200 rounded px-2 py-1.5 text-sm text-right tnum focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+                  <button type="button" onClick={() => removeItem(i)}
+                    className="w-7 h-7 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-sm">✕</button>
+                </div>
+              ))}
+              {totalDiscount > 0 && (
+                <div className="text-right text-xs font-semibold text-rose-600 pt-1">총 할인: {totalDiscount.toLocaleString('ko-KR')}</div>
+              )}
             </div>
-            <div className="px-6 py-3 border-t border-slate-100 flex justify-end gap-2">
+            <div className="px-6 py-3 border-t border-slate-100 flex justify-between gap-2">
               <button onClick={() => setStatementModal(null)}
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
-              <button onClick={() => { const { g, deliveryDate, discount } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(g, deliveryDate, Number(discount||0)); }}
-                disabled={!statementModal.deliveryDate}
-                className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
-                📄 출력하기
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => { const { g, deliveryDate } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(g, deliveryDate, totalDiscount); }}
+                  disabled={!statementModal.deliveryDate}
+                  title="PDF만 출력 (DB 저장 X)"
+                  className="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-semibold disabled:opacity-40">
+                  📄 인쇄만
+                </button>
+                <button onClick={() => {
+                    const { g, deliveryDate } = statementModal;
+                    const cleanItems = items.filter(x => (Number(x.amount)||0) > 0).map(x => ({memo: (x.memo||'').trim(), amount: Number(x.amount)||0}));
+                    setStatementModal(null);
+                    handleFinalizeToHospital(g, deliveryDate, cleanItems);
+                  }}
+                  disabled={!statementModal.deliveryDate}
+                  title="PDF 출력 후 병원관리에 저장 · 발주 진행에서 제거"
+                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
+                  📥 인쇄 + 저장
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
       {kakaoModal && (
         <KakaoMessageModal
           vendor={kakaoModal.vendor}
