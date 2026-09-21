@@ -16591,7 +16591,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
 
   // 병원 그룹의 발주 품목 → 거래명세서 PDF (병원용, A4 세로)
   // overrideDeliveryDate: 사용자가 모달에서 입력한 납품일자 (없으면 오늘 날짜 fallback)
-  const handleHospitalStatementForGroup = (g, overrideDeliveryDate = null) => {
+  const handleHospitalStatementForGroup = (g, overrideDeliveryDate = null, discount = 0) => {
     const list = g.list || [];
     if (list.length === 0) { alert('발주가 없습니다.'); return; }
     const allItems = [];
@@ -16684,10 +16684,16 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           <th style="width:130px">합계금액</th>
         </tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr style="background:#fef9c3;font-weight:700;">
-          <td colspan="5" class="r">총 합계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td>
-          <td class="r">${grandTotal.toLocaleString('ko-KR')}</td>
-        </tr></tfoot>
+        <tfoot>
+          ${(Number(discount)||0) > 0 ? `
+          <tr><td colspan="5" class="r" style="padding:5px 6px;">소계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td><td class="r">${grandTotal.toLocaleString('ko-KR')}</td></tr>
+          <tr><td colspan="5" class="r" style="padding:5px 6px;color:#c00;">할인</td><td class="r" style="color:#c00;">-${Number(discount).toLocaleString('ko-KR')}</td></tr>
+          ` : ''}
+          <tr style="background:#fef9c3;font-weight:700;">
+            <td colspan="5" class="r">총 합계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td>
+            <td class="r">${(grandTotal - (Number(discount)||0)).toLocaleString('ko-KR')}</td>
+          </tr>
+        </tfoot>
       </table>
       <script>window.onload=function(){window.print();}<\/script>
       </body></html>`);
@@ -17283,11 +17289,18 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                 autoFocus
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
               <div className="text-[11px] text-slate-400">이 날짜가 거래명세서의 <b>납품일자</b>에 인쇄됩니다. 발행일자는 오늘로 자동 표시됩니다.</div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1 pt-2">할인 금액 <span className="text-slate-400 font-normal">(선택)</span></label>
+              <input type="text"
+                value={statementModal.discount ? Number(String(statementModal.discount).replace(/[^0-9]/g,'')).toLocaleString('ko-KR') : ''}
+                onChange={e => setStatementModal(p => ({ ...p, discount: e.target.value.replace(/[^0-9]/g,'') }))}
+                placeholder="0"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right tnum focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+              <div className="text-[11px] text-slate-400">입력 시 명세서에 <b>소계 / 할인 / 총 합계</b> 3줄로 표시됩니다.</div>
             </div>
             <div className="px-6 py-3 border-t border-slate-100 flex justify-end gap-2">
               <button onClick={() => setStatementModal(null)}
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
-              <button onClick={() => { const { g, deliveryDate } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(g, deliveryDate); }}
+              <button onClick={() => { const { g, deliveryDate, discount } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(g, deliveryDate, Number(discount||0)); }}
                 disabled={!statementModal.deliveryDate}
                 className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
                 📄 출력하기
