@@ -16094,15 +16094,15 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                       {h.poList.length > 0 && (
                         <tr className="border-t border-slate-50 bg-slate-50/30 text-[10px]">
                           <td colSpan={6} className="px-2 py-1 pl-8 text-slate-500">
-                            발주: {h.poList.map(p => (
-                              <span key={p.id} className="inline-flex items-center gap-0.5 mr-1.5">
-                                {p.owner && (() => {
-                                  const c = PO_OWNER_COLOR[p.owner] || { bg:'bg-slate-100', text:'text-slate-600' };
-                                  return <span className={`inline-block w-3.5 h-3.5 rounded-full text-[9px] font-bold text-center leading-[14px] ${c.bg} ${c.text}`}>{p.owner}</span>;
-                                })()}
-                                <span>{p.po_no}</span>
-                              </span>
-                            ))}
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="text-slate-400">발주:</span>
+                              {h.poList.map(p => (
+                                <span key={p.id} className="inline-flex items-center gap-1">
+                                  <EditableOwner po={p} reload={() => setReloadKey(k => k+1)} />
+                                  <span className="text-slate-600">{p.po_no}</span>
+                                </span>
+                              ))}
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -17972,9 +17972,13 @@ function EditableOwner({ po, setPos, reload, showToast }) {
   const save = async (newOwner) => {
     setOpen(false);
     if ((newOwner || '') === (cur || '')) return;
-    setPos(prev => prev.map(x => x.id === po.id ? { ...x, owner: newOwner || null } : x));
+    if (typeof setPos === 'function') {
+      setPos(prev => prev.map(x => x.id === po.id ? { ...x, owner: newOwner || null } : x));
+    }
     try {
       await dbUpdatePurchaseOrder(po.id, { owner: newOwner || null });
+      // setPos 없는 곳(병원별 이익 등)은 저장 성공 후 reload로 반영
+      if (typeof setPos !== 'function') reload && reload();
     } catch (e) {
       showToast && showToast('저장 실패: ' + (e.message || e), 'error');
       reload && reload();
