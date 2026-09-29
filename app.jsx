@@ -16391,7 +16391,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   // App 캐시 변동 시 동기화
   useEffect(() => { if (appHospitals) setHospitals(appHospitals); }, [appHospitals]);
   useEffect(() => { if (appManufacturers) setVendors(appManufacturers); }, [appManufacturers]);
-  const [filter, setFilter] = useState('all'); // all | ongoing | done
+  const [filter, setFilter] = useState('ongoing'); // ongoing | done — 기본은 진행중만
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
