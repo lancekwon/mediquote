@@ -12212,6 +12212,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               { k: 'cash', l: '통장 출납' },
               { k: 'taxinv', l: '세금계산서' },
               { k: 'report', l: '리포트' },
+              { k: 'profit', l: '병원별 이익' },
             ].map(t => (
               <button key={t.k} onClick={() => { setTab(t.k); if (t.k === 'balance' || t.k === 'report' || t.k === 'cashflow') reload(true); }}
                 className={`px-5 py-3 text-sm font-medium transition-colors ${tab === t.k ? 'border-b-2 border-blue-500 text-blue-600 bg-blue-50' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -12354,6 +12355,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             <TaxInvoiceTab onChanged={reload} initialForm={taxinvPrefill} onGoToPo={nav?.poTracking} />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
+          ) : tab === 'profit' ? (
+            <HospitalProfitTab hospitals={hospitals} onOpenHospital={(id, name) => nav?.goToHospital?.(id)} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts}
               payTx={transactions} recvTx={arTransactions} purchaseTax={purchaseTax} saleTax={saleTax}
@@ -15743,6 +15746,280 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
           onClose={() => setMissingModal(null)}
           onSaved={() => { setMissingModal(null); setReloadKey(k => k + 1); }}
         />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   병원별 이익 대시보드 — 시점 무관, 누적 매출·매입·할인·순이익
+   ============================================================ */
+function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
+  const [pos, setPos] = useState([]);
+  const [dels, setDels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [rangeKey, setRangeKey] = useState('all'); // all | 3m | 1y
+  const [showMissingOnly, setShowMissingOnly] = useState(false);
+  const [expanded, setExpanded] = useState(new Set());
+  const [detailModal, setDetailModal] = useState(null); // {hospName, items}
+  const [missingModal, setMissingModal] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const rangeFrom = useMemo(() => {
+    if (rangeKey === 'all') return null;
+    const d = new Date();
+    if (rangeKey === '3m') d.setMonth(d.getMonth() - 3);
+    else if (rangeKey === '1y') d.setFullYear(d.getFullYear() - 1);
+    return d.toISOString().slice(0,10);
+  }, [rangeKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        let poQ = sb.from('purchase_orders')
+          .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+          .neq('status', '취소')
+          .not('hospital_id', 'is', null);
+        let delQ = sb.from('deliveries')
+          .select('id, hospital_id, delivered_date, discount_total, notes');
+        if (rangeFrom) {
+          poQ = poQ.gte('created_at', rangeFrom + 'T00:00:00');
+          delQ = delQ.gte('delivered_date', rangeFrom);
+        }
+        const [poData, dl] = await Promise.all([
+          poQ.then(r => r.data || []),
+          delQ.then(r => r.data || []),
+        ]);
+        if (!cancelled) { setPos(poData); setDels(dl); }
+      } finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [rangeFrom, reloadKey]);
+
+  const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭)';
+
+  const discountByHosp = useMemo(() => {
+    const m = new Map();
+    dels.forEach(d => {
+      if (!d.hospital_id) return;
+      m.set(d.hospital_id, (m.get(d.hospital_id) || 0) + (Number(d.discount_total) || 0));
+    });
+    return m;
+  }, [dels]);
+
+  const byHosp = useMemo(() => {
+    const m = new Map();
+    pos.forEach(p => {
+      if (!p.hospital_id) return;
+      const v = m.get(p.hospital_id) || {
+        id: p.hospital_id,
+        name: hospName(p.hospital_id),
+        sale: 0, purchase: 0,
+        items: [], missingItems: [],
+        vendors: new Map(),
+        poList: [],
+      };
+      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status });
+      const vKey = p.manufacturer_id || `__novend__:${p.manufacturer_name || 'unknown'}`;
+      const vg = v.vendors.get(vKey) || {
+        id: p.manufacturer_id || null,
+        name: p.manufacturer_name || '(거래처 미배정)',
+        sale: 0, purchase: 0, poCount: 0,
+      };
+      vg.poCount += 1;
+      (p.purchase_order_items || []).forEach(it => {
+        const qty = Number(it.quantity) || 0;
+        const sp = Number(it.sale_price) || 0;
+        const up = Number(it.unit_price) || 0;
+        v.sale += sp * qty;
+        v.purchase += up * qty;
+        vg.sale += sp * qty;
+        vg.purchase += up * qty;
+        v.items.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp, unit_price: up });
+        if (qty > 0 && !up) v.missingItems.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp });
+      });
+      v.vendors.set(vKey, vg);
+      m.set(p.hospital_id, v);
+    });
+    return Array.from(m.values()).map(v => {
+      const discount = discountByHosp.get(v.id) || 0;
+      return {
+        ...v,
+        vendorList: Array.from(v.vendors.values()).map(vg => ({ ...vg, profit: vg.sale - vg.purchase })).sort((a,b) => b.sale - a.sale),
+        discount,
+        profit: v.sale - v.purchase - discount,
+        missingPrice: v.missingItems.length > 0,
+      };
+    }).sort((a,b) => b.sale - a.sale);
+  }, [pos, hospitals, discountByHosp]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return byHosp.filter(h => {
+      if (showMissingOnly && !h.missingPrice) return false;
+      if (q && !(h.name || '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [byHosp, search, showMissingOnly]);
+
+  const totals = useMemo(() => {
+    const sale = filtered.reduce((s, h) => s + h.sale, 0);
+    const purchase = filtered.reduce((s, h) => s + h.purchase, 0);
+    const discount = filtered.reduce((s, h) => s + h.discount, 0);
+    return { sale, purchase, discount, profit: sale - purchase - discount };
+  }, [filtered]);
+
+  const fmt = (n) => (n || 0).toLocaleString('ko-KR');
+  const toggleExpand = (id) => setExpanded(prev => {
+    const s = new Set(prev);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    return s;
+  });
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* 요약 카드 */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
+          <div className="text-[10px] text-slate-600 mb-1">총 매출</div>
+          <div className="text-base font-bold font-mono text-blue-700">{fmt(totals.sale)}</div>
+        </div>
+        <div className="bg-rose-50 border border-rose-200 rounded p-3 text-center">
+          <div className="text-[10px] text-slate-600 mb-1">총 매입</div>
+          <div className="text-base font-bold font-mono text-rose-700">{fmt(totals.purchase)}</div>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-center">
+          <div className="text-[10px] text-slate-600 mb-1">총 할인</div>
+          <div className="text-base font-bold font-mono text-amber-700">-{fmt(totals.discount)}</div>
+        </div>
+        <div className={`border rounded p-3 text-center ${totals.profit < 0 ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-200'}`}>
+          <div className="text-[10px] text-slate-600 mb-1">순이익</div>
+          <div className={`text-base font-bold font-mono ${totals.profit < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmt(totals.profit)}</div>
+        </div>
+      </div>
+
+      {/* 필터 */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="병원명 검색"
+          className="flex-1 max-w-sm border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
+        <div className="flex gap-0.5 border border-slate-200 rounded p-0.5 bg-white">
+          {[{k:'all', l:'전체'}, {k:'1y', l:'1년'}, {k:'3m', l:'3개월'}].map(r => (
+            <button key={r.k} onClick={() => setRangeKey(r.k)}
+              className={`px-2.5 py-1 text-xs rounded ${rangeKey === r.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{r.l}</button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1 text-xs text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={showMissingOnly} onChange={e => setShowMissingOnly(e.target.checked)}/>
+          매입가 미입력 병원만
+        </label>
+        <span className="text-xs text-slate-500 ml-auto">{filtered.length}개 병원</span>
+      </div>
+
+      {/* 병원 리스트 */}
+      <div className="border border-slate-200 rounded overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500">
+            <tr>
+              <th className="px-2 py-2 text-left">병원명 / 거래처</th>
+              <th className="px-2 py-2 text-right w-28">매출</th>
+              <th className="px-2 py-2 text-right w-28">매입</th>
+              <th className="px-2 py-2 text-right w-24">할인</th>
+              <th className="px-2 py-2 text-right w-28">순이익</th>
+              <th className="px-2 py-2 text-right w-14">발주</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} className="text-center text-slate-400 p-6">불러오는 중…</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={6} className="text-center text-slate-400 p-6">해당하는 병원이 없습니다.</td></tr>
+            ) : filtered.map(h => {
+              const isExp = expanded.has(h.id);
+              return (
+                <React.Fragment key={h.id}>
+                  <tr className="border-t border-slate-100 hover:bg-slate-50">
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" onClick={() => toggleExpand(h.id)}
+                          className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-700 text-[10px]">
+                          {isExp ? '▼' : '▶'}
+                        </button>
+                        <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
+                          className="text-blue-600 hover:underline font-medium">{h.name}</button>
+                        {h.missingPrice && (
+                          <button type="button" onClick={() => setMissingModal({ hospName: h.name, items: h.missingItems })}
+                            className="text-[10px] text-rose-600 font-semibold hover:bg-rose-50 rounded px-1 py-0.5" title="클릭하여 매입가 입력">
+                            ⚠ 미입력 {h.missingItems.length}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.items })}
+                        className="font-mono text-blue-700 hover:underline">{fmt(h.sale)}</button>
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.items })}
+                        className="font-mono text-rose-700 hover:underline">{fmt(h.purchase)}</button>
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono text-amber-700 text-[11px]">
+                      {h.discount > 0 ? `-${fmt(h.discount)}` : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className={`px-2 py-2 text-right font-mono font-semibold ${h.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(h.profit)}</td>
+                    <td className="px-2 py-2 text-right text-slate-500">{h.poList.length}</td>
+                  </tr>
+                  {isExp && (
+                    <>
+                      {h.vendorList.map((v, vi) => (
+                        <tr key={`${h.id}-v${vi}`} className="border-t border-slate-50 bg-slate-50/50 text-[11px]">
+                          <td className="px-2 py-1 pl-8 text-slate-600">└ {v.name}</td>
+                          <td className="px-2 py-1 text-right font-mono text-blue-700">{fmt(v.sale)}</td>
+                          <td className="px-2 py-1 text-right font-mono text-rose-700">{fmt(v.purchase)}</td>
+                          <td className="px-2 py-1 text-right text-slate-300">—</td>
+                          <td className={`px-2 py-1 text-right font-mono ${v.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(v.profit)}</td>
+                          <td className="px-2 py-1 text-right text-slate-500">{v.poCount}</td>
+                        </tr>
+                      ))}
+                      {h.poList.length > 0 && (
+                        <tr className="border-t border-slate-50 bg-slate-50/30 text-[10px]">
+                          <td colSpan={6} className="px-2 py-1 pl-8 text-slate-500">
+                            발주: {h.poList.map(p => p.po_no).join(', ')}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+          {filtered.length > 0 && (
+            <tfoot className="bg-slate-50 font-semibold sticky bottom-0">
+              <tr>
+                <td className="px-2 py-2 text-right text-slate-600">합계</td>
+                <td className="px-2 py-2 text-right font-mono text-blue-700">{fmt(totals.sale)}</td>
+                <td className="px-2 py-2 text-right font-mono text-rose-700">{fmt(totals.purchase)}</td>
+                <td className="px-2 py-2 text-right font-mono text-amber-700">-{fmt(totals.discount)}</td>
+                <td className={`px-2 py-2 text-right font-mono ${totals.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(totals.profit)}</td>
+                <td className="px-2 py-2 text-right text-slate-500">{filtered.reduce((s,h)=>s+h.poList.length,0)}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <div className="text-[10px] text-slate-500">※ 발주 등록일 기준 · 취소 제외 (준비중·발주완료·납품완료 모두 포함) · 매입가 0원 발주는 이익이 매출과 같게 표시됨 · 할인은 병원관리 저장된 것만 반영</div>
+
+      {detailModal && (
+        <PoDetailModal hospName={detailModal.hospName} items={detailModal.items} onClose={() => setDetailModal(null)} />
+      )}
+      {missingModal && (
+        <MissingPriceModal hospName={missingModal.hospName} items={missingModal.items}
+          onClose={() => setMissingModal(null)}
+          onSaved={(n) => { setMissingModal(null); setReloadKey(k => k+1); }} />
       )}
     </div>
   );
