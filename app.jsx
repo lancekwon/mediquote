@@ -15768,6 +15768,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
   const [expanded, setExpanded] = useState(new Set());
   const [detailModal, setDetailModal] = useState(null); // {hospName, items}
   const [missingModal, setMissingModal] = useState(null);
+  const [moveModal, setMoveModal] = useState(null); // { hosp, targetYm }
   const [reloadKey, setReloadKey] = useState(0);
 
   const { rangeFrom, rangeTo, ymLabel } = useMemo(() => {
@@ -15798,21 +15799,42 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
     setLoading(true);
     (async () => {
       try {
-        const [poData, dl] = await Promise.all([
+        // report_month가 있으면 그 값, 없으면 created_at/delivered_date로 기간 필터
+        // Supabase는 or 조건으로 두 케이스 함께 조회
+        const [poReport, poOrig, dlReport, dlOrig] = await Promise.all([
+          // report_month가 이 월인 발주 (다른 달에서 옮겨온 것)
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
             .neq('status', '취소')
             .not('hospital_id', 'is', null)
+            .eq('report_month', rangeFrom)
+            .then(r => r.data || []),
+          // report_month가 없고 created_at이 이 월인 발주
+          sb.from('purchase_orders')
+            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .neq('status', '취소')
+            .not('hospital_id', 'is', null)
+            .is('report_month', null)
             .gte('created_at', rangeFrom + 'T00:00:00')
             .lte('created_at', rangeTo + 'T23:59:59')
             .then(r => r.data || []),
+          // report_month가 이 월인 deliveries
           sb.from('deliveries')
-            .select('id, hospital_id, delivered_date, discount_total, notes')
+            .select('id, hospital_id, delivered_date, report_month, discount_total, notes')
+            .eq('report_month', rangeFrom)
+            .then(r => r.data || []),
+          // report_month가 없고 delivered_date가 이 월인 deliveries
+          sb.from('deliveries')
+            .select('id, hospital_id, delivered_date, report_month, discount_total, notes')
+            .is('report_month', null)
             .gte('delivered_date', rangeFrom)
             .lte('delivered_date', rangeTo)
             .then(r => r.data || []),
         ]);
-        if (!cancelled) { setPos(poData); setDels(dl); }
+        if (!cancelled) {
+          setPos([...poReport, ...poOrig]);
+          setDels([...dlReport, ...dlOrig]);
+        }
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -15841,9 +15863,11 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         vendors: new Map(),
         poList: [],
         owners: new Set(),
+        movedCount: 0,
       };
       if (p.owner) v.owners.add(p.owner);
-      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status, owner: p.owner });
+      if (p.report_month) v.movedCount += 1;
+      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, report_month: p.report_month, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status, owner: p.owner });
       const vKey = p.manufacturer_id || `__novend__:${p.manufacturer_name || 'unknown'}`;
       const vg = v.vendors.get(vKey) || {
         id: p.manufacturer_id || null,
@@ -16023,6 +16047,16 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                         })}
                         <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
                           className="text-blue-600 hover:underline font-medium">{h.name}</button>
+                        {h.movedCount > 0 && (
+                          <span className="text-[10px] text-purple-600 bg-purple-50 rounded px-1 py-0.5 font-semibold" title={`${h.movedCount}건 다른 달에서 이동됨`}>
+                            ↺ {h.movedCount}
+                          </span>
+                        )}
+                        <button type="button" onClick={() => setMoveModal({ hosp: h, targetYm: '' })}
+                          className="text-[10px] text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded px-1 py-0.5"
+                          title="이 병원의 발주·할인을 다른 달로 이동">
+                          📅 이동
+                        </button>
                         {h.missingPrice && (
                           <button type="button" onClick={() => setMissingModal({ hospName: h.name, items: h.missingItems })}
                             className="text-[10px] text-rose-600 font-semibold hover:bg-rose-50 rounded px-1 py-0.5" title="클릭하여 매입가 입력">
@@ -16102,6 +16136,96 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           onClose={() => setMissingModal(null)}
           onSaved={(n) => { setMissingModal(null); setReloadKey(k => k+1); }} />
       )}
+      {moveModal && (
+        <MoveMonthModal
+          hosp={moveModal.hosp}
+          currentYm={ymLabel}
+          currentRangeFrom={rangeFrom}
+          currentRangeTo={rangeTo}
+          onClose={() => setMoveModal(null)}
+          onSaved={() => { setMoveModal(null); setReloadKey(k => k+1); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// 병원의 이번 달 발주·할인을 다른 달로 이동 (report_month 세팅)
+function MoveMonthModal({ hosp, currentYm, currentRangeFrom, currentRangeTo, onClose, onSaved }) {
+  const [targetYm, setTargetYm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const isRestore = targetYm === '__restore__';
+
+  const handleSave = async () => {
+    if (!targetYm) return;
+    setSaving(true);
+    try {
+      // 이동 대상: 이 병원의 이번 달 표시된 발주 + 이번 달 표시된 deliveries
+      // 조건: (report_month=currentRangeFrom) OR (report_month IS NULL AND created_at 이 이 월)
+      const targetDate = isRestore ? null : `${targetYm}-01`;
+
+      // 1) purchase_orders — report_month가 이번 달인 것들 + 없고 created_at 이번 달인 것들
+      const [poByRm, poByCa] = await Promise.all([
+        sb.from('purchase_orders').select('id').eq('hospital_id', hosp.id).eq('report_month', currentRangeFrom).then(r => (r.data||[]).map(x => x.id)),
+        sb.from('purchase_orders').select('id').eq('hospital_id', hosp.id).is('report_month', null)
+          .gte('created_at', currentRangeFrom + 'T00:00:00').lte('created_at', currentRangeTo + 'T23:59:59').then(r => (r.data||[]).map(x => x.id)),
+      ]);
+      const poIds = [...poByRm, ...poByCa];
+      if (poIds.length > 0) {
+        await sb.from('purchase_orders').update({ report_month: targetDate }).in('id', poIds);
+      }
+
+      // 2) deliveries — 동일 로직
+      const [dlByRm, dlByDd] = await Promise.all([
+        sb.from('deliveries').select('id').eq('hospital_id', hosp.id).eq('report_month', currentRangeFrom).then(r => (r.data||[]).map(x => x.id)),
+        sb.from('deliveries').select('id').eq('hospital_id', hosp.id).is('report_month', null)
+          .gte('delivered_date', currentRangeFrom).lte('delivered_date', currentRangeTo).then(r => (r.data||[]).map(x => x.id)),
+      ]);
+      const dlIds = [...dlByRm, ...dlByDd];
+      if (dlIds.length > 0) {
+        await sb.from('deliveries').update({ report_month: targetDate }).in('id', dlIds);
+      }
+
+      onSaved && onSaved();
+    } catch (e) {
+      alert('이동 실패: ' + (e.message || e));
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b border-slate-100">
+          <div className="font-bold text-slate-900">📅 리포트 월 이동</div>
+          <div className="text-xs text-slate-500 mt-1">{hosp.name}</div>
+        </div>
+        <div className="p-6 space-y-3">
+          <div className="text-xs text-slate-600">
+            현재 <b>{currentYm}</b> · 발주 {hosp.poList.length}건 · 매출 {(hosp.sale||0).toLocaleString()}원
+          </div>
+          <div className="text-xs text-slate-500">
+            원본 등록일(created_at)은 유지되고 리포트에서만 표시 월이 바뀝니다.
+          </div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1 pt-2">어느 달로 옮길까요?</label>
+          <input type="month" value={isRestore ? '' : targetYm}
+            onChange={e => setTargetYm(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"/>
+          <div className="text-[11px] text-slate-400">위 입력이 실제 원본 날짜와 같은 월이면 이동 표시가 사라집니다.</div>
+          <div className="pt-2 border-t border-slate-100">
+            <button type="button" onClick={() => setTargetYm('__restore__')}
+              className={`w-full text-left px-3 py-2 rounded text-sm ${isRestore ? 'bg-slate-100 text-slate-800 font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              ↺ 원본 날짜로 원복 (report_month 삭제)
+            </button>
+          </div>
+        </div>
+        <div className="px-6 py-3 border-t border-slate-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
+          <button onClick={handleSave} disabled={!targetYm || saving}
+            className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-500 text-white rounded font-semibold disabled:opacity-40">
+            {saving ? '이동 중…' : (isRestore ? '↺ 원복' : '📅 이동')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
