@@ -15759,45 +15759,64 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
   const [dels, setDels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [rangeKey, setRangeKey] = useState('all'); // all | 3m | 1y
+  // 월 선택 (YYYY-MM). 기본: 이번 달
+  const [ym, setYm] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  });
   const [showMissingOnly, setShowMissingOnly] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
   const [detailModal, setDetailModal] = useState(null); // {hospName, items}
   const [missingModal, setMissingModal] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const rangeFrom = useMemo(() => {
-    if (rangeKey === 'all') return null;
+  const { rangeFrom, rangeTo, ymLabel } = useMemo(() => {
+    const [y, m] = ym.split('-').map(Number);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    // 다음 달 1일 - 1일 = 이번 달 말일
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${y}-${String(m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    return { rangeFrom: from, rangeTo: to, ymLabel: `${y}년 ${m}월` };
+  }, [ym]);
+
+  const shiftMonth = (delta) => {
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setYm(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  };
+  const goThisMonth = () => {
     const d = new Date();
-    if (rangeKey === '3m') d.setMonth(d.getMonth() - 3);
-    else if (rangeKey === '1y') d.setFullYear(d.getFullYear() - 1);
-    return d.toISOString().slice(0,10);
-  }, [rangeKey]);
+    setYm(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  };
+  const isThisMonth = useMemo(() => {
+    const d = new Date();
+    return ym === `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }, [ym]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     (async () => {
       try {
-        let poQ = sb.from('purchase_orders')
-          .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
-          .neq('status', '취소')
-          .not('hospital_id', 'is', null);
-        let delQ = sb.from('deliveries')
-          .select('id, hospital_id, delivered_date, discount_total, notes');
-        if (rangeFrom) {
-          poQ = poQ.gte('created_at', rangeFrom + 'T00:00:00');
-          delQ = delQ.gte('delivered_date', rangeFrom);
-        }
         const [poData, dl] = await Promise.all([
-          poQ.then(r => r.data || []),
-          delQ.then(r => r.data || []),
+          sb.from('purchase_orders')
+            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .neq('status', '취소')
+            .not('hospital_id', 'is', null)
+            .gte('created_at', rangeFrom + 'T00:00:00')
+            .lte('created_at', rangeTo + 'T23:59:59')
+            .then(r => r.data || []),
+          sb.from('deliveries')
+            .select('id, hospital_id, delivered_date, discount_total, notes')
+            .gte('delivered_date', rangeFrom)
+            .lte('delivered_date', rangeTo)
+            .then(r => r.data || []),
         ]);
         if (!cancelled) { setPos(poData); setDels(dl); }
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [rangeFrom, reloadKey]);
+  }, [rangeFrom, rangeTo, reloadKey]);
 
   const hospName = (id) => hospitals.find(h => h.id === id)?.name || '(미매칭)';
 
@@ -15821,8 +15840,10 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         items: [], missingItems: [],
         vendors: new Map(),
         poList: [],
+        owners: new Set(),
       };
-      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status });
+      if (p.owner) v.owners.add(p.owner);
+      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status, owner: p.owner });
       const vKey = p.manufacturer_id || `__novend__:${p.manufacturer_name || 'unknown'}`;
       const vg = v.vendors.get(vKey) || {
         id: p.manufacturer_id || null,
@@ -15849,12 +15870,34 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       return {
         ...v,
         vendorList: Array.from(v.vendors.values()).map(vg => ({ ...vg, profit: vg.sale - vg.purchase })).sort((a,b) => b.sale - a.sale),
+        ownerList: Array.from(v.owners),
         discount,
         profit: v.sale - v.purchase - discount,
         missingPrice: v.missingItems.length > 0,
       };
     }).sort((a,b) => b.sale - a.sale);
   }, [pos, hospitals, discountByHosp]);
+
+  // 담당자별 요약 (owner 지정된 발주만)
+  //   - 병원에 담당자 여러 명이 붙어있으면 그 병원의 할인은 균등 배분
+  const byOwner = useMemo(() => {
+    const m = new Map();
+    byHosp.forEach(h => {
+      // 담당자 없는 병원 → 담당자별 집계에서 제외 (아래 '(미지정)' 처리)
+      const owners = h.ownerList.length > 0 ? h.ownerList : ['(미지정)'];
+      const share = 1 / owners.length;
+      owners.forEach(o => {
+        const cur = m.get(o) || { owner: o, sale: 0, purchase: 0, discount: 0, hospCount: 0 };
+        cur.sale += h.sale * share;
+        cur.purchase += h.purchase * share;
+        cur.discount += h.discount * share;
+        cur.hospCount += 1;
+        m.set(o, cur);
+      });
+    });
+    return Array.from(m.values()).map(x => ({ ...x, profit: x.sale - x.purchase - x.discount }))
+      .sort((a,b) => b.profit - a.profit);
+  }, [byHosp]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -15901,17 +15944,43 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         </div>
       </div>
 
-      {/* 필터 */}
+      {/* 담당자별 요약 카드 */}
+      {byOwner.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {byOwner.map(o => {
+            const c = PO_OWNER_COLOR[o.owner] || { bg:'bg-slate-100', text:'text-slate-600', ring:'ring-slate-300' };
+            return (
+              <div key={o.owner} className={`flex-1 min-w-[180px] rounded-lg p-3 border-2 ${o.owner==='(미지정)' ? 'bg-slate-50 border-slate-200' : `${c.bg} border-${c.ring.replace('ring-','')}`}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${o.owner==='(미지정)' ? 'bg-slate-200 text-slate-500' : `${c.bg.replace('100','200')} ${c.text}`}`}>{o.owner}</span>
+                  <span className="text-[10px] text-slate-600">{o.hospCount}개 병원</span>
+                </div>
+                <div className="text-[10px] text-slate-500">매출 <span className="font-mono text-slate-700">{fmt(Math.round(o.sale))}</span></div>
+                <div className="text-[10px] text-slate-500">매입 <span className="font-mono text-slate-700">{fmt(Math.round(o.purchase))}</span></div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  순이익 <span className={`font-mono font-bold text-sm ${o.profit < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmt(Math.round(o.profit))}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 월 선택 + 필터 */}
       <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1 border border-slate-200 rounded bg-white">
+          <button onClick={() => shiftMonth(-1)} className="px-2 py-1 text-slate-600 hover:bg-slate-50 text-sm" title="이전 달">◀</button>
+          <input type="month" value={ym} onChange={e => e.target.value && setYm(e.target.value)}
+            className="px-2 py-1 text-sm border-0 focus:outline-none tnum w-32"/>
+          <button onClick={() => shiftMonth(1)} className="px-2 py-1 text-slate-600 hover:bg-slate-50 text-sm" title="다음 달">▶</button>
+        </div>
+        {!isThisMonth && (
+          <button onClick={goThisMonth} className="px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 rounded">이번 달</button>
+        )}
+        <span className="text-sm font-semibold text-slate-700">{ymLabel}</span>
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="병원명 검색"
           className="flex-1 max-w-sm border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"/>
-        <div className="flex gap-0.5 border border-slate-200 rounded p-0.5 bg-white">
-          {[{k:'all', l:'전체'}, {k:'1y', l:'1년'}, {k:'3m', l:'3개월'}].map(r => (
-            <button key={r.k} onClick={() => setRangeKey(r.k)}
-              className={`px-2.5 py-1 text-xs rounded ${rangeKey === r.k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{r.l}</button>
-          ))}
-        </div>
         <label className="flex items-center gap-1 text-xs text-slate-600 cursor-pointer">
           <input type="checkbox" checked={showMissingOnly} onChange={e => setShowMissingOnly(e.target.checked)}/>
           매입가 미입력 병원만
@@ -15943,11 +16012,15 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                 <React.Fragment key={h.id}>
                   <tr className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-2 py-2">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <button type="button" onClick={() => toggleExpand(h.id)}
                           className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-700 text-[10px]">
                           {isExp ? '▼' : '▶'}
                         </button>
+                        {h.ownerList && h.ownerList.map(o => {
+                          const c = PO_OWNER_COLOR[o] || { bg:'bg-slate-100', text:'text-slate-600' };
+                          return <span key={o} className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold text-center leading-5 ${c.bg} ${c.text}`} title={`담당: ${o}`}>{o}</span>;
+                        })}
                         <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
                           className="text-blue-600 hover:underline font-medium">{h.name}</button>
                         {h.missingPrice && (
@@ -15987,7 +16060,15 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                       {h.poList.length > 0 && (
                         <tr className="border-t border-slate-50 bg-slate-50/30 text-[10px]">
                           <td colSpan={6} className="px-2 py-1 pl-8 text-slate-500">
-                            발주: {h.poList.map(p => p.po_no).join(', ')}
+                            발주: {h.poList.map(p => (
+                              <span key={p.id} className="inline-flex items-center gap-0.5 mr-1.5">
+                                {p.owner && (() => {
+                                  const c = PO_OWNER_COLOR[p.owner] || { bg:'bg-slate-100', text:'text-slate-600' };
+                                  return <span className={`inline-block w-3.5 h-3.5 rounded-full text-[9px] font-bold text-center leading-[14px] ${c.bg} ${c.text}`}>{p.owner}</span>;
+                                })()}
+                                <span>{p.po_no}</span>
+                              </span>
+                            ))}
                           </td>
                         </tr>
                       )}
