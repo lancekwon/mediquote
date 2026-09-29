@@ -15880,7 +15880,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
   });
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
       {/* 요약 카드 */}
       <div className="grid grid-cols-4 gap-2">
         <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
