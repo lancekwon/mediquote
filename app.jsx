@@ -17906,9 +17906,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
               <div className="flex gap-2">
                 <button onClick={() => { const { g, deliveryDate } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(g, deliveryDate, totalDiscount); }}
                   disabled={!statementModal.deliveryDate}
-                  title="PDF만 출력 (DB 저장 X)"
+                  title="PDF 저장만 (DB 저장 X) · 인쇄 창에서 '대상' → 'PDF로 저장' 선택"
                   className="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-semibold disabled:opacity-40">
-                  📄 인쇄만
+                  📄 PDF 저장
                 </button>
                 <button onClick={() => {
                     const { g, deliveryDate } = statementModal;
@@ -17917,9 +17917,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                     handleFinalizeToHospital(g, deliveryDate, cleanItems);
                   }}
                   disabled={!statementModal.deliveryDate}
-                  title="PDF 출력 후 병원관리에 저장 · 발주 진행에서 제거"
+                  title="PDF 저장 + 병원관리에 저장 · 발주 진행에서 제거"
                   className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
-                  📥 인쇄 + 저장
+                  📥 PDF + 병원관리 저장
                 </button>
               </div>
             </div>
