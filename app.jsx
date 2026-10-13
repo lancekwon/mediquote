@@ -15825,7 +15825,9 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
         purchaseStatus = 'ok'; purchaseLabel = `✅ ${invSum.toLocaleString()}`; purchaseBadge = 'emerald';
       } else {
         const diff = invSum - purchaseAmount;
-        purchaseStatus = 'mismatch'; purchaseLabel = `⚠ ${diff > 0 ? '+' : ''}${diff.toLocaleString()}`; purchaseBadge = 'rose';
+        purchaseStatus = 'mismatch';
+        purchaseLabel = `⚠ ${invSum.toLocaleString()} (${diff > 0 ? '+' : ''}${diff.toLocaleString()})`;
+        purchaseBadge = 'rose';
       }
       const poRow = { ...p, invs, invSum, purchaseStatus, purchaseLabel, purchaseBadge };
 
