@@ -15790,8 +15790,8 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
     return () => { cancelled = true; };
   }, []);
 
-  // === 발주별 상태 분석 (한 발주 = 한 행) ===
-  const rows = useMemo(() => {
+  // === 발주별 매입 상태 + 병원별 그룹 ===
+  const grouped = useMemo(() => {
     // 매입 세금계산서 매칭: po_id로 그룹
     const invoiceByPo = new Map();
     purchaseTax.forEach(t => {
@@ -15800,21 +15800,18 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
       invoiceByPo.get(t.po_id).push(t);
     });
 
-    // 매출 세금계산서 병원별 집계 (po_id 없음)
+    // 매출 세금계산서 병원별 집계
     const salesByHosp = new Map();
     saleTax.forEach(t => {
       if (!t.hospital_id) return;
-      const cur = salesByHosp.get(t.hospital_id) || 0;
-      salesByHosp.set(t.hospital_id, cur + Number(t.amount||0));
-    });
-    const poSaleByHosp = new Map();
-    pos.forEach(p => {
-      if (!p.hospital_id) return;
-      poSaleByHosp.set(p.hospital_id, (poSaleByHosp.get(p.hospital_id)||0) + Number(p.sale_amount||0));
+      salesByHosp.set(t.hospital_id, (salesByHosp.get(t.hospital_id)||0) + Number(t.amount||0));
     });
 
-    return pos.map(p => {
-      // 매입 상태
+    // 발주를 병원별로 그룹
+    const hospMap = new Map();
+    pos.forEach(p => {
+      if (!p.hospital_id) return;
+      // 각 발주의 매입 상태 계산
       const invs = invoiceByPo.get(p.id) || [];
       const invSum = invs.reduce((s,t)=>s+Number(t.amount||0),0);
       const purchaseAmount = Number(p.total_amount||0);
@@ -15830,62 +15827,74 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
         const diff = invSum - purchaseAmount;
         purchaseStatus = 'mismatch'; purchaseLabel = `⚠ ${diff > 0 ? '+' : ''}${diff.toLocaleString()}`; purchaseBadge = 'rose';
       }
+      const poRow = { ...p, invs, invSum, purchaseStatus, purchaseLabel, purchaseBadge };
 
-      // 매출 상태 (병원 단위 추정)
-      const hospPoSale = poSaleByHosp.get(p.hospital_id) || 0;
-      const hospSaleTax = salesByHosp.get(p.hospital_id) || 0;
-      const saleAmount = Number(p.sale_amount||0);
-      let saleStatus, saleLabel, saleBadge;
-      if (saleAmount === 0) {
-        saleStatus = 'na'; saleLabel = '매출액 0'; saleBadge = 'slate';
-      } else if (hospSaleTax >= hospPoSale - 1) {
-        saleStatus = 'ok'; saleLabel = '✅ 발행'; saleBadge = 'emerald';
-      } else {
-        const diff = hospPoSale - hospSaleTax;
-        saleStatus = 'wait'; saleLabel = `📝 미발행 (병원 ${diff.toLocaleString()})`; saleBadge = 'rose';
-      }
-
-      const isDone = (purchaseStatus === 'ok' || purchaseStatus === 'na') && (saleStatus === 'ok' || saleStatus === 'na');
-      return {
-        ...p,
-        invs,
-        invSum,
-        purchaseStatus, purchaseLabel, purchaseBadge,
-        saleStatus, saleLabel, saleBadge,
-        isDone,
-        daysElapsed: Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000),
+      const g = hospMap.get(p.hospital_id) || {
+        hospital_id: p.hospital_id,
+        name: p.hospital_name || '(병원)',
+        pos: [],
+        saleTotal: 0,
       };
-    }).sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
+      g.pos.push(poRow);
+      g.saleTotal += Number(p.sale_amount||0);
+      hospMap.set(p.hospital_id, g);
+    });
+
+    // 병원별 매출 계산서 집계 + 상태 뱃지
+    return Array.from(hospMap.values()).map(g => {
+      const invoiceSaleTotal = salesByHosp.get(g.hospital_id) || 0;
+      const diff = g.saleTotal - invoiceSaleTotal;
+      let saleStatus, saleLabel, saleBadge;
+      if (g.saleTotal === 0) {
+        saleStatus = 'na'; saleLabel = '매출액 0'; saleBadge = 'slate';
+      } else if (diff <= 1) {
+        saleStatus = 'ok'; saleLabel = `✅ 계산서 발행 완료`; saleBadge = 'emerald';
+      } else {
+        saleStatus = 'wait'; saleLabel = `📝 미발행 ${diff.toLocaleString()}`; saleBadge = 'rose';
+      }
+      // 그룹 완료 여부
+      const anyPurchaseWait = g.pos.some(p => p.purchaseStatus === 'wait' || p.purchaseStatus === 'mismatch');
+      const groupDone = (saleStatus === 'ok' || saleStatus === 'na') && !anyPurchaseWait;
+      // 발주 정렬: 최신 순
+      g.pos.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
+      return {
+        ...g,
+        invoiceSaleTotal, saleDiff: diff,
+        saleStatus, saleLabel, saleBadge,
+        anyPurchaseWait, groupDone,
+      };
+    }).sort((a,b) => {
+      // 미완료 상단, 그 안에서 saleDiff 큰 순
+      if (a.groupDone !== b.groupDone) return a.groupDone ? 1 : -1;
+      return b.saleDiff - a.saleDiff;
+    });
   }, [pos, purchaseTax, saleTax]);
 
-  // 매입 계산서 중 어느 발주와도 매칭 안 된 것 (orphan)
+  // 매입 계산서 중 어느 발주와도 매칭 안 된 것
   const orphanPurchaseInvoices = useMemo(() => purchaseTax.filter(t => !t.po_id && !t.no_po), [purchaseTax]);
 
   const counts = useMemo(() => ({
-    all: rows.length,
-    todo: rows.filter(r => !r.isDone).length,
-    purchase_wait: rows.filter(r => r.purchaseStatus === 'wait').length,
-    mismatch: rows.filter(r => r.purchaseStatus === 'mismatch').length,
-    sale_wait: rows.filter(r => r.saleStatus === 'wait').length,
-    done: rows.filter(r => r.isDone).length,
+    all: grouped.length,
+    todo: grouped.filter(g => !g.groupDone).length,
+    sale_wait: grouped.filter(g => g.saleStatus === 'wait').length,
+    purchase_wait: grouped.filter(g => g.pos.some(p => p.purchaseStatus === 'wait')).length,
+    mismatch: grouped.filter(g => g.pos.some(p => p.purchaseStatus === 'mismatch')).length,
+    done: grouped.filter(g => g.groupDone).length,
     orphan: orphanPurchaseInvoices.length,
-  }), [rows, orphanPurchaseInvoices]);
+  }), [grouped, orphanPurchaseInvoices]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter(r => {
-      if (filter === 'todo' && r.isDone) return false;
-      if (filter === 'purchase_wait' && r.purchaseStatus !== 'wait') return false;
-      if (filter === 'mismatch' && r.purchaseStatus !== 'mismatch') return false;
-      if (filter === 'sale_wait' && r.saleStatus !== 'wait') return false;
-      if (filter === 'done' && !r.isDone) return false;
-      if (q) {
-        const hay = `${r.po_no} ${r.hospital_name||''} ${r.manufacturer_name||''}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
+    return grouped.filter(g => {
+      if (filter === 'todo' && g.groupDone) return false;
+      if (filter === 'sale_wait' && g.saleStatus !== 'wait') return false;
+      if (filter === 'purchase_wait' && !g.pos.some(p => p.purchaseStatus === 'wait')) return false;
+      if (filter === 'mismatch' && !g.pos.some(p => p.purchaseStatus === 'mismatch')) return false;
+      if (filter === 'done' && !g.groupDone) return false;
+      if (q && !(g.name || '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, filter, search]);
+  }, [grouped, filter, search]);
 
   const fmt = (n) => (n || 0).toLocaleString('ko-KR');
   const badgeCls = (c) => ({
@@ -15921,52 +15930,74 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
               className="flex-1 max-w-xs border border-slate-200 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-blue-400 ml-auto"/>
           </div>
 
-          {/* 발주 테이블 (한 줄 = 한 거래) */}
-          <div className="border border-slate-200 rounded overflow-hidden">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-slate-500"><tr>
-                <th className="px-2 py-2 text-center w-10">담당</th>
-                <th className="px-2 py-2 text-left w-24">발주일</th>
-                <th className="px-2 py-2 text-left w-28">발주번호</th>
-                <th className="px-2 py-2 text-left">병원</th>
-                <th className="px-2 py-2 text-left">거래처</th>
-                <th className="px-2 py-2 text-right w-24">매출</th>
-                <th className="px-2 py-2 text-right w-24">매입</th>
-                <th className="px-2 py-2 text-center w-40">매입 계산서</th>
-                <th className="px-2 py-2 text-center w-40">매출 계산서</th>
-              </tr></thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center text-slate-400 p-6">해당하는 발주 없음</td></tr>
-                ) : filtered.map(r => {
-                  const oc = r.owner ? (PO_OWNER_COLOR[r.owner] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
-                  return (
-                    <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                      <td className="px-2 py-1.5 text-center">
-                        {oc ? <span className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold leading-5 ${oc.bg} ${oc.text}`}>{r.owner}</span>
-                            : <span className="text-slate-300">-</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-slate-600">{(r.created_at||'').slice(0,10)}</td>
-                      <td className="px-2 py-1.5 font-mono text-slate-700">{r.po_no}</td>
-                      <td className="px-2 py-1.5 text-slate-800">{r.hospital_name}</td>
-                      <td className="px-2 py-1.5 text-slate-700">{r.manufacturer_name}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-blue-700">{fmt(r.sale_amount)}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-rose-700">{fmt(r.total_amount)}</td>
-                      <td className="px-2 py-1.5 text-center">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${badgeCls(r.purchaseBadge)}`}>
-                          {r.purchaseLabel}
+          {/* 병원 그룹 리스트 */}
+          <div className="space-y-2">
+            {filtered.length === 0 ? (
+              <div className="text-center text-slate-400 p-8 text-sm border border-slate-200 rounded">해당하는 병원 없음</div>
+            ) : filtered.map(g => {
+              const headerBg = g.saleStatus === 'wait' ? 'bg-rose-50 border-rose-200'
+                : g.anyPurchaseWait ? 'bg-amber-50 border-amber-200'
+                : g.groupDone ? 'bg-emerald-50 border-emerald-200'
+                : 'bg-slate-50 border-slate-200';
+              return (
+                <div key={g.hospital_id} className={`border rounded-lg overflow-hidden ${headerBg}`}>
+                  {/* 병원 헤더 */}
+                  <div className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">{g.name}</span>
+                        <span className="text-xs text-slate-500">· 발주 {g.pos.length}건</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs">
+                        <span>발주 매출 <span className="font-mono font-semibold text-slate-800">{fmt(g.saleTotal)}</span></span>
+                        <span className="text-slate-300">·</span>
+                        <span>계산서 <span className="font-mono font-semibold text-emerald-700">{fmt(g.invoiceSaleTotal)}</span></span>
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${badgeCls(g.saleBadge)}`}>
+                          {g.saleLabel}
                         </span>
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${badgeCls(r.saleBadge)}`}>
-                          {r.saleLabel}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                  </div>
+                  {/* 발주 테이블 (매입 상태만) */}
+                  <div className="bg-white border-t border-slate-200">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-500"><tr>
+                        <th className="px-2 py-1.5 text-center w-10">담당</th>
+                        <th className="px-2 py-1.5 text-left w-24">발주일</th>
+                        <th className="px-2 py-1.5 text-left w-28">발주번호</th>
+                        <th className="px-2 py-1.5 text-left">거래처</th>
+                        <th className="px-2 py-1.5 text-right w-24">매출</th>
+                        <th className="px-2 py-1.5 text-right w-24">매입</th>
+                        <th className="px-2 py-1.5 text-center w-44">매입 계산서</th>
+                      </tr></thead>
+                      <tbody>
+                        {g.pos.map(p => {
+                          const oc = p.owner ? (PO_OWNER_COLOR[p.owner] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
+                          return (
+                            <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50">
+                              <td className="px-2 py-1.5 text-center">
+                                {oc ? <span className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold leading-5 ${oc.bg} ${oc.text}`}>{p.owner}</span>
+                                    : <span className="text-slate-300">-</span>}
+                              </td>
+                              <td className="px-2 py-1.5 text-slate-600">{(p.created_at||'').slice(0,10)}</td>
+                              <td className="px-2 py-1.5 font-mono text-slate-700">{p.po_no}</td>
+                              <td className="px-2 py-1.5 text-slate-700">{p.manufacturer_name}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-blue-700">{fmt(p.sale_amount)}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-rose-700">{fmt(p.total_amount)}</td>
+                              <td className="px-2 py-1.5 text-center">
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${badgeCls(p.purchaseBadge)}`}>
+                                  {p.purchaseLabel}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* 매입 계산서 중 발주 없는 것 (별도 섹션) */}
