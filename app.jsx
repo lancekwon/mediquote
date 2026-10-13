@@ -12213,6 +12213,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               { k: 'taxinv', l: '세금계산서' },
               { k: 'report', l: '리포트' },
               { k: 'profit', l: '병원별 이익' },
+              { k: 'todo', l: '할 일' },
             ].map(t => (
               <button key={t.k} onClick={() => { setTab(t.k); if (t.k === 'balance' || t.k === 'report' || t.k === 'cashflow') reload(true); }}
                 className={`px-5 py-3 text-sm font-medium transition-colors ${tab === t.k ? 'border-b-2 border-blue-500 text-blue-600 bg-blue-50' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -12357,6 +12358,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
           ) : tab === 'profit' ? (
             <HospitalProfitTab hospitals={hospitals} onOpenHospital={(id, name) => nav?.goToHospital?.(id)} />
+          ) : tab === 'todo' ? (
+            <TodoTab hospitals={hospitals} manufacturers={manufacturers} nav={nav} onGoTab={setTab} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts}
               payTx={transactions} recvTx={arTransactions} purchaseTax={purchaseTax} saleTax={saleTax}
@@ -15749,6 +15752,294 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
       )}
     </div>
   );
+}
+
+/* ============================================================
+   할 일 (TODO) 탭 — 발주 vs 세금계산서 교차 체크 대시보드
+   ============================================================ */
+function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
+  const [pos, setPos] = useState([]);
+  const [purchaseTax, setPurchaseTax] = useState([]);
+  const [saleTax, setSaleTax] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState({}); // 섹션 펼침 상태
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const [po, pt, st] = await Promise.all([
+          sb.from('purchase_orders')
+            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, is_active, total_amount, sale_amount')
+            .neq('status', '취소')
+            .then(r => r.data || []),
+          sb.from('tax_invoices')
+            .select('id, kind, issue_date, party_name, manufacturer_id, hospital_id, amount, po_id, no_po')
+            .eq('kind', 'purchase').then(r => r.data || []),
+          sb.from('tax_invoices')
+            .select('id, kind, issue_date, party_name, manufacturer_id, hospital_id, amount, po_id, no_po')
+            .eq('kind', 'sale').then(r => r.data || []),
+        ]);
+        if (!cancelled) { setPos(po); setPurchaseTax(pt); setSaleTax(st); }
+      } finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // === 매입 매칭 분석 ===
+  const purchaseAnalysis = useMemo(() => {
+    const matchedPoIds = new Set();
+    const invoiceByPo = new Map();
+    purchaseTax.forEach(t => {
+      if (t.po_id) { matchedPoIds.add(t.po_id); invoiceByPo.set(t.po_id, t); }
+    });
+
+    // 1. 매칭됐지만 금액 다른 발주
+    const amountMismatch = [];
+    pos.forEach(p => {
+      const inv = invoiceByPo.get(p.id);
+      if (inv && Math.abs(Number(inv.amount||0) - Number(p.total_amount||0)) > 1) {
+        amountMismatch.push({ po: p, invoice: inv, diff: Number(inv.amount||0) - Number(p.total_amount||0) });
+      }
+    });
+
+    // 2. 매입 계산서 미수령 (활성 발주 중 매칭 안 됨, 매입액 > 0)
+    const unreceived = pos.filter(p =>
+      p.is_active && !matchedPoIds.has(p.id) && Number(p.total_amount||0) > 0 && p.manufacturer_id
+    ).map(p => {
+      const days = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000);
+      return { ...p, daysElapsed: days };
+    }).sort((a,b) => b.daysElapsed - a.daysElapsed);
+
+    // 3. 매입 계산서는 있는데 발주 없음 (po_id null AND no_po false)
+    const orphanInvoice = purchaseTax.filter(t => !t.po_id && !t.no_po);
+
+    return { amountMismatch, unreceived, orphanInvoice };
+  }, [pos, purchaseTax]);
+
+  // === 매출 매칭 분석 (po_id 없는 환경 — 거래처+금액 유사 매칭) ===
+  const salesAnalysis = useMemo(() => {
+    // 매출은 po_id 저장 안 하므로 병원 단위 금액 집계로 비교
+    const posByHosp = new Map();
+    pos.filter(p => p.hospital_id).forEach(p => {
+      const cur = posByHosp.get(p.hospital_id) || { items: [], total: 0 };
+      cur.items.push(p);
+      cur.total += Number(p.sale_amount||0);
+      posByHosp.set(p.hospital_id, cur);
+    });
+    const salesByHosp = new Map();
+    saleTax.forEach(t => {
+      if (!t.hospital_id) return;
+      if ((t.issue_date || '') <= '2026-05-29') return;
+      const cur = salesByHosp.get(t.hospital_id) || { items: [], total: 0 };
+      cur.items.push(t);
+      cur.total += Number(t.amount||0);
+      salesByHosp.set(t.hospital_id, cur);
+    });
+
+    // 1. 매출 계산서 미발행: 병원 발주 합 > 매출 계산서 합
+    const unissued = [];
+    posByHosp.forEach((pg, hid) => {
+      const sg = salesByHosp.get(hid) || { total: 0 };
+      const diff = pg.total - sg.total;
+      if (diff > 1) {
+        const hosp = hospitals.find(h => h.id === hid);
+        unissued.push({ hospital_id: hid, name: hosp?.name || '(병원)', poTotal: pg.total, saleTotal: sg.total, diff, poCount: pg.items.length });
+      }
+    });
+
+    // 2. 매출 계산서 금액 차이: po_id로 매칭 가능한 경우만 (지금은 희박)
+    //    → 통합: 병원별 매출 > 발주 → "매출 발주 미등록" 처리
+    const orphanSale = [];
+    salesByHosp.forEach((sg, hid) => {
+      const pg = posByHosp.get(hid) || { total: 0 };
+      const diff = sg.total - pg.total;
+      if (diff > 1) {
+        const hosp = hospitals.find(h => h.id === hid);
+        orphanSale.push({ hospital_id: hid, name: hosp?.name || '(병원)', saleTotal: sg.total, poTotal: pg.total, diff });
+      }
+    });
+
+    return { unissued, orphanSale };
+  }, [pos, saleTax, hospitals]);
+
+  const fmt = (n) => (n || 0).toLocaleString('ko-KR');
+  const toggleSec = (k) => setOpen(p => ({...p, [k]: !p[k]}));
+
+  const sections = [
+    { k:'purchase_unreceived', title:'📨 매입 계산서 미수령 (발주했는데 계산서 안 옴)', color:'amber',
+      items: purchaseAnalysis.unreceived, count: purchaseAnalysis.unreceived.length,
+      total: purchaseAnalysis.unreceived.reduce((s,p)=>s+(p.total_amount||0),0) },
+    { k:'purchase_mismatch', title:'⚠ 매입 금액 차이 (발주와 계산서 금액 다름)', color:'rose',
+      items: purchaseAnalysis.amountMismatch, count: purchaseAnalysis.amountMismatch.length,
+      total: purchaseAnalysis.amountMismatch.reduce((s,x)=>s+Math.abs(x.diff),0) },
+    { k:'purchase_orphan', title:'📝 매입 발주 미등록 (계산서는 왔는데 발주 없음)', color:'blue',
+      items: purchaseAnalysis.orphanInvoice, count: purchaseAnalysis.orphanInvoice.length,
+      total: purchaseAnalysis.orphanInvoice.reduce((s,x)=>s+Number(x.amount||0),0) },
+    { k:'sale_unissued', title:'📝 매출 계산서 미발행 (발주했는데 계산서 안 끊음)', color:'rose',
+      items: salesAnalysis.unissued, count: salesAnalysis.unissued.length,
+      total: salesAnalysis.unissued.reduce((s,x)=>s+x.diff,0) },
+    { k:'sale_orphan', title:'📨 매출 발주 미등록 (계산서는 끊었는데 발주 없음)', color:'blue',
+      items: salesAnalysis.orphanSale, count: salesAnalysis.orphanSale.length,
+      total: salesAnalysis.orphanSale.reduce((s,x)=>s+x.diff,0) },
+  ];
+
+  return (
+    <div className="p-4 space-y-3" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
+      {loading ? <div className="text-center text-slate-400 p-8 text-sm">불러오는 중…</div> : (
+        <>
+          <div className="text-xs text-slate-500 pb-2">
+            발주 vs 세금계산서 매칭 상태. 각 섹션 클릭해서 상세 확인 → 필요한 조치.
+          </div>
+          {sections.map(s => {
+            const colorMap = {
+              amber: 'bg-amber-50 border-amber-200 text-amber-800',
+              rose:  'bg-rose-50 border-rose-200 text-rose-800',
+              blue:  'bg-blue-50 border-blue-200 text-blue-800',
+            };
+            const isOpen = open[s.k];
+            return (
+              <div key={s.k} className={`border rounded-lg overflow-hidden ${colorMap[s.color]}`}>
+                <button onClick={() => toggleSec(s.k)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:brightness-95 transition">
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-sm">{s.title}</span>
+                    <span className="text-xs px-2 py-0.5 bg-white/70 rounded font-bold">{s.count}건</span>
+                    {s.total > 0 && <span className="text-xs font-mono">· {fmt(s.total)}원</span>}
+                  </div>
+                  <span className="text-xs">{isOpen ? '▲' : '▼'}</span>
+                </button>
+                {isOpen && s.count > 0 && (
+                  <div className="bg-white border-t text-xs">
+                    {renderSection(s, { onGoTab })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+function renderSection(s, { onGoTab }) {
+  const fmt = (n) => (n || 0).toLocaleString('ko-KR');
+  if (s.k === 'purchase_unreceived') return (
+    <table className="w-full">
+      <thead className="bg-slate-50 text-slate-500"><tr>
+        <th className="px-2 py-1.5 text-left">발주번호</th>
+        <th className="px-2 py-1.5 text-left">거래처</th>
+        <th className="px-2 py-1.5 text-left">병원</th>
+        <th className="px-2 py-1.5 text-right w-24">발주액</th>
+        <th className="px-2 py-1.5 text-center w-20">경과</th>
+      </tr></thead>
+      <tbody>
+        {s.items.map(p => (
+          <tr key={p.id} className="border-t border-slate-100">
+            <td className="px-2 py-1.5 font-mono text-slate-600">{p.po_no}</td>
+            <td className="px-2 py-1.5 text-slate-700">{p.manufacturer_name}</td>
+            <td className="px-2 py-1.5 text-slate-500">{p.hospital_name}</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(p.total_amount)}</td>
+            <td className="px-2 py-1.5 text-center">
+              <span className={p.daysElapsed > 30 ? 'text-rose-600 font-semibold' : 'text-slate-500'}>{p.daysElapsed}일</span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  if (s.k === 'purchase_mismatch') return (
+    <table className="w-full">
+      <thead className="bg-slate-50 text-slate-500"><tr>
+        <th className="px-2 py-1.5 text-left">발주번호</th>
+        <th className="px-2 py-1.5 text-left">거래처</th>
+        <th className="px-2 py-1.5 text-right w-24">발주액</th>
+        <th className="px-2 py-1.5 text-right w-24">계산서액</th>
+        <th className="px-2 py-1.5 text-right w-24">차이</th>
+      </tr></thead>
+      <tbody>
+        {s.items.map(x => (
+          <tr key={x.po.id} className="border-t border-slate-100">
+            <td className="px-2 py-1.5 font-mono text-slate-600">{x.po.po_no}</td>
+            <td className="px-2 py-1.5">{x.po.manufacturer_name}</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(x.po.total_amount)}</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(x.invoice.amount)}</td>
+            <td className={`px-2 py-1.5 text-right font-mono font-semibold ${x.diff > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+              {x.diff > 0 ? '+' : ''}{fmt(x.diff)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  if (s.k === 'purchase_orphan') return (
+    <table className="w-full">
+      <thead className="bg-slate-50 text-slate-500"><tr>
+        <th className="px-2 py-1.5 text-left w-24">발행일</th>
+        <th className="px-2 py-1.5 text-left">거래처</th>
+        <th className="px-2 py-1.5 text-right w-24">금액</th>
+        <th className="px-2 py-1.5 text-center w-20">조치</th>
+      </tr></thead>
+      <tbody>
+        {s.items.map(t => (
+          <tr key={t.id} className="border-t border-slate-100">
+            <td className="px-2 py-1.5 text-slate-600">{t.issue_date}</td>
+            <td className="px-2 py-1.5">{t.party_name}</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(t.amount)}</td>
+            <td className="px-2 py-1.5 text-center">
+              <button onClick={() => onGoTab('taxinv')}
+                className="text-[11px] text-blue-600 hover:underline">세금계산서 탭 →</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  if (s.k === 'sale_unissued') return (
+    <table className="w-full">
+      <thead className="bg-slate-50 text-slate-500"><tr>
+        <th className="px-2 py-1.5 text-left">병원</th>
+        <th className="px-2 py-1.5 text-center w-16">발주</th>
+        <th className="px-2 py-1.5 text-right w-28">발주 매출</th>
+        <th className="px-2 py-1.5 text-right w-28">발행된 계산서</th>
+        <th className="px-2 py-1.5 text-right w-28">미발행</th>
+      </tr></thead>
+      <tbody>
+        {s.items.sort((a,b)=>b.diff-a.diff).map(x => (
+          <tr key={x.hospital_id} className="border-t border-slate-100">
+            <td className="px-2 py-1.5">{x.name}</td>
+            <td className="px-2 py-1.5 text-center text-slate-500">{x.poCount}건</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(x.poTotal)}</td>
+            <td className="px-2 py-1.5 text-right font-mono text-emerald-700">{fmt(x.saleTotal)}</td>
+            <td className="px-2 py-1.5 text-right font-mono text-rose-600 font-semibold">{fmt(x.diff)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  if (s.k === 'sale_orphan') return (
+    <table className="w-full">
+      <thead className="bg-slate-50 text-slate-500"><tr>
+        <th className="px-2 py-1.5 text-left">병원</th>
+        <th className="px-2 py-1.5 text-right w-28">계산서 발행</th>
+        <th className="px-2 py-1.5 text-right w-28">발주 매출</th>
+        <th className="px-2 py-1.5 text-right w-28">발주 없는 매출</th>
+      </tr></thead>
+      <tbody>
+        {s.items.sort((a,b)=>b.diff-a.diff).map(x => (
+          <tr key={x.hospital_id} className="border-t border-slate-100">
+            <td className="px-2 py-1.5">{x.name}</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(x.saleTotal)}</td>
+            <td className="px-2 py-1.5 text-right font-mono">{fmt(x.poTotal)}</td>
+            <td className="px-2 py-1.5 text-right font-mono text-blue-700 font-semibold">{fmt(x.diff)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+  return null;
 }
 
 /* ============================================================
