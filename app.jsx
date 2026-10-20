@@ -18941,6 +18941,156 @@ function detectShareMode() {
   return false;
 }
 
+// ============================================================
+// AI 챗 (Phase 1 — 견적서 작성 어시스턴트)
+// 플로팅 버튼 + 챗 드로어. /api/chat 호출.
+// 기존 UI/데이터 영향 없음 — 신규 테이블(chat_sessions/messages, quotes_ai_draft)에만 쓰기.
+// ============================================================
+function AIChatPane({ owner }) {
+  const [open, setOpen] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading, open]);
+
+  const send = async () => {
+    const msg = input.trim();
+    if (!msg || loading) return;
+    setInput('');
+    setMessages(p => [...p, { role: 'user', content: msg }]);
+    setLoading(true);
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, owner, message: msg }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'API error');
+      if (!sessionId) setSessionId(data.sessionId);
+      setMessages(p => [...p, {
+        role: 'assistant',
+        content: data.reply || '(응답 없음)',
+        draftId: data.draftId,
+      }]);
+    } catch (e) {
+      setMessages(p => [...p, { role: 'assistant', content: `❌ 오류: ${e.message}`, error: true }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const newSession = () => { setSessionId(null); setMessages([]); };
+
+  return (
+    <>
+      {!open && (
+        <button
+          onClick={() => setOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-slate-900 text-white rounded-full shadow-xl flex items-center justify-center text-2xl z-50 hover:bg-slate-700 transition"
+          title="AI 어시스턴트"
+          aria-label="AI 어시스턴트 열기"
+        >
+          🤖
+        </button>
+      )}
+
+      {open && (
+        <div className="fixed bottom-6 right-6 w-96 max-w-[calc(100vw-2rem)] h-[calc(100vh-6rem)] max-h-[640px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-50">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50 rounded-t-2xl">
+            <span className="text-lg">🤖</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-slate-800">mediquote AI</div>
+              <div className="text-xs text-slate-500 truncate">{owner}</div>
+            </div>
+            <button
+              onClick={newSession}
+              className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
+              title="새 대화"
+            >
+              새 대화
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-slate-400 hover:text-slate-700 text-xl leading-none px-1"
+              aria-label="닫기"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
+            {messages.length === 0 && (
+              <div className="text-slate-400 text-center mt-10">
+                <div className="text-3xl mb-2">💬</div>
+                <div>견적서 작성을 도와드려요</div>
+                <div className="text-xs mt-3 text-slate-400 space-y-1">
+                  <div>예:</div>
+                  <div>"서울아산샘유외과에 BS330 2대 견적"</div>
+                  <div>"원텍 CO2 레이저 가격 알려줘"</div>
+                </div>
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
+                <div
+                  className={`inline-block px-3 py-2 rounded-lg max-w-[85%] whitespace-pre-wrap text-left ${
+                    m.role === 'user'
+                      ? 'bg-slate-800 text-white'
+                      : m.error
+                      ? 'bg-rose-100 text-rose-800'
+                      : 'bg-slate-100 text-slate-800'
+                  }`}
+                >
+                  {m.content}
+                  {m.draftId && (
+                    <div className="mt-2 text-xs text-sky-700">
+                      📄 draft 저장됨 (id: {String(m.draftId).slice(0, 8)})
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loading && <div className="text-slate-400 text-xs">⌛ 생각 중...</div>}
+            <div ref={endRef} />
+          </div>
+
+          <div className="p-3 border-t border-slate-200">
+            <div className="flex gap-2">
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"
+                rows={2}
+                disabled={loading}
+                className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm resize-none focus:outline-none focus:border-slate-500 disabled:bg-slate-50"
+              />
+              <button
+                onClick={send}
+                disabled={loading || !input.trim()}
+                className="px-3 py-1 bg-slate-800 text-white rounded text-sm disabled:bg-slate-300 self-end"
+              >
+                전송
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function App() {
   const [shareMode] = useState(() => detectShareMode());
   const [quoteInfo, setQuoteInfo] = useState({
@@ -19504,6 +19654,9 @@ function App() {
 
       {/* Toasts */}
       <Toast toasts={toasts}/>
+
+      {/* AI 챗 (Phase 1) — 로그인 후만 노출 */}
+      {user && !shareMode && <AIChatPane owner={user.email} />}
     </div>
   );
 }
