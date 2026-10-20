@@ -140,12 +140,16 @@ async function runTool(name, input, { sessionId, owner }) {
       return { count: rows.length, rows };
     }
     case 'save_quote_draft': {
+      // mediquote 정책: equipment.price = VAT 포함 최종가.
+      // total = sum(unit_price × qty) = VAT 포함 최종금액.
+      // 공급가(supply) = total ÷ 1.1, VAT = 나머지.
       const items = input.items.map((i) => ({
         ...i,
         total: i.total ?? i.qty * i.unit_price,
       }));
-      const subtotal = items.reduce((s, i) => s + (i.total || 0), 0);
-      const vat = Math.round(subtotal * 0.1);
+      const total = items.reduce((s, i) => s + (i.total || 0), 0);
+      const subtotal = Math.round(total / 1.1); // 공급가 역산
+      const vat = total - subtotal;
       const [row] = await sb('quotes_ai_draft', {
         method: 'POST',
         body: JSON.stringify({
@@ -156,11 +160,11 @@ async function runTool(name, input, { sessionId, owner }) {
           items,
           subtotal,
           vat,
-          total_amount: subtotal + vat,
+          total_amount: total,
           memo: input.memo || null,
         }),
       });
-      return { draft_id: row.id, subtotal, vat, total_amount: subtotal + vat };
+      return { draft_id: row.id, subtotal, vat, total_amount: total };
     }
     default:
       return { error: `Unknown tool: ${name}` };
@@ -176,6 +180,14 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 3. 가격은 \`search_equipment\` 의 price 를 기준. 가격이 0 or 없으면 사용자에게 물어보세요.
 4. 병원이 DB에 없을 수 있으니 \`search_hospitals\` 로 먼저 확인 → 없으면 \`hospital_name\` 만 넣어 draft.
 5. 답변은 **한국어**, 숫자는 콤마(예: 1,500,000원), 간결하게.
+
+**매우 중요 — 부가세(VAT) 정책:**
+- mediquote의 **모든 장비 price는 이미 VAT 포함 최종 소비자가**입니다.
+- "VAT 별도", "부가세 10% 추가" 같은 설명 하지 마세요. 혼란만 줍니다.
+- 가격 안내: "케어러쉬 7,700,000원" ← 이게 VAT 포함 최종가. 끝.
+- 견적서 total_amount = sum(unit_price × qty) = VAT 포함 최종금액.
+- 서버가 자동으로 공급가(÷1.1)·VAT(나머지)·총액 계산해 저장합니다.
+- Claude는 그냥 unit_price에 search_equipment 결과의 price 그대로 넣으면 됩니다.
 
 **매우 중요 — 저장 정책:**
 - 사용자가 견적 요청하면 **매번 \`save_quote_draft\` 호출**해서 저장하세요.
