@@ -18978,7 +18978,7 @@ function AIQuoteViewer({ draftId, onClose }) {
     return {
       name: i.name,
       quantity: i.qty,
-      itemDiscount: { type: 'none', value: 0 },
+      itemDiscount: 0,
       excluded: false,
       models: [{
         id: modelId,
