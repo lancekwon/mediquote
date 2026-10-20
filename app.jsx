@@ -18946,12 +18946,73 @@ function detectShareMode() {
 // 플로팅 버튼 + 챗 드로어. /api/chat 호출.
 // 기존 UI/데이터 영향 없음 — 신규 테이블(chat_sessions/messages, quotes_ai_draft)에만 쓰기.
 // ============================================================
+// AI draft → 기존 PdfPreviewModal 로 열어주는 뷰어
+function AIQuoteViewer({ draftId, onClose }) {
+  const [draft, setDraft] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await sb
+          .from('quotes_ai_draft').select('*').eq('id', draftId).single();
+        if (error) throw error;
+        setDraft(data);
+      } catch (e) { setErr(e.message); }
+    })();
+  }, [draftId]);
+  if (err) return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70">
+      <div className="bg-white p-6 rounded-lg">
+        <div className="text-rose-700 mb-3">❌ 견적서 불러오기 실패: {err}</div>
+        <button onClick={onClose} className="px-3 py-1 bg-slate-800 text-white rounded text-sm">닫기</button>
+      </div>
+    </div>
+  );
+  if (!draft) return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70">
+      <div className="text-white text-sm">⌛ 견적서 불러오는 중...</div>
+    </div>
+  );
+  const items = (draft.items || []).map(i => ({
+    name: i.name,
+    quantity: i.qty,
+    itemDiscount: { type: 'none', value: 0 },
+    excluded: false,
+    model: {
+      id: i.equipment_id || '',
+      name: i.name,
+      manufacturer: i.manufacturer || '',
+      price: i.unit_price,
+    },
+  }));
+  const quoteInfo = {
+    hospital: draft.hospital_name || '(병원 미지정)',
+    doctor: '',
+    dept: '',
+    quoteNo: `AI-${String(draft.id).slice(0, 8)}`,
+    date: (draft.created_at || '').slice(0, 10),
+    validity: '',
+  };
+  const categories = [{ name: 'AI 견적', items }];
+  return (
+    <PdfPreviewModal
+      quoteInfo={quoteInfo}
+      categories={categories}
+      globalDiscount={{ type: 'rate', value: 0 }}
+      vatIncluded={false}
+      onClose={onClose}
+      customEquips={[]}
+    />
+  );
+}
+
 function AIChatPane({ owner }) {
   const [open, setOpen] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [viewingDraftId, setViewingDraftId] = useState(null);
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -19049,9 +19110,12 @@ function AIChatPane({ owner }) {
                 >
                   {m.content}
                   {m.draftId && (
-                    <div className="mt-2 text-xs text-sky-700">
-                      📄 draft 저장됨 (id: {String(m.draftId).slice(0, 8)})
-                    </div>
+                    <button
+                      onClick={() => setViewingDraftId(m.draftId)}
+                      className="mt-2 inline-flex items-center gap-1 text-xs bg-sky-600 text-white px-2.5 py-1 rounded hover:bg-sky-700 font-semibold"
+                    >
+                      📄 견적서 보기 / PDF 저장
+                    </button>
                   )}
                 </div>
               </div>
@@ -19086,6 +19150,14 @@ function AIChatPane({ owner }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 견적서 뷰어 (기존 PdfPreviewModal 재사용) */}
+      {viewingDraftId && (
+        <AIQuoteViewer
+          draftId={viewingDraftId}
+          onClose={() => setViewingDraftId(null)}
+        />
       )}
     </>
   );
