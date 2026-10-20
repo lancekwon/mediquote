@@ -19008,16 +19008,51 @@ function AIQuoteViewer({ draftId, onClose }) {
 
 function AIChatPane({ owner }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState('chat'); // 'chat' | 'drafts'
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [viewingDraftId, setViewingDraftId] = useState(null);
+  const [drafts, setDrafts] = useState([]);
+  const [draftsLoading, setDraftsLoading] = useState(false);
   const endRef = useRef(null);
 
   useEffect(() => {
-    if (open) endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, open]);
+    if (open && view === 'chat') endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading, open, view]);
+
+  const loadDrafts = async () => {
+    setDraftsLoading(true);
+    try {
+      const { data, error } = await sb
+        .from('quotes_ai_draft')
+        .select('id, hospital_name, items, total_amount, created_at, status')
+        .eq('owner', owner)
+        .eq('status', 'draft')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setDrafts(data || []);
+    } catch (e) {
+      console.error('loadDrafts', e);
+      setDrafts([]);
+    } finally {
+      setDraftsLoading(false);
+    }
+  };
+
+  const archiveDraft = async (id) => {
+    if (!confirm('이 draft를 목록에서 숨길까요? (데이터는 보존됨)')) return;
+    const { error } = await sb
+      .from('quotes_ai_draft')
+      .update({ status: 'archived' })
+      .eq('id', id);
+    if (error) { alert('삭제 실패: ' + error.message); return; }
+    setDrafts(p => p.filter(d => d.id !== id));
+  };
+
+  const openDraftsView = () => { setView('drafts'); loadDrafts(); };
 
   const send = async () => {
     const msg = input.trim();
@@ -19069,13 +19104,32 @@ function AIChatPane({ owner }) {
               <div className="text-sm font-semibold text-slate-800">mediquote AI</div>
               <div className="text-xs text-slate-500 truncate">{owner}</div>
             </div>
-            <button
-              onClick={newSession}
-              className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
-              title="새 대화"
-            >
-              새 대화
-            </button>
+            {view === 'chat' ? (
+              <>
+                <button
+                  onClick={openDraftsView}
+                  className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
+                  title="저장된 draft 목록"
+                >
+                  📋 목록
+                </button>
+                <button
+                  onClick={newSession}
+                  className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
+                  title="새 대화"
+                >
+                  새 대화
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setView('chat')}
+                className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
+                title="챗으로 돌아가기"
+              >
+                ← 챗
+              </button>
+            )}
             <button
               onClick={() => setOpen(false)}
               className="text-slate-400 hover:text-slate-700 text-xl leading-none px-1"
@@ -19086,6 +19140,51 @@ function AIChatPane({ owner }) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
+            {view === 'drafts' ? (
+              draftsLoading ? (
+                <div className="text-slate-400 text-center mt-10 text-sm">⌛ 불러오는 중...</div>
+              ) : drafts.length === 0 ? (
+                <div className="text-slate-400 text-center mt-10 text-sm">저장된 draft가 없습니다.</div>
+              ) : (
+                drafts.map(d => {
+                  const items = Array.isArray(d.items) ? d.items : [];
+                  const summary = items.length
+                    ? `${items[0].name} × ${items[0].qty}${items.length > 1 ? ` 외 ${items.length - 1}건` : ''}`
+                    : '(품목 없음)';
+                  return (
+                    <div key={d.id} className="border border-slate-200 rounded-lg p-3 hover:border-slate-400 transition">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-slate-800 truncate">
+                            {d.hospital_name || '(병원 미지정)'}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5 truncate">{summary}</div>
+                          <div className="text-xs text-slate-400 mt-1">
+                            {d.total_amount != null ? `${Number(d.total_amount).toLocaleString()}원` : '-'}
+                            {' · '}
+                            {(d.created_at || '').slice(0, 16).replace('T', ' ')}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => archiveDraft(d.id)}
+                          className="text-xs text-slate-400 hover:text-rose-600 px-1"
+                          title="목록에서 숨김"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => setViewingDraftId(d.id)}
+                        className="mt-2 w-full text-xs bg-sky-600 text-white py-1.5 rounded hover:bg-sky-700 font-semibold"
+                      >
+                        📄 견적서 보기 / PDF 저장
+                      </button>
+                    </div>
+                  );
+                })
+              )
+            ) : (
+              <>
             {messages.length === 0 && (
               <div className="text-slate-400 text-center mt-10">
                 <div className="text-3xl mb-2">💬</div>
@@ -19122,8 +19221,11 @@ function AIChatPane({ owner }) {
             ))}
             {loading && <div className="text-slate-400 text-xs">⌛ 생각 중...</div>}
             <div ref={endRef} />
+              </>
+            )}
           </div>
 
+          {view === 'chat' && (
           <div className="p-3 border-t border-slate-200">
             <div className="flex gap-2">
               <textarea
@@ -19149,6 +19251,7 @@ function AIChatPane({ owner }) {
               </button>
             </div>
           </div>
+          )}
         </div>
       )}
 
