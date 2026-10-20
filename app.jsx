@@ -19058,6 +19058,11 @@ function AIChatPane({ owner, fullscreen = false }) {
   const [viewingDraftId, setViewingDraftId] = useState(null);
   const [drafts, setDrafts] = useState([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
+  const [hospitalsData, setHospitalsData] = useState([]);
+  const [hospitalsLoading, setHospitalsLoading] = useState(false);
+  const [equipData, setEquipData] = useState([]);
+  const [equipLoading, setEquipLoading] = useState(false);
+  const [listSearch, setListSearch] = useState('');
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -19094,7 +19099,59 @@ function AIChatPane({ owner, fullscreen = false }) {
     setDrafts(p => p.filter(d => d.id !== id));
   };
 
-  const openDraftsView = () => { setView('drafts'); loadDrafts(); };
+  const loadHospitals = async () => {
+    setHospitalsLoading(true);
+    try {
+      // owner(이메일) 가 담당자로 지정된 purchase_orders 의 hospital 수집
+      const { data: pos } = await sb
+        .from('purchase_orders')
+        .select('hospital_id, hospital_name')
+        .eq('owner', owner)
+        .not('hospital_id', 'is', null)
+        .limit(1000);
+      const ids = Array.from(new Set((pos || []).map(p => p.hospital_id).filter(Boolean)));
+      let rows = [];
+      if (ids.length) {
+        const { data } = await sb
+          .from('hospitals')
+          .select('id, name, hospital_code, address, contact_name, contact_phone, dept')
+          .in('id', ids)
+          .order('name', { ascending: true });
+        rows = data || [];
+      }
+      setHospitalsData(rows);
+    } catch (e) {
+      console.error('loadHospitals', e);
+      setHospitalsData([]);
+    } finally {
+      setHospitalsLoading(false);
+    }
+  };
+
+  const loadEquipment = async () => {
+    setEquipLoading(true);
+    try {
+      const { data } = await sb
+        .from('equipment')
+        .select('id, cat_name, item_name, model_name, manufacturer, price, image_url')
+        .order('cat_name', { ascending: true })
+        .limit(2000);
+      setEquipData(data || []);
+    } catch (e) {
+      console.error('loadEquipment', e);
+      setEquipData([]);
+    } finally {
+      setEquipLoading(false);
+    }
+  };
+
+  const switchView = (v) => {
+    setView(v);
+    setListSearch('');
+    if (v === 'drafts') loadDrafts();
+    else if (v === 'hospitals' && hospitalsData.length === 0) loadHospitals();
+    else if (v === 'equipment' && equipData.length === 0) loadEquipment();
+  };
 
   const send = async () => {
     const msg = input.trim();
@@ -19148,30 +19205,13 @@ function AIChatPane({ owner, fullscreen = false }) {
               <div className="text-sm font-semibold text-slate-800">mediquote AI</div>
               <div className="text-xs text-slate-500 truncate">{owner}</div>
             </div>
-            {view === 'chat' ? (
-              <>
-                <button
-                  onClick={openDraftsView}
-                  className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
-                  title="저장된 draft 목록"
-                >
-                  📋 목록
-                </button>
-                <button
-                  onClick={newSession}
-                  className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
-                  title="새 대화"
-                >
-                  새 대화
-                </button>
-              </>
-            ) : (
+            {view === 'chat' && (
               <button
-                onClick={() => setView('chat')}
+                onClick={newSession}
                 className="text-xs px-2 py-1 bg-slate-200 rounded hover:bg-slate-300"
-                title="챗으로 돌아가기"
+                title="새 대화"
               >
-                ← 챗
+                새 대화
               </button>
             )}
             {!fullscreen && (
@@ -19185,8 +19225,107 @@ function AIChatPane({ owner, fullscreen = false }) {
             )}
           </div>
 
+          {/* 탭 바 */}
+          <div className="flex border-b border-slate-200 bg-white shrink-0">
+            {[
+              { key: 'chat',       label: '💬 챗' },
+              { key: 'drafts',     label: '📄 견적서' },
+              { key: 'hospitals',  label: '🏥 병원' },
+              { key: 'equipment',  label: '🔧 장비' },
+            ].map(t => (
+              <button
+                key={t.key}
+                onClick={() => switchView(t.key)}
+                className={`flex-1 py-2 text-xs transition ${
+                  view === t.key
+                    ? 'border-b-2 border-sky-500 text-sky-600 font-semibold bg-sky-50'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 리스트 뷰 상단 검색바 */}
+          {(view === 'hospitals' || view === 'equipment') && (
+            <div className="px-3 py-2 border-b border-slate-100 bg-white shrink-0">
+              <input
+                type="search"
+                value={listSearch}
+                onChange={e => setListSearch(e.target.value)}
+                placeholder={view === 'hospitals' ? '병원명·주소·담당자 검색' : '품목·모델·제조사 검색'}
+                className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+              />
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
-            {view === 'drafts' ? (
+            {view === 'hospitals' ? (
+              hospitalsLoading ? (
+                <div className="text-slate-400 text-center mt-10 text-sm">⌛ 불러오는 중...</div>
+              ) : (() => {
+                const q = listSearch.trim().toLowerCase();
+                const list = q
+                  ? hospitalsData.filter(h =>
+                      (h.name || '').toLowerCase().includes(q) ||
+                      (h.address || '').toLowerCase().includes(q) ||
+                      (h.contact_name || '').toLowerCase().includes(q))
+                  : hospitalsData;
+                if (list.length === 0) return <div className="text-slate-400 text-center mt-10 text-sm">관리중인 병원 없음<br/><span className="text-xs">(발주 담당자가 본인인 병원이 자동 노출됩니다)</span></div>;
+                return list.map(h => (
+                  <div key={h.id} className="border border-slate-200 rounded-lg p-3">
+                    <div className="text-sm font-semibold text-slate-800">{h.name}</div>
+                    {h.hospital_code && <div className="text-xs text-slate-400 mt-0.5">{h.hospital_code}{h.dept ? ` · ${h.dept}` : ''}</div>}
+                    {h.address && <div className="text-xs text-slate-500 mt-1 truncate">📍 {h.address}</div>}
+                    {(h.contact_name || h.contact_phone) && (
+                      <div className="text-xs text-slate-500 mt-1">
+                        👤 {h.contact_name || '-'} {h.contact_phone ? `· ${h.contact_phone}` : ''}
+                      </div>
+                    )}
+                  </div>
+                ));
+              })()
+            ) : view === 'equipment' ? (
+              equipLoading ? (
+                <div className="text-slate-400 text-center mt-10 text-sm">⌛ 불러오는 중...</div>
+              ) : (() => {
+                const q = listSearch.trim().toLowerCase();
+                const list = q
+                  ? equipData.filter(e =>
+                      (e.item_name || '').toLowerCase().includes(q) ||
+                      (e.model_name || '').toLowerCase().includes(q) ||
+                      (e.manufacturer || '').toLowerCase().includes(q) ||
+                      (e.cat_name || '').toLowerCase().includes(q))
+                  : equipData;
+                if (list.length === 0) return <div className="text-slate-400 text-center mt-10 text-sm">장비 없음</div>;
+                return (
+                  <>
+                    <div className="text-xs text-slate-400 mb-2">{list.length}건{q ? ' (검색 결과)' : ''}</div>
+                    {list.slice(0, 200).map(e => (
+                      <div key={e.id} className="border border-slate-200 rounded-lg p-3 flex gap-3">
+                        {e.image_url ? (
+                          <img src={e.image_url} alt="" className="w-14 h-14 object-contain bg-slate-50 rounded border border-slate-100 shrink-0" />
+                        ) : (
+                          <div className="w-14 h-14 bg-slate-50 border border-dashed border-slate-200 rounded flex items-center justify-center text-slate-300 text-xl shrink-0">📷</div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-slate-400 truncate">{e.cat_name}</div>
+                          <div className="text-sm font-semibold text-slate-800 truncate">{e.item_name}</div>
+                          <div className="text-xs text-slate-500 truncate">{e.model_name}{e.manufacturer ? ` · ${e.manufacturer}` : ''}</div>
+                          <div className="text-sm font-bold text-sky-700 mt-0.5">
+                            {e.price != null ? `${Number(e.price).toLocaleString()}원` : '가격 문의'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {list.length > 200 && (
+                      <div className="text-xs text-slate-400 text-center mt-2">상위 200건만 표시. 검색어로 좁혀 보세요.</div>
+                    )}
+                  </>
+                );
+              })()
+            ) : view === 'drafts' ? (
               draftsLoading ? (
                 <div className="text-slate-400 text-center mt-10 text-sm">⌛ 불러오는 중...</div>
               ) : drafts.length === 0 ? (
