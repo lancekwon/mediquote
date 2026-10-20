@@ -18973,18 +18973,22 @@ function AIQuoteViewer({ draftId, onClose }) {
       <div className="text-white text-sm">⌛ 견적서 불러오는 중...</div>
     </div>
   );
-  const items = (draft.items || []).map(i => ({
-    name: i.name,
-    quantity: i.qty,
-    itemDiscount: { type: 'none', value: 0 },
-    excluded: false,
-    model: {
-      id: i.equipment_id || '',
+  const items = (draft.items || []).map((i, idx) => {
+    const modelId = i.equipment_id || `ai-${draft.id}-${idx}`;
+    return {
       name: i.name,
-      manufacturer: i.manufacturer || '',
-      price: i.unit_price,
-    },
-  }));
+      quantity: i.qty,
+      itemDiscount: { type: 'none', value: 0 },
+      excluded: false,
+      models: [{
+        id: modelId,
+        name: i.name,
+        manufacturer: i.manufacturer || '',
+        price: i.unit_price,
+      }],
+      selectedModelId: modelId,
+    };
+  });
   const quoteInfo = {
     hospital: draft.hospital_name || '(병원 미지정)',
     doctor: '',
