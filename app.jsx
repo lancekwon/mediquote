@@ -19654,11 +19654,26 @@ function App() {
 
       {/* Toasts */}
       <Toast toasts={toasts}/>
-
-      {/* AI 챗 (Phase 1) — 로그인 후만 노출 */}
-      {user && !shareMode && <AIChatPane owner={user.email} />}
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// AI 챗을 App의 조건부 return과 독립된 최상위 레이어로 렌더
+function AIChatPaneRoot() {
+  const [user, setUser] = useState(null);
+  const [shareMode] = useState(() => detectShareMode());
+  useEffect(() => {
+    sb.auth.getSession().then(({ data: { session } }) => setUser(session?.user ?? null));
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
+    return () => subscription.unsubscribe();
+  }, []);
+  if (!user || shareMode) return null;
+  return <AIChatPane owner={user.email} />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <>
+    <App />
+    <AIChatPaneRoot />
+  </>
+);
