@@ -12832,19 +12832,22 @@ function TypeBadge({ type }) {
   const map = {
     opening:      { l: '이월',     c: 'bg-slate-100 text-slate-600' },
     purchase:     { l: '매입',     c: 'bg-amber-100 text-amber-700' },
-    tax_purchase: { l: '매입계산서', c: 'bg-amber-100 text-amber-700' },
+    tax_purchase:        { l: '매입계산서',    c: 'bg-amber-100 text-amber-700' },
+    tax_purchase_cancel: { l: '매입 수정취소', c: 'bg-rose-100 text-rose-700' },
     adjustment:   { l: '조정',     c: 'bg-blue-100 text-blue-700' },
     cancel:       { l: '취소',     c: 'bg-rose-100 text-rose-700' },
-    payment:      { l: '지급',     c: 'bg-emerald-100 text-emerald-700' },
+    payment:         { l: '지급',       c: 'bg-emerald-100 text-emerald-700' },
+    payment_refund:  { l: '환급 수금',  c: 'bg-cyan-100 text-cyan-700' },
     sale_adj:     { l: '매출',     c: 'bg-blue-100 text-blue-700' },
-    tax_sale:     { l: '매출계산서', c: 'bg-blue-100 text-blue-700' },
+    tax_sale:         { l: '매출계산서',    c: 'bg-blue-100 text-blue-700' },
+    tax_sale_cancel:  { l: '매출 수정취소', c: 'bg-rose-100 text-rose-700' },
     collect:      { l: '수금',     c: 'bg-violet-100 text-violet-700' },
   };
   const s = map[type] || { l: type, c: 'bg-slate-100' };
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${s.c}`}>{s.l}</span>;
 }
 function typeLabel(t) {
-  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', tax_purchase: '매입계산서', collect: '수금', tax_sale: '매출계산서', sale_adj: '매출' })[t] || t;
+  return ({ opening: '이월', purchase: '매입', adjustment: '조정', cancel: '취소', payment: '지급', payment_refund: '환급 수금', tax_purchase: '매입계산서', tax_purchase_cancel: '매입 수정취소', collect: '수금', tax_sale: '매출계산서', tax_sale_cancel: '매출 수정취소', sale_adj: '매출' })[t] || t;
 }
 
 function PurchaseAddModal({ balances, onClose, onSaved }) {
@@ -13178,7 +13181,7 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
       const taxRows = ti.map(t => ({
         id: 'ti-' + t.id, _isTax: true, _isPayable: true,
         manufacturer_id: manufacturerId,
-        tx_date: t.issue_date, tx_type: 'tax_purchase',
+        tx_date: t.issue_date, tx_type: Number(t.amount) < 0 ? 'tax_purchase_cancel' : 'tax_purchase',
         amount: Number(t.amount) || 0,
         memo: t.memo || null,
         _partyName: t.party_name || null,
@@ -13187,13 +13190,13 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
         _po: t.purchase_orders || null,
         created_at: t.created_at,
       }));
-      const payableRows = pt.map(r => ({ ...r, _isPayable: true }));
+      const payableRows = pt.map(r => ({ ...r, _isPayable: true, tx_type: (r.tx_type === 'payment' && Number(r.amount) < 0) ? 'payment_refund' : r.tx_type }));
       setRows([...payableRows, ...taxRows]);
       // 매출 측 = receivable(adjustment '매출' / collect '수금' / cancel) + 매출 세금계산서(6/1 이후)
       const rtRows = rt.map(r => ({ ...r, _isReceivable: true, tx_type: r.tx_type === 'adjustment' ? 'sale_adj' : r.tx_type }));
       const saleTaxRows = sti.filter(t => (t.issue_date || '') > '2026-05-29').map(t => ({
         id: 'sti-' + t.id, _isTax: true, _isReceivable: true,
-        tx_date: t.issue_date, tx_type: 'tax_sale',
+        tx_date: t.issue_date, tx_type: Number(t.amount) < 0 ? 'tax_sale_cancel' : 'tax_sale',
         amount: Number(t.amount) || 0,
         memo: t.memo || null,
         _partyName: t.party_name || null,
@@ -13214,8 +13217,8 @@ function VendorHistoryModal({ manufacturerId, name, vendorCode, onClose, onChang
       // 매출 측: tax_sale·sale_adj 매출(+) / collect·cancel 감소(−)
       return (r.tx_type === 'collect' || r.tx_type === 'cancel') ? -a : +a;
     }
-    // 매입 측: opening/purchase/tax_purchase/adjustment/cancel 매입(−), payment 지급(+)
-    return r.tx_type === 'payment' ? +a : -a;
+    // 매입 측: opening/purchase/tax_purchase/adjustment/cancel 매입(−), payment·payment_refund 지급(+, 환급은 amount<0으로 자동 반대방향)
+    return (r.tx_type === 'payment' || r.tx_type === 'payment_refund') ? +a : -a;
   };
 
   // 원장: 매입·매출 통합 시간순 정렬 + 증가/감소/순잔액 누적
@@ -15847,12 +15850,15 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
       const invoiceSaleTotal = salesByHosp.get(g.hospital_id) || 0;
       const diff = g.saleTotal - invoiceSaleTotal;
       let saleStatus, saleLabel, saleBadge;
-      if (g.saleTotal === 0) {
+      if (g.saleTotal === 0 && invoiceSaleTotal === 0) {
         saleStatus = 'na'; saleLabel = '매출액 0'; saleBadge = 'slate';
-      } else if (diff <= 1) {
+      } else if (Math.abs(diff) <= 1) {
         saleStatus = 'ok'; saleLabel = `✅ 계산서 발행 완료`; saleBadge = 'emerald';
-      } else {
+      } else if (diff > 1) {
         saleStatus = 'wait'; saleLabel = `📝 미발행 ${diff.toLocaleString()}`; saleBadge = 'rose';
+      } else {
+        // 계산서 > 발주 매출 → 사용자 발행 금액이 다른 경우
+        saleStatus = 'diff'; saleLabel = `⚠ 차이 ${diff.toLocaleString()}`; saleBadge = 'amber';
       }
       // 그룹 완료 여부
       const anyPurchaseWait = g.pos.some(p => p.purchaseStatus === 'wait' || p.purchaseStatus === 'mismatch');
@@ -15878,7 +15884,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
   const counts = useMemo(() => ({
     all: grouped.length,
     todo: grouped.filter(g => !g.groupDone).length,
-    sale_wait: grouped.filter(g => g.saleStatus === 'wait').length,
+    sale_wait: grouped.filter(g => g.saleStatus === 'wait' || g.saleStatus === 'diff').length,
     purchase_wait: grouped.filter(g => g.pos.some(p => p.purchaseStatus === 'wait')).length,
     mismatch: grouped.filter(g => g.pos.some(p => p.purchaseStatus === 'mismatch')).length,
     done: grouped.filter(g => g.groupDone).length,
@@ -15889,7 +15895,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
     const q = search.trim().toLowerCase();
     return grouped.filter(g => {
       if (filter === 'todo' && g.groupDone) return false;
-      if (filter === 'sale_wait' && g.saleStatus !== 'wait') return false;
+      if (filter === 'sale_wait' && !(g.saleStatus === 'wait' || g.saleStatus === 'diff')) return false;
       if (filter === 'purchase_wait' && !g.pos.some(p => p.purchaseStatus === 'wait')) return false;
       if (filter === 'mismatch' && !g.pos.some(p => p.purchaseStatus === 'mismatch')) return false;
       if (filter === 'done' && !g.groupDone) return false;
@@ -15938,6 +15944,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
               <div className="text-center text-slate-400 p-8 text-sm border border-slate-200 rounded">해당하는 병원 없음</div>
             ) : filtered.map(g => {
               const headerBg = g.saleStatus === 'wait' ? 'bg-rose-50 border-rose-200'
+                : g.saleStatus === 'diff' ? 'bg-amber-50 border-amber-200'
                 : g.anyPurchaseWait ? 'bg-amber-50 border-amber-200'
                 : g.groupDone ? 'bg-emerald-50 border-emerald-200'
                 : 'bg-slate-50 border-slate-200';
@@ -17165,6 +17172,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   useEffect(() => { if (appHospitals) setHospitals(appHospitals); }, [appHospitals]);
   useEffect(() => { if (appManufacturers) setVendors(appManufacturers); }, [appManufacturers]);
   const [filter, setFilter] = useState('ongoing'); // ongoing | done — 기본은 진행중만
+  const [doneMonth, setDoneMonth] = useState(''); // done 필터일 때 월별 (yyyy-MM), 빈값 = 전체
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -17266,6 +17274,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     return enriched.filter(p => {
       if (filter === 'done' && !p.allDone) return false;
       if (filter === 'ongoing' && p.allDone) return false;
+      if (filter === 'done' && doneMonth) {
+        const d = p.tracking_delivered_at || p.delivery_date || p.updated_at || p.created_at;
+        if (!d || !String(d).startsWith(doneMonth)) return false;
+      }
       const day = (p.created_at || '').slice(0, 10);
       if (dateFrom && day < dateFrom) return false;
       if (dateTo && day > dateTo) return false;
@@ -17278,7 +17290,17 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       }
       return true;
     });
-  }, [enriched, filter, search, dateFrom, dateTo, filterHospId, filterVendorId, filterStatuses]);
+  }, [enriched, filter, doneMonth, search, dateFrom, dateTo, filterHospId, filterVendorId, filterStatuses]);
+
+  // 납품완료 월 리스트 (최신순)
+  const doneMonths = useMemo(() => {
+    const s = new Set();
+    enriched.filter(p => p.allDone).forEach(p => {
+      const d = p.tracking_delivered_at || p.delivery_date || p.updated_at || p.created_at;
+      if (d) s.add(String(d).slice(0, 7));
+    });
+    return [...s].sort().reverse();
+  }, [enriched]);
 
   // 그룹화 (병원별: 계약 단위로 카드 분리 / 거래처별: 거래처명 단위)
   const groupedByHosp = useMemo(() => {
@@ -17839,10 +17861,17 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
           <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5">
             {[{k:'all',l:'전체'},{k:'ongoing',l:'진행중'},{k:'done',l:'납품완료'}].map(t => (
-              <button key={t.k} onClick={()=>setFilter(t.k)}
+              <button key={t.k} onClick={()=>{setFilter(t.k); if(t.k!=='done') setDoneMonth('');}}
                 className={`px-3 py-1.5 text-sm rounded transition-colors ${filter===t.k?'bg-slate-900 text-white font-semibold':'text-slate-600 hover:bg-slate-50'}`}>{t.l}</button>
             ))}
           </div>
+          {filter === 'done' && (
+            <select value={doneMonth} onChange={e=>setDoneMonth(e.target.value)}
+              className="border border-slate-200 rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:border-blue-400">
+              <option value="">전체 월</option>
+              {doneMonths.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
           <input type="text" value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="발주번호·병원·거래처 검색"
             className="flex-1 max-w-sm bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
