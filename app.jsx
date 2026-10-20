@@ -7,6 +7,10 @@ const SUPABASE_URL = 'https://nbgubiywavozgigiwkpr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// 어드민 이메일 (추후 profiles 테이블로 확장)
+const ADMIN_EMAILS = ['wooheock2@gmail.com'];
+const isAdminEmail = (email) => ADMIN_EMAILS.includes((email || '').toLowerCase());
+
 /* ---------- 한글 초성 검색 유틸 ---------- */
 const HANGUL_CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
 function getChosung(str) {
@@ -1587,6 +1591,9 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     { label:'장비 및 거래처 관리', onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
     { label:'매입매출 관리',   onClick: nav?.payables,  icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
   ];
+  if (isAdminEmail(user?.email)) {
+    menuItems.push({ label:'🔍 AI 챗 모니터링', onClick: nav?.aiMonitor, icon:'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z' });
+  }
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
       <button onClick={onLogoClick} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity shrink-0">
@@ -19041,8 +19048,8 @@ function AIQuoteViewer({ draftId, onClose }) {
   );
 }
 
-function AIChatPane({ owner }) {
-  const [open, setOpen] = useState(false);
+function AIChatPane({ owner, fullscreen = false }) {
+  const [open, setOpen] = useState(fullscreen);
   const [view, setView] = useState('chat'); // 'chat' | 'drafts'
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -19120,7 +19127,7 @@ function AIChatPane({ owner }) {
 
   return (
     <>
-      {!open && (
+      {!fullscreen && !open && (
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 w-14 h-14 bg-slate-900 text-white rounded-full shadow-xl flex items-center justify-center text-2xl z-50 hover:bg-slate-700 transition"
@@ -19132,7 +19139,9 @@ function AIChatPane({ owner }) {
       )}
 
       {open && (
-        <div className="fixed bottom-6 right-6 w-96 max-w-[calc(100vw-2rem)] h-[calc(100vh-6rem)] max-h-[640px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-50">
+        <div className={fullscreen
+          ? "w-full max-w-3xl h-[85vh] mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 flex flex-col"
+          : "fixed bottom-6 right-6 w-96 max-w-[calc(100vw-2rem)] h-[calc(100vh-6rem)] max-h-[640px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-50"}>
           <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50 rounded-t-2xl">
             <span className="text-lg">🤖</span>
             <div className="flex-1 min-w-0">
@@ -19165,13 +19174,15 @@ function AIChatPane({ owner }) {
                 ← 챗
               </button>
             )}
-            <button
-              onClick={() => setOpen(false)}
-              className="text-slate-400 hover:text-slate-700 text-xl leading-none px-1"
-              aria-label="닫기"
-            >
-              ✕
-            </button>
+            {!fullscreen && (
+              <button
+                onClick={() => setOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-xl leading-none px-1"
+                aria-label="닫기"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
@@ -19557,6 +19568,11 @@ function App() {
     return <LoginPage onLogin={setUser} />;
   }
 
+  // 딜러 (어드민 아님) → AI 챗 전용 화면만. 다른 메뉴/데이터는 모두 숨김.
+  if (!isAdminEmail(user.email)) {
+    return <DealerChatPage user={user} />;
+  }
+
   const nav = {
     leads:     () => { setListInitialTab('saved'); setListInitialDept(null); setLeadsStageFilter(null); setView('leads'); },
     editor:    () => setView('editor'),
@@ -19571,10 +19587,14 @@ function App() {
     orderRequests: () => setView('order-requests'),
     poTracking: () => setView('po-tracking'),
     poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
+    aiMonitor: () => setView('ai-monitor'),
   };
 
   if (view === 'home') {
     return <HomePage user={user} onLogout={handleLogout} nav={nav} />;
+  }
+  if (view === 'ai-monitor') {
+    return <ChatMonitorPage user={user} onLogout={handleLogout} nav={nav} />;
   }
   if (view === 'po-tracking') {
     return <PurchaseOrderTrackingPage
@@ -19869,6 +19889,7 @@ function App() {
 }
 
 // AI 챗을 App의 조건부 return과 독립된 최상위 레이어로 렌더
+// 어드민에게만 플로팅 버튼. 딜러는 DealerChatPage 에서 fullscreen 챗 사용.
 function AIChatPaneRoot() {
   const [user, setUser] = useState(null);
   const [shareMode] = useState(() => detectShareMode());
@@ -19878,7 +19899,173 @@ function AIChatPaneRoot() {
     return () => subscription.unsubscribe();
   }, []);
   if (!user || shareMode) return null;
+  if (!isAdminEmail(user.email)) return null;
   return <AIChatPane owner={user.email} />;
+}
+
+// 어드민 전용: 모든 딜러의 챗 세션 모니터링
+function ChatMonitorPage({ user, onLogout, nav }) {
+  const [sessions, setSessions] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const { data } = await sb
+        .from('chat_sessions')
+        .select('id, owner, title, last_message_at, created_at')
+        .eq('archived', false)
+        .order('last_message_at', { ascending: false })
+        .limit(300);
+      setSessions(data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) { setMessages([]); return; }
+    (async () => {
+      const { data } = await sb
+        .from('chat_messages')
+        .select('id, role, content, tool_calls, tool_result, created_at, input_tokens, output_tokens')
+        .eq('session_id', selectedId)
+        .order('created_at', { ascending: true });
+      setMessages(data || []);
+    })();
+  }, [selectedId]);
+
+  const filtered = sessions.filter(s =>
+    !search ||
+    (s.owner || '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.title || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  // 세션들을 owner별로 그룹핑
+  const grouped = useMemo(() => {
+    const map = new Map();
+    filtered.forEach(s => {
+      if (!map.has(s.owner)) map.set(s.owner, []);
+      map.get(s.owner).push(s);
+    });
+    return Array.from(map.entries());
+  }, [filtered]);
+
+  return (
+    <div style={{height:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', overflow:'hidden'}}>
+      <AppHeader title="AI 챗 모니터링" badge={`${sessions.length} 세션`} user={user} onLogout={onLogout} nav={nav}/>
+      <div className="flex-1 flex overflow-hidden">
+        {/* 좌측: 딜러별 세션 리스트 */}
+        <aside className="w-80 bg-white border-r border-slate-200 flex flex-col">
+          <div className="p-3 border-b border-slate-200">
+            <input
+              type="search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="딜러 이메일 / 제목 검색"
+              className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {loading && <div className="text-slate-400 text-sm p-4">⌛ 로딩...</div>}
+            {!loading && grouped.length === 0 && <div className="text-slate-400 text-sm p-4">세션 없음</div>}
+            {grouped.map(([owner, list]) => (
+              <div key={owner} className="border-b border-slate-200">
+                <div className="px-3 py-1.5 bg-slate-50 text-xs font-semibold text-slate-600 sticky top-0">
+                  {owner} <span className="text-slate-400 font-normal">({list.length})</span>
+                </div>
+                {list.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => setSelectedId(s.id)}
+                    className={`w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-b-0 ${selectedId === s.id ? 'bg-sky-50 border-l-4 border-l-sky-500' : ''}`}
+                  >
+                    <div className="text-sm text-slate-800 truncate">{s.title || '(제목 없음)'}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      {(s.last_message_at || s.created_at || '').slice(0, 16).replace('T', ' ')}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* 우측: 선택된 세션의 메시지 */}
+        <main className="flex-1 overflow-y-auto p-4 space-y-3">
+          {!selectedId && (
+            <div className="text-slate-400 text-center mt-20 text-sm">← 좌측에서 세션을 선택하세요</div>
+          )}
+          {messages.map(m => (
+            <div key={m.id} className={m.role === 'user' ? 'text-right' : ''}>
+              <div className={`inline-block max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap text-left ${
+                m.role === 'user' ? 'bg-slate-800 text-white' :
+                m.role === 'assistant' ? 'bg-white border border-slate-200' :
+                'bg-amber-50 border border-amber-200 font-mono text-xs'
+              }`}>
+                {m.role === 'tool' && m.tool_result ? (
+                  <div>
+                    <div className="text-amber-700 font-semibold mb-1">⟵ tool_result</div>
+                    <div>{JSON.stringify(m.tool_result.content, null, 2).slice(0, 500)}</div>
+                  </div>
+                ) : (
+                  <>
+                    {m.content}
+                    {Array.isArray(m.tool_calls) && m.tool_calls.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-200 space-y-1">
+                        {m.tool_calls.map((tc, i) => (
+                          <div key={i} className="text-xs text-slate-500 font-mono">
+                            🔧 {tc.name}({JSON.stringify(tc.input).slice(0, 120)})
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                {(m.created_at || '').slice(11, 19)}
+                {m.output_tokens ? ` · ${m.output_tokens} out` : ''}
+                {m.input_tokens ? ` · ${m.input_tokens} in` : ''}
+              </div>
+            </div>
+          ))}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// 딜러 전용 전체화면 챗 페이지
+function DealerChatPage({ user }) {
+  const handleLogout = async () => { await sb.auth.signOut(); };
+  return (
+    <div className="min-h-screen bg-slate-100 flex flex-col">
+      <header className="bg-slate-900 text-white px-6 py-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">🤖</span>
+          <div>
+            <div className="font-semibold text-sm">mediquote AI</div>
+            <div className="text-xs text-slate-400">견적 어시스턴트</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-300 hidden sm:inline">{user.email}</span>
+          <button
+            onClick={handleLogout}
+            className="text-xs px-3 py-1 bg-slate-700 rounded hover:bg-slate-600"
+          >
+            로그아웃
+          </button>
+        </div>
+      </header>
+      <main className="flex-1 flex items-center justify-center p-4">
+        <AIChatPane owner={user.email} fullscreen />
+      </main>
+    </div>
+  );
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
