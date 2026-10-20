@@ -18949,14 +18949,45 @@ function detectShareMode() {
 // AI draft → 기존 PdfPreviewModal 로 열어주는 뷰어
 function AIQuoteViewer({ draftId, onClose }) {
   const [draft, setDraft] = useState(null);
+  const [customEquips, setCustomEquips] = useState([]);
   const [err, setErr] = useState(null);
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await sb
+        const { data: d, error } = await sb
           .from('quotes_ai_draft').select('*').eq('id', draftId).single();
         if (error) throw error;
-        setDraft(data);
+        // equipment 상세 (이미지·규격·A/S) 로드해서 customEquips 형태로 변환
+        const equipIds = (d.items || []).map(i => i.equipment_id).filter(Boolean);
+        let equips = [];
+        if (equipIds.length) {
+          const { data: eqs } = await sb
+            .from('equipment')
+            .select('id, cat_id, cat_name, item_name, model_name, manufacturer, price, image_url, description, specs, cert, as_period, model_notes')
+            .in('id', equipIds);
+          equips = (eqs || []).map(r => ({
+            id: r.id,
+            catId: r.cat_id || 'imaging',
+            catName: r.cat_name || '기타',
+            itemName: r.item_name || '',
+            model: {
+              id: r.id,  // AIQuoteViewer가 넘기는 model.id (= equipment PK) 와 매칭
+              name: r.model_name || '',
+              manufacturer: r.manufacturer || '',
+              price: r.price ?? null,
+              notes: r.model_notes || '',
+            },
+            image: r.image_url || null,
+            spec: {
+              desc: r.description || '',
+              specs: Array.isArray(r.specs) ? r.specs : [],
+              cert: r.cert || '',
+              as: r.as_period || '',
+            },
+          }));
+        }
+        setDraft(d);
+        setCustomEquips(equips);
       } catch (e) { setErr(e.message); }
     })();
   }, [draftId]);
@@ -19005,7 +19036,7 @@ function AIQuoteViewer({ draftId, onClose }) {
       globalDiscount={{ type: 'rate', value: 0 }}
       vatIncluded={false}
       onClose={onClose}
-      customEquips={[]}
+      customEquips={customEquips}
     />
   );
 }
