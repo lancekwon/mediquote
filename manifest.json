@@ -1,0 +1,16 @@
+{
+  "name": "mediquote",
+  "short_name": "mediquote",
+  "description": "의료장비 견적 AI 어시스턴트",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "lang": "ko",
+  "icons": [
+    { "src": "/dw-logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/DW_logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
