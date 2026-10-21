@@ -38,12 +38,13 @@ function vendorMatch(name, query) {
 
 /* ---------- Equipment DB ---------- */
 // 목록 로드: image_data 제외 (Egress 절감)
-const EQUIP_COLUMNS = 'id,cat_id,cat_name,category,item_name,model_name,model_id,manufacturer,vendor,vendor_id,price,model_notes,alt_text,alt_models,homepage,purchase_price,contact_name,contact_phone,image_url,description,specs,origin,cert,as_period,warranty,memo,created_at,manufacturers:vendor_id(id,vendor_code,name,contact_name,contact_phone)';
+const EQUIP_COLUMNS = 'id,equip_code,cat_id,cat_name,category,item_name,model_name,model_id,manufacturer,vendor,vendor_id,price,model_notes,alt_text,alt_models,homepage,purchase_price,contact_name,contact_phone,image_url,description,specs,origin,cert,as_period,warranty,memo,created_at,manufacturers:vendor_id(id,vendor_code,name,contact_name,contact_phone)';
 async function dbLoadEquip() {
   const { data, error } = await sb.from('equipment').select(EQUIP_COLUMNS).order('created_at', { ascending: false });
   if (error) { console.error('dbLoadEquip:', error); return []; }
   return data.map(r => ({
     id:       r.id,
+    equipCode: r.equip_code || '',
     catId:    r.cat_id    || 'imaging',
     catName:  r.cat_name  || r.category || '기타',
     itemName: r.item_name || '',
@@ -166,7 +167,12 @@ async function dbSaveEquip(entry) {
     if (error) throw error;
     return data.id;
   }
-  // 신규
+  // 신규 — equip_code 자동 부여 (현존 max + 1)
+  const { data: last } = await sb.from('equipment')
+    .select('equip_code').not('equip_code', 'is', null)
+    .order('equip_code', { ascending: false }).limit(1);
+  const lastNum = (last && last[0]?.equip_code) ? parseInt(last[0].equip_code.slice(1), 10) : 0;
+  row.equip_code = 'E' + String(lastNum + 1).padStart(3, '0');
   const { data, error } = await sb.from('equipment').insert(row).select('id').single();
   if (error) throw error;
   return data.id;
@@ -4247,6 +4253,7 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-16">코드</th>
                       <th className="px-3 py-2.5 text-center text-slate-500 font-semibold w-24">이미지</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold w-28">카테고리</th>
                       <th className="px-3 py-2.5 text-left text-slate-500 font-semibold">품목명</th>
@@ -4264,6 +4271,9 @@ function EquipmentManagePage({ onBack, onEquipChange, dynCats, dynItems, onCatsC
                   <tbody>
                     {filtered.map(e => (
                       <tr key={e.id} className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors group">
+                        <td className="px-3 py-2.5 text-center">
+                          {e.equipCode ? <span className="font-mono text-xs text-slate-500">{e.equipCode}</span> : <span className="text-slate-300 text-xs">—</span>}
+                        </td>
                         <td className="px-3 py-2.5 text-center">
                           {e.image ? <img src={e.image} alt={e.model.name} className="w-20 h-20 object-contain rounded-lg border border-slate-200 mx-auto shadow-sm bg-white"/> : (
                             <div className="w-20 h-20 rounded-lg border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center mx-auto">
@@ -19133,8 +19143,8 @@ function AIChatPane({ owner, fullscreen = false }) {
     try {
       const { data } = await sb
         .from('equipment')
-        .select('id, cat_name, item_name, model_name, manufacturer, price, image_url')
-        .order('cat_name', { ascending: true })
+        .select('id, equip_code, cat_name, item_name, model_name, manufacturer, price, image_url')
+        .order('equip_code', { ascending: true, nullsFirst: false })
         .limit(2000);
       setEquipData(data || []);
     } catch (e) {
@@ -19310,7 +19320,10 @@ function AIChatPane({ owner, fullscreen = false }) {
                           <div className="w-14 h-14 bg-slate-50 border border-dashed border-slate-200 rounded flex items-center justify-center text-slate-300 text-xl shrink-0">📷</div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs text-slate-400 truncate">{e.cat_name}</div>
+                          <div className="text-xs text-slate-400 truncate">
+                            {e.equip_code && <span className="font-mono text-sky-600 mr-1">[{e.equip_code}]</span>}
+                            {e.cat_name}
+                          </div>
                           <div className="text-sm font-semibold text-slate-800 truncate">{e.item_name}</div>
                           <div className="text-xs text-slate-500 truncate">{e.model_name}{e.manufacturer ? ` · ${e.manufacturer}` : ''}</div>
                           <div className="text-sm font-bold text-sky-700 mt-0.5">

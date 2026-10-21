@@ -113,9 +113,17 @@ async function runTool(name, input, { sessionId, owner }) {
   switch (name) {
     case 'search_equipment': {
       const q = esc(`%${input.query}%`);
-      const url = `equipment?or=(item_name.ilike.${q},model_name.ilike.${q},manufacturer.ilike.${q})`
-        + `&select=id,cat_name,item_name,model_name,manufacturer,price`
-        + `&limit=${input.limit || 20}`;
+      // equip_code 로도 바로 조회 (E045 식 입력)
+      const codeMatch = /^E\d{3,}$/i.test(input.query.trim());
+      let url;
+      if (codeMatch) {
+        url = `equipment?equip_code=eq.${encodeURIComponent(input.query.trim().toUpperCase())}`
+          + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,price`;
+      } else {
+        url = `equipment?or=(item_name.ilike.${q},model_name.ilike.${q},manufacturer.ilike.${q},equip_code.ilike.${q})`
+          + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,price`
+          + `&limit=${input.limit || 20}`;
+      }
       const rows = await sb(url);
       return { count: rows.length, rows };
     }
