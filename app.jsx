@@ -18419,11 +18419,11 @@ function EditablePrice({ po, item, field, setPos, reload, showToast }) {
       title={`클릭하여 ${isSale ? '매출가' : '매입가'} 수정`}
       className={`text-xs ${colorCls} font-mono hover:bg-blue-50 rounded px-1.5 py-0.5 transition-colors text-right block w-full`}
     >
-      {cur > 0 ? (
+      {cur !== 0 ? (
         <>
-          <div>{cur.toLocaleString()}</div>
+          <div className={cur < 0 ? 'text-rose-600' : ''}>{cur.toLocaleString()}</div>
           {qty > 1 && (
-            <div className={`text-[10px] mt-0.5 font-semibold ${isSale ? 'text-emerald-600' : 'text-slate-500'}`}>
+            <div className={`text-[10px] mt-0.5 font-semibold ${cur < 0 ? 'text-rose-500' : (isSale ? 'text-emerald-600' : 'text-slate-500')}`}>
               = {(cur * qty).toLocaleString()}
             </div>
           )}
