@@ -5759,7 +5759,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
                 manufacturer: pi.manufacturer || '',
                 vendor: po.manufacturer_name || '',
                 quantity: pi.quantity || 1,
-                salePrice: (pi.sale_price != null && pi.sale_price > 0) ? pi.sale_price : (eq?.model.price || 0),
+                salePrice: pi.sale_price != null ? pi.sale_price : (eq?.model.price || 0),
                 purchasePrice: Number(pi.unit_price) || 0,
                 vendorContactName:  vInfo?.contact_name  || '',
                 vendorContactPhone: vInfo?.contact_phone || '',
