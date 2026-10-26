@@ -17596,6 +17596,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
           </tr>
         </tfoot>
       </table>
+      <div style="margin-top:10px;border:1px solid #000;padding:8px 12px;font-size:11px;background:#fafafa;">
+        <div style="font-weight:700;letter-spacing:2px;color:#444;margin-bottom:4px;">입 금 계 좌</div>
+        <div style="font-weight:700;">주식회사 대원메디칼 · 국민은행 450901-01-469947</div>
+      </div>
       <script>window.onload=function(){window.print();}<\/script>
       </body></html>`);
     win.document.close();
@@ -17958,7 +17962,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   </button>
                   {groupBy === 'hospital' && !viewer && (
                     <div className="flex items-center gap-1.5 shrink-0" onClick={e=>e.stopPropagation()}>
-                      <button onClick={()=>setStatementModal({ g, deliveryDate: new Date().toISOString().slice(0,10) })}
+                      <button onClick={()=>setStatementModal({ g, deliveryDate: new Date().toISOString().slice(0,10), selectedPoIds: (g.list||[]).map(p=>p.id) })}
                         title="이 병원의 발주 품목으로 거래명세서 PDF 생성 (납품일자 입력)"
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors">
                         📄 거래명세서
@@ -18193,67 +18197,71 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         />
       )}
       {statementModal && (() => {
-        const items = statementModal.discountItems || [];
-        const totalDiscount = items.reduce((s, x) => s + (Number(x.amount)||0), 0);
-        const updateItem = (i, patch) => setStatementModal(p => ({...p, discountItems: (p.discountItems||[]).map((x,j)=>j===i?{...x,...patch}:x)}));
-        const addItem = () => setStatementModal(p => ({...p, discountItems: [...(p.discountItems||[]), {memo:'', amount:''}]}));
-        const removeItem = (i) => setStatementModal(p => ({...p, discountItems: (p.discountItems||[]).filter((_,j)=>j!==i)}));
+        const groupPos = statementModal.g?.list || [];
+        const selected = statementModal.selectedPoIds || groupPos.map(p=>p.id);
+        const toggleOne = (id) => setStatementModal(p => ({...p, selectedPoIds: (p.selectedPoIds||[]).includes(id) ? p.selectedPoIds.filter(x=>x!==id) : [...(p.selectedPoIds||[]),id]}));
+        const toggleAll = () => setStatementModal(p => ({...p, selectedPoIds: (selected.length === groupPos.length) ? [] : groupPos.map(x=>x.id)}));
+        const selPos = groupPos.filter(p => selected.includes(p.id));
+        const selItems = selPos.flatMap(p => p.purchase_order_items || []);
+        const selTotal = selItems.reduce((s,it) => s + (Number(it.quantity)||0)*(Number(it.sale_price)||0), 0);
+        const subGroup = { ...statementModal.g, list: selPos };
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setStatementModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-100">
-              <div className="font-bold text-slate-900">거래명세서 · 납품일자 · 할인</div>
+              <div className="font-bold text-slate-900">거래명세서</div>
               <div className="text-xs text-slate-500 mt-1">{statementModal.g?.hospName || ''}</div>
             </div>
-            <div className="p-6 space-y-3 overflow-y-auto">
-              <label className="block text-xs font-semibold text-slate-600 mb-1">납품일자</label>
-              <input type="date" value={statementModal.deliveryDate || ''}
-                onChange={e => setStatementModal(p => ({ ...p, deliveryDate: e.target.value }))}
-                autoFocus
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-              <div className="text-[11px] text-slate-400">이 날짜가 거래명세서의 <b>납품일자</b>에 인쇄됩니다.</div>
-              <div className="pt-2 flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-600">할인 <span className="text-slate-400 font-normal">(선택 · 여러 개 가능)</span></label>
-                <button type="button" onClick={addItem}
-                  className="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700">+ 할인 추가</button>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">납품일자</label>
+                <input type="date" value={statementModal.deliveryDate || ''}
+                  onChange={e => setStatementModal(p => ({ ...p, deliveryDate: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
               </div>
-              {items.length === 0 && (
-                <div className="text-[11px] text-slate-400 text-center py-2">할인이 없습니다. [+ 할인 추가] 버튼으로 항목을 추가하세요.</div>
-              )}
-              {items.map((it, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input type="text" value={it.memo || ''} onChange={e => updateItem(i, {memo: e.target.value})}
-                    placeholder="할인 내용 (예: 선착순 이벤트)"
-                    className="flex-1 border border-slate-200 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-                  <input type="text" value={it.amount ? Number(String(it.amount).replace(/[^0-9]/g,'')).toLocaleString('ko-KR') : ''}
-                    onChange={e => updateItem(i, {amount: e.target.value.replace(/[^0-9]/g,'')})}
-                    placeholder="금액"
-                    className="w-32 border border-slate-200 rounded px-2 py-1.5 text-sm text-right tnum focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
-                  <button type="button" onClick={() => removeItem(i)}
-                    className="w-7 h-7 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-sm">✕</button>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-slate-600">발주(PO) 선택 <span className="text-slate-400 font-normal">({selected.length}/{groupPos.length}건)</span></label>
+                  <button type="button" onClick={toggleAll} className="text-[11px] px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded font-semibold text-slate-700">
+                    {selected.length === groupPos.length ? '전체 해제' : '전체 선택'}
+                  </button>
                 </div>
-              ))}
-              {totalDiscount > 0 && (
-                <div className="text-right text-xs font-semibold text-rose-600 pt-1">총 할인: {totalDiscount.toLocaleString('ko-KR')}</div>
-              )}
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                  {groupPos.map(p => {
+                    const items = p.purchase_order_items || [];
+                    const poTotal = items.reduce((s,it) => s + (Number(it.quantity)||0)*(Number(it.sale_price)||0), 0);
+                    const checked = selected.includes(p.id);
+                    return (
+                      <label key={p.id} className={`flex items-start gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50 ${checked ? 'bg-sky-50/40' : ''}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleOne(p.id)} className="mt-0.5"/>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-mono text-[11px] text-slate-500">{p.po_no} · {p.manufacturer_name || '(미정)'}</div>
+                          <div className="text-slate-700 truncate">
+                            {items.map(it => `${it.item_name}${it.model_name?` ${it.model_name}`:''}×${it.quantity}`).join(', ') || '(품목 없음)'}
+                          </div>
+                        </div>
+                        <div className="text-right tnum text-slate-700 whitespace-nowrap">{poTotal.toLocaleString()}원</div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 text-right text-sm font-semibold text-slate-800">
+                  선택 합계: <span className="text-sky-700">{selTotal.toLocaleString()}원</span>
+                </div>
+              </div>
             </div>
             <div className="px-6 py-3 border-t border-slate-100 flex justify-between gap-2">
               <button onClick={() => setStatementModal(null)}
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
               <div className="flex gap-2">
-                <button onClick={() => { const { g, deliveryDate } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(g, deliveryDate, totalDiscount); }}
-                  disabled={!statementModal.deliveryDate}
-                  title="PDF 저장만 (DB 저장 X) · 인쇄 창에서 '대상' → 'PDF로 저장' 선택"
+                <button onClick={() => { const { deliveryDate } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(subGroup, deliveryDate, 0); }}
+                  disabled={!statementModal.deliveryDate || selected.length === 0}
+                  title="PDF 저장만 (DB 저장 X)"
                   className="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-semibold disabled:opacity-40">
                   📄 PDF 저장
                 </button>
-                <button onClick={() => {
-                    const { g, deliveryDate } = statementModal;
-                    const cleanItems = items.filter(x => (Number(x.amount)||0) > 0).map(x => ({memo: (x.memo||'').trim(), amount: Number(x.amount)||0}));
-                    setStatementModal(null);
-                    handleFinalizeToHospital(g, deliveryDate, cleanItems);
-                  }}
-                  disabled={!statementModal.deliveryDate}
+                <button onClick={() => { const { deliveryDate } = statementModal; setStatementModal(null); handleFinalizeToHospital(subGroup, deliveryDate, []); }}
+                  disabled={!statementModal.deliveryDate || selected.length === 0}
                   title="PDF 저장 + 병원관리에 저장 · 발주 진행에서 제거"
                   className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
                   📥 PDF + 병원관리 저장
