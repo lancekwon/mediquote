@@ -106,6 +106,81 @@ const TOOLS = [
       required: ['items'],
     },
   },
+  {
+    name: 'create_purchase_order',
+    description:
+      '실제 발주(PO) 생성 — purchase_orders 테이블에 INSERT. **반드시 사용자 승인 받고 호출.** status는 항상 "진행중" (사용자가 수동으로 "납품완료" 체크). 매입가(unit_price)는 비움 (추후 매입세금계산서 들어오면 입력).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        manufacturer_id: { type: 'string', description: '거래처 UUID (search_manufacturers 결과의 id)' },
+        hospital_id: { type: 'string', description: '병원 UUID (search_hospitals 결과의 id)' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              equipment_id: { type: 'string', description: 'equipment UUID (search_equipment 결과의 id)' },
+              item_name: { type: 'string' },
+              model_name: { type: 'string' },
+              quantity: { type: 'number', default: 1 },
+              sale_price: { type: 'number', description: '매출가 (단가, VAT 포함)' },
+            },
+            required: ['item_name', 'quantity'],
+          },
+        },
+        delivery_date: { type: 'string', description: '납품예정일 (YYYY-MM-DD, 선택)' },
+        notes: { type: 'string', description: 'PO 메모' },
+      },
+      required: ['manufacturer_id', 'hospital_id', 'items'],
+    },
+  },
+  {
+    name: 'register_hospital',
+    description:
+      '신규 병원 등록. **사용자 승인 받고 호출.** hospital_code 자동 부여 (H???).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        address: { type: 'string' },
+        contact_name: { type: 'string' },
+        contact_phone: { type: 'string' },
+        business_reg_no: { type: 'string', description: '사업자번호 (10자리 숫자, 하이픈 제외)' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'register_manufacturer',
+    description:
+      '신규 거래처 등록. **사용자 승인 받고 호출.** vendor_code 자동 부여 (V???).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        category: { type: 'string', description: '거래처 / 일반업체 / 운영비 중 하나' },
+        business_reg_no: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'update_hospital_info',
+    description: '기존 병원 정보 보강 (주소/담당자/전화/사업자번호). 사용자가 알려준 값만 세팅.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        hospital_id: { type: 'string' },
+        address: { type: 'string' },
+        contact_name: { type: 'string' },
+        contact_phone: { type: 'string' },
+        business_reg_no: { type: 'string' },
+      },
+      required: ['hospital_id'],
+    },
+  },
 ];
 
 async function runTool(name, input, { sessionId, owner }) {
@@ -174,6 +249,87 @@ async function runTool(name, input, { sessionId, owner }) {
       });
       return { draft_id: row.id, subtotal, vat, total_amount: total };
     }
+    case 'create_purchase_order': {
+      // 다음 PO 번호
+      const year = new Date().getFullYear();
+      const lastList = await sb(`purchase_orders?select=po_no&po_no=like.PO-${year}-%&order=po_no.desc&limit=1`);
+      const lastN = lastList.length ? parseInt(lastList[0].po_no.replace(`PO-${year}-`, ''), 10) : 0;
+      const poNo = `PO-${year}-${String(lastN + 1).padStart(3, '0')}`;
+
+      // 거래처/병원 name 조회
+      const [mfr] = await sb(`manufacturers?id=eq.${input.manufacturer_id}&select=name,vendor_code`);
+      const [hosp] = await sb(`hospitals?id=eq.${input.hospital_id}&select=name,hospital_code`);
+
+      const total = (input.items || []).reduce((s, i) => s + ((i.sale_price || 0) * (i.quantity || 1)), 0);
+      const today = new Date().toISOString().slice(0, 10);
+
+      const [po] = await sb('purchase_orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          po_no: poNo,
+          manufacturer_id: input.manufacturer_id,
+          manufacturer_name: mfr?.name || null,
+          hospital_id: input.hospital_id,
+          hospital_name: hosp?.name || null,
+          total_amount: total,
+          status: '진행중',
+          created_at: today,
+          delivery_date: input.delivery_date || null,
+          notes: input.notes || null,
+        }),
+      });
+      for (const it of input.items) {
+        await sb('purchase_order_items', {
+          method: 'POST',
+          body: JSON.stringify({
+            po_id: po.id,
+            equipment_id: it.equipment_id || null,
+            item_name: it.item_name,
+            model_name: it.model_name || '',
+            quantity: it.quantity || 1,
+            sale_price: it.sale_price || null,
+            unit_price: null,
+          }),
+        });
+      }
+      return {
+        po_no: poNo,
+        po_id: po.id,
+        manufacturer: mfr?.name,
+        hospital: hosp?.name,
+        total_amount: total,
+        item_count: input.items.length,
+      };
+    }
+    case 'register_hospital': {
+      const lastList = await sb(`hospitals?select=hospital_code&hospital_code=like.H%&order=hospital_code.desc&limit=1`);
+      const lastN = lastList.length ? parseInt((lastList[0].hospital_code || 'H000').slice(1), 10) : 0;
+      const code = 'H' + String(lastN + 1).padStart(3, '0');
+      const payload = { hospital_code: code, name: input.name };
+      ['address', 'contact_name', 'contact_phone', 'business_reg_no'].forEach(k => {
+        if (input[k]) payload[k] = input[k];
+      });
+      const [row] = await sb('hospitals', { method: 'POST', body: JSON.stringify(payload) });
+      return { hospital_code: code, hospital_id: row.id, name: row.name };
+    }
+    case 'register_manufacturer': {
+      const lastList = await sb(`manufacturers?select=vendor_code&order=vendor_code.desc&limit=1`);
+      const lastN = lastList.length ? parseInt(lastList[0].vendor_code.slice(1), 10) : 0;
+      const code = 'V' + String(lastN + 1).padStart(3, '0');
+      const payload = { vendor_code: code, name: input.name, category: input.category || '일반업체' };
+      ['business_reg_no', 'notes'].forEach(k => { if (input[k]) payload[k] = input[k]; });
+      const [row] = await sb('manufacturers', { method: 'POST', body: JSON.stringify(payload) });
+      return { vendor_code: code, manufacturer_id: row.id, name: row.name };
+    }
+    case 'update_hospital_info': {
+      const payload = {};
+      ['address', 'contact_name', 'contact_phone', 'business_reg_no'].forEach(k => {
+        if (input[k]) payload[k] = input[k];
+      });
+      if (Object.keys(payload).length === 0) return { success: false, error: 'nothing to update' };
+      await sb(`hospitals?id=eq.${input.hospital_id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      return { success: true, hospital_id: input.hospital_id, updated: payload };
+    }
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -196,6 +352,27 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 - 견적서 total_amount = sum(unit_price × qty) = VAT 포함 최종금액.
 - 서버가 자동으로 공급가(÷1.1)·VAT(나머지)·총액 계산해 저장합니다.
 - Claude는 그냥 unit_price에 search_equipment 결과의 price 그대로 넣으면 됩니다.
+
+**발주(PO) 생성 플로우 (카톡 대화 등 자연어로 발주 요청 받으면):**
+
+1. 메시지에서 **병원·거래처·품목·수량·매출가·담당자정보** 추출
+2. search_hospitals / search_manufacturers / search_equipment 로 각각 DB 매칭
+3. 매칭 안 되는 거는 **반드시 사용자에게 묻기**:
+   - 신규 병원? → "병원 신규 등록할까요? [주소/담당자/전화 알려주세요]"
+   - 신규 거래처? → "거래처 신규 등록할까요? [사업자번호 아시면]"
+4. 매칭 된 병원인데 주소/담당자/전화 비어있고 사용자가 알려줬으면 update_hospital_info 로 보강 (사용자 확인 후)
+5. 모든 정보 확인되면 **"PO 생성해도 될까요? 사용자 승인"** 받기
+6. 승인되면 create_purchase_order 호출
+
+**PO 하드 룰 (사용자 명시 요청):**
+- **status는 항상 "진행중"** (서버 기본값, 변경 금지 — 사용자가 수동으로 "납품완료" 체크)
+- **매입가(unit_price)는 비움** (매입세금계산서 들어오면 수동 입력)
+- **매출가(sale_price)는 사용자가 명시한 값 그대로** (추정 금지)
+- 매출가 모르면 사용자에게 "매출가 얼마에요?" 묻기
+
+**신규 등록 (hospital/manufacturer) 전 반드시:**
+- 사용자에게 "신규 등록할까요?" 확인
+- 알려준 정보 (주소/담당자/전화/사업자번호) 다 담아서 등록
 
 **매우 중요 — 저장 정책:**
 - 사용자가 견적 요청하면 **매번 \`save_quote_draft\` 호출**해서 저장하세요.
