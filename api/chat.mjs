@@ -253,7 +253,7 @@ async function runTool(name, input, { sessionId, owner }) {
     case 'create_purchase_order': {
       // 다음 PO 번호
       const year = new Date().getFullYear();
-      const lastList = await sb(`purchase_orders?select=po_no&po_no=like.PO-${year}-%&order=po_no.desc&limit=1`);
+      const lastList = await sb(`purchase_orders?select=po_no&po_no=like.PO-${year}-*&order=po_no.desc&limit=1`);
       const lastN = lastList.length ? parseInt(lastList[0].po_no.replace(`PO-${year}-`, ''), 10) : 0;
       const poNo = `PO-${year}-${String(lastN + 1).padStart(3, '0')}`;
 
@@ -304,7 +304,7 @@ async function runTool(name, input, { sessionId, owner }) {
       };
     }
     case 'register_hospital': {
-      const lastList = await sb(`hospitals?select=hospital_code&hospital_code=like.H%&order=hospital_code.desc&limit=1`);
+      const lastList = await sb(`hospitals?select=hospital_code&hospital_code=like.H*&order=hospital_code.desc&limit=1`);
       const lastN = lastList.length ? parseInt((lastList[0].hospital_code || 'H000').slice(1), 10) : 0;
       const code = 'H' + String(lastN + 1).padStart(3, '0');
       const payload = { hospital_code: code, name: input.name };
