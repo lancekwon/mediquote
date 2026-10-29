@@ -131,6 +131,7 @@ const TOOLS = [
         },
         delivery_date: { type: 'string', description: '납품예정일 (YYYY-MM-DD, 선택)' },
         notes: { type: 'string', description: 'PO 메모' },
+        owner: { type: 'string', enum: ['최', '권', '성'], description: '발주 담당자 (요청자의 성씨). 메시지에 "최윤철", "권OO", "성OO" 같은 이름 있으면 성씨만 추출. 명확하지 않으면 생략.' },
       },
       required: ['manufacturer_id', 'hospital_id', 'items'],
     },
@@ -276,6 +277,7 @@ async function runTool(name, input, { sessionId, owner }) {
           created_at: today,
           delivery_date: input.delivery_date || null,
           notes: input.notes || null,
+          owner: input.owner || null,
         }),
       });
       for (const it of input.items) {
@@ -369,6 +371,15 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 - **매입가(unit_price)는 비움** (매입세금계산서 들어오면 수동 입력)
 - **매출가(sale_price)는 사용자가 명시한 값 그대로** (추정 금지)
 - 매출가 모르면 사용자에게 "매출가 얼마에요?" 묻기
+
+**발주 담당자(owner) 추론:**
+- PO_OWNERS = `['최', '권', '성']` 3명만 가능.
+- 카톡 대화나 메시지에서 **발주 요청자의 성씨**를 추출:
+  - "최윤철", "최OO" → `owner: '최'`
+  - "권OO" → `owner: '권'`
+  - "성현기", "성OO" → `owner: '성'`
+- 메시지에서 명확하지 않으면 owner 생략 (null)
+- 요청자와 다른 사람 (예: "연승은 발주완료") 이름은 무시 — 발주 요청자가 담당자
 
 **신규 등록 (hospital/manufacturer) 전 반드시:**
 - 사용자에게 "신규 등록할까요?" 확인
