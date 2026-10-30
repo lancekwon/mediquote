@@ -19024,11 +19024,14 @@ function AIQuoteViewer({ draftId, onClose }) {
     validity: '',
   };
   const categories = [{ name: 'AI 견적', items }];
+  const globalDiscount = (draft.global_discount && typeof draft.global_discount === 'object' && draft.global_discount.type)
+    ? draft.global_discount
+    : { type: 'rate', value: 0 };
   return (
     <PdfPreviewModal
       quoteInfo={quoteInfo}
       categories={categories}
-      globalDiscount={{ type: 'rate', value: 0 }}
+      globalDiscount={globalDiscount}
       vatIncluded={false}
       onClose={onClose}
       customEquips={customEquips}

@@ -81,7 +81,7 @@ const TOOLS = [
   {
     name: 'save_quote_draft',
     description:
-      'AI 견적 draft 저장 → quotes_ai_draft 테이블. 기존 quotes 는 안 건드립니다. items는 [{equipment_id?, name, qty, unit_price, total?}] 형식.',
+      'AI 견적 draft 저장 → quotes_ai_draft 테이블. 기존 quotes 는 안 건드립니다. items는 [{equipment_id?, name, qty, unit_price, total?}] 형식. **할인 요청 받으면 품목으로 추가하지 말고 global_discount 필드로 전달.**',
     input_schema: {
       type: 'object',
       properties: {
@@ -100,6 +100,15 @@ const TOOLS = [
             },
             required: ['name', 'qty', 'unit_price'],
           },
+        },
+        global_discount: {
+          type: 'object',
+          description: '전체 할인. 사용자가 "할인 100만원", "5% 할인" 같이 요청하면 품목으로 추가하지 말고 여기에 전달.',
+          properties: {
+            type: { type: 'string', enum: ['rate', 'amount'], description: 'rate=퍼센트, amount=원화 금액' },
+            value: { type: 'number', description: 'rate면 % 숫자, amount면 원화 금액 (양수)' },
+          },
+          required: ['type', 'value'],
         },
         memo: { type: 'string' },
       },
@@ -246,9 +255,10 @@ async function runTool(name, input, { sessionId, owner }) {
           vat,
           total_amount: total,
           memo: input.memo || null,
+          global_discount: input.global_discount || null,
         }),
       });
-      return { draft_id: row.id, subtotal, vat, total_amount: total };
+      return { draft_id: row.id, subtotal, vat, total_amount: total, global_discount: input.global_discount || null };
     }
     case 'create_purchase_order': {
       // 다음 PO 번호
@@ -390,6 +400,18 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 - "중복이니까 저장 안 할게요" 같은 판단 하지 마세요. draft는 그냥 쌓이는 거고 사용자가 관리합니다.
 - 과거 draft 참조하지 말고, 이번 요청만 보고 즉시 저장.
 - draft 저장 성공하면 draft_id를 사용자에게 표시 (챗 UI가 "📄 견적서 보기" 버튼을 자동 생성).
+
+**매우 중요 — 할인 처리:**
+- 사용자가 "할인 100만원", "5% 할인", "DC 50만원" 같이 할인 요청하면:
+  **❌ 품목 리스트에 "할인" 품목을 추가하지 마세요.** (이게 과거 버그였음)
+  **✅ save_quote_draft 의 \`global_discount\` 필드에 전달하세요.**
+- 예: "자기장치료기 TESLA-3000 할인 100만원 잡아줘"
+  → items: [{name:"자기장치료기 TESLA-3000", qty:1, unit_price:4200000}]
+  → global_discount: {type:"amount", value:1000000}
+  → memo: "최윤철 과장님 할인 적용" (사람 이름이나 할인 사유가 있으면 memo에)
+- 예: "5% 할인"
+  → global_discount: {type:"rate", value:5}
+- rate(%)인지 amount(원)인지 사용자 요청에서 판단. "할인 100만원" = amount, "할인 5%" = rate.
 
 **플로우 예시:**
 사용자: "서울아산샘유외과에 BS330 신장체중계 2대 견적 뽑아줘"
