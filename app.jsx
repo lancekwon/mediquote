@@ -15255,6 +15255,30 @@ function ActivityFeed() {
   const [filters, setFilters] = useState({ kind: 'all', partyKind: 'all', search: '', days: 7, partyId: '' });
   const [selected, setSelected] = useState(null);
 
+  // 매칭 큐 · 외상잔액 (활동탭 별도 뱃지)
+  const [unmatched, setUnmatched] = useState([]);
+  const [payable, setPayable] = useState([]);
+  const [showUnmatched, setShowUnmatched] = useState(false);
+  const [showPayable, setShowPayable] = useState(false);
+  const [queueReload, setQueueReload] = useState(0);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const H = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
+        const [u, p] = await Promise.all([
+          fetch(SUPABASE_URL + '/rest/v1/v_unmatched_purchase_ti?select=*&order=issue_date.desc', { headers: H }).then(r => r.json()),
+          fetch(SUPABASE_URL + '/rest/v1/v_payable_balance?select=*&balance=gt.0&order=balance.desc', { headers: H }).then(r => r.json()),
+        ]);
+        setUnmatched(Array.isArray(u) ? u : []);
+        setPayable(Array.isArray(p) ? p : []);
+      } catch (e) {
+        console.error('queue/payable load', e);
+      }
+    })();
+  }, [queueReload]);
+  const totalPayable = useMemo(() => payable.reduce((s, r) => s + Number(r.balance || 0), 0), [payable]);
+
   // 피드에 나타난 거래처 목록 (중복 제거, 이름 가진 것만)
   const partyOptions = useMemo(() => {
     const m = new Map();
@@ -15394,6 +15418,22 @@ function ActivityFeed() {
         </div>
       </div>
 
+      {/* 알림 뱃지 — 매칭 큐 · 외상잔액 */}
+      <div className="px-4 py-2 bg-white border-b border-slate-200 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setShowUnmatched(true)}
+          className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition ${unmatched.length > 0
+            ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+            : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          🔗 매칭 필요 <b className="ml-1">{unmatched.length}건</b>
+        </button>
+        <button type="button" onClick={() => setShowPayable(true)}
+          className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition ${totalPayable > 0
+            ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+            : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          💰 외상매입금 <b className="ml-1 font-mono">{totalPayable.toLocaleString()}원</b> ({payable.length}개 거래처)
+        </button>
+      </div>
+
       {loading ? (
         <div className="p-12 text-center text-slate-400 text-sm">로딩 중...</div>
       ) : (
@@ -15487,7 +15527,197 @@ function ActivityFeed() {
           </div>
         </ModalShell>
       )}
+
+      {showUnmatched && (
+        <UnmatchedPurchaseQueueModal
+          list={unmatched}
+          onClose={() => setShowUnmatched(false)}
+          onMatched={() => setQueueReload(x => x + 1)}
+        />
+      )}
+
+      {showPayable && (
+        <PayableBalanceModal
+          list={payable}
+          onClose={() => setShowPayable(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/* ============================================================
+   매칭 큐 모달 — PO 자동매칭 실패한 매입 TI를 수동 매칭
+   ============================================================ */
+function UnmatchedPurchaseQueueModal({ list, onClose, onMatched }) {
+  const [picks, setPicks] = useState({}); // tiId → poId
+  const [saving, setSaving] = useState({});
+  const [done, setDone] = useState({});
+
+  async function match(tiId, poId) {
+    if (!poId) return;
+    setSaving(s => ({ ...s, [tiId]: true }));
+    try {
+      const r = await fetch(SUPABASE_URL + '/rest/v1/tax_invoices?id=eq.' + tiId, {
+        method: 'PATCH',
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ po_id: poId }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setDone(d => ({ ...d, [tiId]: true }));
+      onMatched && onMatched();
+    } catch (e) {
+      alert('매칭 실패: ' + e.message);
+    } finally {
+      setSaving(s => ({ ...s, [tiId]: false }));
+    }
+  }
+
+  return (
+    <ModalShell title={`매칭 필요 매입 TI (${list.length}건)`} onClose={onClose} wide>
+      <div className="p-4 space-y-2 max-h-[70vh] overflow-y-auto">
+        {list.length === 0 && <div className="text-center text-slate-400 py-8 text-sm">전부 매칭됐어 🎉</div>}
+        {list.map(ti => {
+          const sug = Array.isArray(ti.suggestions) ? ti.suggestions : [];
+          const isDone = done[ti.id];
+          const pick = picks[ti.id] || sug[0]?.id || '';
+          return (
+            <div key={ti.id} className={`border rounded-lg p-3 ${isDone ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-xs text-slate-500">{(ti.issue_date || '').slice(0, 10)}</span>
+                  <span className="text-sm font-semibold">{ti.party_name || '-'}</span>
+                  <span className="font-mono text-sm text-rose-700">{Number(ti.amount || 0).toLocaleString()}원</span>
+                </div>
+                {isDone && <span className="text-xs text-emerald-700 font-semibold">✓ 매칭됨</span>}
+              </div>
+              {ti.memo && <div className="text-xs text-slate-500 mb-2 truncate">{ti.memo}</div>}
+              {!isDone && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {sug.length === 0 ? (
+                    <span className="text-xs text-slate-400">추천 PO 없음 (같은 거래처의 unmatched PO가 없음)</span>
+                  ) : (
+                    <select value={pick} onChange={e => setPicks(p => ({ ...p, [ti.id]: e.target.value }))}
+                      className="text-xs border border-slate-300 rounded px-2 py-1 bg-white flex-1 min-w-0">
+                      {sug.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.po_no} · {Number(s.total_amount).toLocaleString()}원
+                          {s.ordered_at ? ` · ${s.ordered_at}` : ''}
+                          {s.diff === 0 ? ' (정확 일치)' : ` (차이 ${Number(s.diff).toLocaleString()}원)`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button type="button" onClick={() => match(ti.id, pick)} disabled={!pick || saving[ti.id]}
+                    className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40">
+                    {saving[ti.id] ? '매칭 중…' : '매칭'}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ============================================================
+   외상매입금 drill-down 모달
+   ============================================================ */
+function PayableBalanceModal({ list, onClose }) {
+  const [drill, setDrill] = useState(null); // { manufacturer_id, manufacturer_name }
+  const [detail, setDetail] = useState({ loading: false, purchases: [], payments: [] });
+
+  useEffect(() => {
+    if (!drill) return;
+    (async () => {
+      setDetail({ loading: true, purchases: [], payments: [] });
+      try {
+        const H = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
+        const [tis, pays] = await Promise.all([
+          fetch(SUPABASE_URL + '/rest/v1/tax_invoices?select=id,issue_date,amount,po_id,memo,confirmed,purchase_orders!po_id(po_no)&kind=eq.purchase&manufacturer_id=eq.' + drill.manufacturer_id + '&order=issue_date.desc', { headers: H }).then(r => r.json()),
+          fetch(SUPABASE_URL + '/rest/v1/payable_transactions?select=id,tx_date,amount,tx_type,memo,po_id&manufacturer_id=eq.' + drill.manufacturer_id + '&order=tx_date.desc', { headers: H }).then(r => r.json()),
+        ]);
+        setDetail({ loading: false, purchases: Array.isArray(tis) ? tis : [], payments: Array.isArray(pays) ? pays : [] });
+      } catch (e) {
+        setDetail({ loading: false, purchases: [], payments: [], error: e.message });
+      }
+    })();
+  }, [drill]);
+
+  const totalBal = list.reduce((s, r) => s + Number(r.balance || 0), 0);
+
+  return (
+    <ModalShell title={`외상매입금 현황 (총 ${totalBal.toLocaleString()}원 · ${list.length}개 거래처)`} onClose={() => { setDrill(null); onClose(); }} wide>
+      <div className="flex max-h-[70vh]">
+        {/* 좌측: 거래처 리스트 */}
+        <div className="w-1/2 overflow-y-auto border-r border-slate-200">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 sticky top-0">
+              <tr>
+                <th className="px-2 py-1.5 text-left">거래처</th>
+                <th className="px-2 py-1.5 text-right">매입</th>
+                <th className="px-2 py-1.5 text-right">지급</th>
+                <th className="px-2 py-1.5 text-right">잔액</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(r => (
+                <tr key={r.manufacturer_id}
+                  onClick={() => setDrill({ manufacturer_id: r.manufacturer_id, manufacturer_name: r.manufacturer_name })}
+                  className={`border-t border-slate-100 cursor-pointer hover:bg-slate-50 ${drill?.manufacturer_id === r.manufacturer_id ? 'bg-blue-50' : ''}`}>
+                  <td className="px-2 py-1.5">{r.manufacturer_name || '-'}</td>
+                  <td className="px-2 py-1.5 text-right font-mono text-slate-600">{Number(r.total_purchase || 0).toLocaleString()}</td>
+                  <td className="px-2 py-1.5 text-right font-mono text-slate-600">{Number(r.total_payment || 0).toLocaleString()}</td>
+                  <td className="px-2 py-1.5 text-right font-mono font-bold text-rose-700">{Number(r.balance || 0).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {/* 우측: drill-down */}
+        <div className="w-1/2 overflow-y-auto p-3">
+          {!drill ? (
+            <div className="text-center text-slate-400 py-8 text-sm">← 거래처를 선택하면 상세가 보임</div>
+          ) : detail.loading ? (
+            <div className="text-center text-slate-400 py-8 text-sm">로딩 중…</div>
+          ) : (
+            <div className="space-y-3">
+              <div className="font-semibold text-sm">{drill.manufacturer_name}</div>
+              <div>
+                <div className="text-xs font-bold text-rose-700 mb-1">매입 TI ({detail.purchases.length}건)</div>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {detail.purchases.map(ti => (
+                      <tr key={ti.id} className="border-t border-slate-100">
+                        <td className="px-1 py-0.5 text-slate-500 whitespace-nowrap">{(ti.issue_date || '').slice(0, 10)}</td>
+                        <td className="px-1 py-0.5 text-slate-600">{ti.purchase_orders?.po_no || <span className="text-amber-600">PO미매칭</span>}</td>
+                        <td className="px-1 py-0.5 text-right font-mono">{Number(ti.amount || 0).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <div className="text-xs font-bold text-blue-700 mb-1">지급 내역 ({detail.payments.length}건)</div>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {detail.payments.map(p => (
+                      <tr key={p.id} className="border-t border-slate-100">
+                        <td className="px-1 py-0.5 text-slate-500 whitespace-nowrap">{(p.tx_date || '').slice(0, 10)}</td>
+                        <td className="px-1 py-0.5 text-slate-600">{p.tx_type}</td>
+                        <td className="px-1 py-0.5 text-right font-mono">{Number(p.amount || 0).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
