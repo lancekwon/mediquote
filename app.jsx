@@ -15318,7 +15318,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         // 발주 created_at 기준 · 취소 제외 (납품완료 포함)
         const [poData, cl, dl] = await Promise.all([
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, total_amount, sale_amount, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
             .neq('status', '취소')
             .gte('created_at', w.start + 'T00:00:00').lte('created_at', w.end + 'T23:59:59')
             .then(r => r.data || []),
@@ -15390,6 +15390,21 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         if (!v.itemLabels.includes(label)) v.itemLabels.push(label);
         if (!vg.itemLabels.includes(label)) vg.itemLabels.push(label);
       });
+      // 폴백: purchase_order_items가 없거나 전부 0이면 PO 자체의 total_amount/sale_amount 사용
+      const itemCount = (p.purchase_order_items || []).length;
+      const itemSum = (p.purchase_order_items || []).reduce((s, it) =>
+        s + (Number(it.sale_price)||0)*(Number(it.quantity)||0) + (Number(it.unit_price)||0)*(Number(it.quantity)||0), 0);
+      if (itemCount === 0 || itemSum === 0) {
+        const sa = Number(p.sale_amount) || 0;
+        const ta = Number(p.total_amount) || 0;
+        v.sale += sa; v.purchase += ta;
+        vg.sale += sa; vg.purchase += ta;
+        if (sa || ta) {
+          const label = p.po_no ? `[${p.po_no}] (품목 미등록)` : '(품목 미등록)';
+          if (!v.itemLabels.includes(label)) v.itemLabels.push(label);
+          if (!vg.itemLabels.includes(label)) vg.itemLabels.push(label);
+        }
+      }
       v.vendors.set(vKey, vg);
       m.set(hid, v);
     });
@@ -16089,14 +16104,14 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         const [poReport, poOrig, dlReport, dlOrig] = await Promise.all([
           // report_month가 이 월인 발주 (다른 달에서 옮겨온 것)
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, total_amount, sale_amount, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
             .neq('status', '취소')
             .not('hospital_id', 'is', null)
             .eq('report_month', rangeFrom)
             .then(r => r.data || []),
           // report_month가 없고 created_at이 이 월인 발주
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
+            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, total_amount, sale_amount, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
             .neq('status', '취소')
             .not('hospital_id', 'is', null)
             .is('report_month', null)
@@ -16171,6 +16186,16 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         v.items.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp, unit_price: up });
         if (qty > 0 && !up) v.missingItems.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp });
       });
+      // 폴백: purchase_order_items가 없거나 전부 0이면 PO 자체의 total_amount/sale_amount 사용
+      const itemCount = (p.purchase_order_items || []).length;
+      const itemSum = (p.purchase_order_items || []).reduce((s, it) =>
+        s + (Number(it.sale_price)||0)*(Number(it.quantity)||0) + (Number(it.unit_price)||0)*(Number(it.quantity)||0), 0);
+      if (itemCount === 0 || itemSum === 0) {
+        const sa = Number(p.sale_amount) || 0;
+        const ta = Number(p.total_amount) || 0;
+        v.sale += sa; v.purchase += ta;
+        vg.sale += sa; vg.purchase += ta;
+      }
       v.vendors.set(vKey, vg);
       m.set(p.hospital_id, v);
     });
