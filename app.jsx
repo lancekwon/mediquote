@@ -15406,11 +15406,17 @@ function ActivityFeed() {
                     <td className={`px-3 py-1.5 text-right tnum font-mono ${amtColor}`}>{Number(r.amount || 0).toLocaleString()}원</td>
                     <td className="px-3 py-1.5 text-xs text-slate-600 truncate max-w-xs" title={r.memo || ''}>
                       {r.memo || <span className="text-slate-300">-</span>}
-                      {Array.isArray(r.items) && r.items.length > 0 && (
-                        <span className="ml-1 text-slate-400">
-                          · {r.items[0]?.item_name || '-'}{r.items.length > 1 ? ` 외 ${r.items.length - 1}` : ''}
-                        </span>
-                      )}
+                      {Array.isArray(r.items) && r.items.length > 0 && (() => {
+                        const it = r.items[0] || {};
+                        const name = it.item_name || '-';
+                        const qty = Number(it.quantity) || 0;
+                        const price = Number(it.unit_price) || Number(it.sale_price) || 0;
+                        const parts = [name];
+                        if (qty) parts.push(`${qty}개`);
+                        if (price) parts.push(`${price.toLocaleString()}원`);
+                        const label = parts.join(' ') + (r.items.length > 1 ? ` 외 ${r.items.length - 1}` : '');
+                        return <span className="ml-1 text-slate-400">· {label}</span>;
+                      })()}
                     </td>
                     <td className="px-3 py-1.5 text-center text-xs text-slate-600">{r.owner || <span className="text-slate-300">-</span>}</td>
                     <td className="px-3 py-1.5 text-center text-xs text-slate-400">▸</td>
