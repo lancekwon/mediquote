@@ -228,6 +228,7 @@ async function recordPoCreate(o) {
   const row = {
     po_no: poNo,
     status: '진행중',
+    ordered_at: o.orderedAt || new Date().toISOString().slice(0, 10),
     hospital_id: o.hospitalId || null,
     hospital_name: o.party?.kind === 'hospital' ? o.party.name : null,
     manufacturer_id: o.manufacturerId || null,
