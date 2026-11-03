@@ -15414,7 +15414,7 @@ function ActivityFeed() {
           <span className="text-slate-600">세금계산서 <b className="font-mono text-rose-700">{totals.tiPurchase.toLocaleString()}원</b></span>
           <span className="text-slate-600">통장 <b className="font-mono text-rose-700">{totals.cashOut.toLocaleString()}원</b></span>
           <span className="text-slate-600">지급매칭 <b className="font-mono text-rose-700">{totals.payPay.toLocaleString()}원</b></span>
-          <span className="text-slate-600 ml-4">발주 <b className="font-mono text-violet-700">{totals.poSum.toLocaleString()}원</b></span>
+          <span className="text-slate-600 ml-4">발주 매입 <b className="font-mono text-violet-700">{totals.poSum.toLocaleString()}원</b></span>
         </div>
       </div>
 
@@ -15462,17 +15462,24 @@ function ActivityFeed() {
                     <td className="px-3 py-1.5 text-xs text-slate-500 tnum">{(r.happened_at || '').slice(0, 10)}</td>
                     <td className="px-3 py-1.5 text-center"><span className={`inline-block px-2 py-0.5 text-[10px] rounded font-medium ${kl.color}`}>{kl.label}</span></td>
                     <td className="px-3 py-1.5 text-slate-800">{r.party_name || r.counterparty_raw || <span className="text-slate-300">-</span>}</td>
-                    <td className={`px-3 py-1.5 text-right tnum font-mono ${amtColor}`}>{Number(r.amount || 0).toLocaleString()}원</td>
+                    <td className={`px-3 py-1.5 text-right tnum font-mono ${amtColor}`}>
+                      {Number(r.amount || 0).toLocaleString()}원
+                      {r.kind === 'po_create' && r.confirmed === false && (
+                        <div className="text-[10px] font-sans text-amber-600" title="매입 세금계산서가 아직 연결되지 않음">
+                          {Number(r.amount) ? '매입 예상가' : '매입 미확정'}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 text-xs text-slate-600 truncate max-w-xs" title={r.memo || ''}>
                       {r.memo || <span className="text-slate-300">-</span>}
                       {Array.isArray(r.items) && r.items.length > 0 && (() => {
                         const it = r.items[0] || {};
                         const name = it.item_name || '-';
                         const qty = Number(it.quantity) || 0;
-                        const price = Number(it.unit_price) || Number(it.sale_price) || 0;
                         const parts = [name];
                         if (qty) parts.push(`${qty}개`);
-                        if (price) parts.push(`${price.toLocaleString()}원`);
+                        if (Number(it.unit_price)) parts.push(`매입 ${Number(it.unit_price).toLocaleString()}원`);
+                        else if (Number(it.sale_price)) parts.push(`매출 ${Number(it.sale_price).toLocaleString()}원`);
                         const label = parts.join(' ') + (r.items.length > 1 ? ` 외 ${r.items.length - 1}` : '');
                         return <span className="ml-1 text-slate-400">· {label}</span>;
                       })()}
@@ -15549,76 +15556,242 @@ function ActivityFeed() {
 /* ============================================================
    매칭 큐 모달 — PO 자동매칭 실패한 매입 TI를 수동 매칭
    ============================================================ */
+// 매입 세금계산서 ↔ PO 매칭. 매입단가는 세금계산서 금액이 기준:
+// 품목 매입합계가 이미 같으면 연결만, 품목 1개면 단가 자동 역산, 그 외엔 품목별 분배 입력.
 function UnmatchedPurchaseQueueModal({ list, onClose, onMatched }) {
-  const [picks, setPicks] = useState({}); // tiId → poId
+  const [picks, setPicks] = useState({});   // tiId → poId
   const [saving, setSaving] = useState({});
-  const [done, setDone] = useState({}); // tiId → 'matched' | 'skipped' | 'vendor-skipped'
+  const [done, setDone] = useState({});     // tiId → { status: 'matched'|'skipped'|'vendor-skipped', note }
+  const [alloc, setAlloc] = useState({});   // tiId → { poId, items: [...] }
+  const changedRef = React.useRef(false);
 
   const H = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
+  const req = async (method, path, body) => {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, { method, headers: H, body: body ? JSON.stringify(body) : undefined });
+    if (!r.ok) throw new Error(await r.text());
+    return method === 'GET' ? r.json() : null;
+  };
+  const won = n => Number(n || 0).toLocaleString() + '원';
+  const qtyOf = it => Number(it.quantity) || 0;
 
-  async function patch(table, filter, body, loadingKey, doneKey, doneValue) {
-    setSaving(s => ({ ...s, [loadingKey]: true }));
-    try {
-      const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?' + filter, {
-        method: 'PATCH', headers: H, body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      setDone(d => ({ ...d, [doneKey]: doneValue }));
-      onMatched && onMatched();
-    } catch (e) {
-      alert('실패: ' + e.message);
-    } finally {
-      setSaving(s => ({ ...s, [loadingKey]: false }));
+  const markDone = (tiId, status, note) => {
+    changedRef.current = true;
+    setDone(d => ({ ...d, [tiId]: { status, note } }));
+  };
+  const withSaving = async (key, fn) => {
+    setSaving(s => ({ ...s, [key]: true }));
+    try { await fn(); }
+    catch (e) { alert('실패: ' + e.message); }
+    finally { setSaving(s => ({ ...s, [key]: false })); }
+  };
+  const handleClose = () => {
+    if (changedRef.current && onMatched) onMatched();
+    onClose();
+  };
+
+  // 품목 단가 반영 → PO 매입합계 갱신 → TI 연결 (실패 후 재시도해도 같은 결과가 되도록 이 순서)
+  const applyAndLink = async (tiId, poId, rows) => {
+    for (const r of rows) {
+      await req('PATCH', 'purchase_order_items?id=eq.' + r.id, { unit_price: r.unit_price, amount: r.quantity * r.unit_price });
     }
-  }
+    if (rows.length) {
+      await req('PATCH', 'purchase_orders?id=eq.' + poId, { total_amount: rows.reduce((s, r) => s + r.quantity * r.unit_price, 0) });
+    }
+    await req('PATCH', 'tax_invoices?id=eq.' + tiId, { po_id: poId });
+  };
 
-  const match = (tiId, poId) => poId && patch('tax_invoices', 'id=eq.' + tiId, { po_id: poId }, tiId, tiId, 'matched');
-  const skipThis = (tiId) => patch('tax_invoices', 'id=eq.' + tiId, { no_po_needed: true }, tiId, tiId, 'skipped');
-  const skipVendor = (tiId, manufacturerId) => {
-    if (!manufacturerId) return;
-    if (!confirm('이 거래처의 모든 매입(과거·미래 포함)을 "PO 불필요"로 설정할까?\n세무사/광고/운송 등 운영비 전용 거래처에만 쓰세요.')) return;
-    patch('manufacturers', 'id=eq.' + manufacturerId, { default_no_po: true }, 'vendor:' + manufacturerId, tiId, 'vendor-skipped');
+  // 분배 초기값: 기존 매입단가 비율 → 없으면 매출단가 비율 → 없으면 수량 비율. 반올림 잔액은 수량 1개짜리 품목이 흡수.
+  const prefill = (items, amount) => {
+    const sumOf = arr => arr.reduce((s, x) => s + x, 0);
+    const wPur = items.map(it => (Number(it.unit_price) || 0) * qtyOf(it));
+    const wSale = items.map(it => (Number(it.sale_price) || 0) * qtyOf(it));
+    const w = sumOf(wPur) > 0 ? wPur : sumOf(wSale) > 0 ? wSale : items.map(qtyOf);
+    const W = sumOf(w);
+    const rows = items.map((it, i) => {
+      const q = qtyOf(it);
+      return { ...it, newPrice: q > 0 && W > 0 ? Math.round(amount * w[i] / W / q) : 0 };
+    });
+    const residue = amount - rows.reduce((s, r) => s + qtyOf(r) * r.newPrice, 0);
+    const single = rows.map((r, i) => i).filter(i => qtyOf(rows[i]) === 1).sort((a, b) => w[b] - w[a])[0];
+    if (residue !== 0 && single !== undefined) rows[single].newPrice += residue;
+    return rows.map(r => ({ ...r, newPrice: String(Math.max(0, r.newPrice)) }));
+  };
+
+  const startMatch = (ti, poId) => poId && withSaving(ti.id, async () => {
+    const amount = Number(ti.amount) || 0;
+    if (amount <= 0) {
+      await req('PATCH', 'tax_invoices?id=eq.' + ti.id, { po_id: poId });
+      markDone(ti.id, 'matched', '환입/수정 세금계산서 — 매입단가는 그대로 두고 연결만');
+      return;
+    }
+    const items = await req('GET', 'purchase_order_items?select=id,item_name,model_name,quantity,unit_price,sale_price&po_id=eq.' + poId + '&order=created_at');
+    const current = items.reduce((s, it) => s + (Number(it.unit_price) || 0) * qtyOf(it), 0);
+
+    if (items.length === 0) {
+      await req('PATCH', 'purchase_orders?id=eq.' + poId, { total_amount: amount });
+      await req('PATCH', 'tax_invoices?id=eq.' + ti.id, { po_id: poId });
+      markDone(ti.id, 'matched', `품목 없는 PO — 매입합계 ${won(amount)}로 설정`);
+    } else if (Math.abs(current - amount) <= 1) {
+      await req('PATCH', 'tax_invoices?id=eq.' + ti.id, { po_id: poId });
+      markDone(ti.id, 'matched', '매입단가 그대로 (금액 일치)');
+    } else if (items.length === 1 && qtyOf(items[0]) > 0 && amount % qtyOf(items[0]) === 0) {
+      const it = items[0];
+      const unit = amount / qtyOf(it);
+      await applyAndLink(ti.id, poId, [{ id: it.id, quantity: qtyOf(it), unit_price: unit }]);
+      markDone(ti.id, 'matched', `${it.item_name} 매입단가 ${won(it.unit_price)} → ${won(unit)}`);
+    } else {
+      setAlloc(a => ({ ...a, [ti.id]: { poId, items: prefill(items, amount) } }));
+    }
+  });
+
+  const saveAlloc = (ti) => withSaving(ti.id, async () => {
+    const a = alloc[ti.id];
+    const rows = a.items.map(it => ({ id: it.id, quantity: qtyOf(it), unit_price: Number(it.newPrice) || 0 }));
+    await applyAndLink(ti.id, a.poId, rows);
+    setAlloc(x => { const n = { ...x }; delete n[ti.id]; return n; });
+    markDone(ti.id, 'matched', `품목 ${rows.length}개 매입단가 분배 완료`);
+  });
+
+  const skipThis = (ti) => withSaving(ti.id, async () => {
+    await req('PATCH', 'tax_invoices?id=eq.' + ti.id, { no_po_needed: true });
+    markDone(ti.id, 'skipped', '이 건만 매칭 불필요');
+  });
+  const skipVendor = (ti) => {
+    if (!ti.manufacturer_id) return;
+    if (!confirm(`"${ti.party_name}"의 모든 매입(과거·미래 포함)을 매칭 불필요로 설정할까?\n세무·통신·임대·광고처럼 PO가 생길 일 없는 거래처에만 쓰세요.`)) return;
+    withSaving(ti.id, async () => {
+      await req('PATCH', 'manufacturers?id=eq.' + ti.manufacturer_id, { default_no_po: true });
+      changedRef.current = true;
+      setDone(d => {
+        const n = { ...d };
+        for (const x of list) if (x.manufacturer_id === ti.manufacturer_id && !n[x.id]) n[x.id] = { status: 'vendor-skipped', note: '거래처 전체 매칭 불필요' };
+        return n;
+      });
+    });
+  };
+
+  const optionLabel = (s, amount) => {
+    const date = (s.po_date || s.ordered_at || '').slice(5, 10);
+    // SQL 40 이전 뷰는 total_amount(매입/매출 혼재)만 줘서 "매입"이라고 단정하지 않음
+    if (s.purchase_sum === undefined) {
+      return [s.po_no, date, `PO 금액 ${won(s.total_amount)}`].filter(Boolean).join(' · ');
+    }
+    const purchase = Number(s.purchase_sum) || 0;
+    const pur = purchase > 0
+      ? `매입 ${won(purchase)}${Math.abs(purchase - amount) <= 1 ? ' (정확 일치)' : ` (차이 ${(purchase - amount).toLocaleString()}원)`}`
+      : '매입 미확정';
+    return [s.po_no, s.hospital_name, date, s.status === '납품완료' ? '납품완료' : null,
+      s.sale_sum ? `매출 ${won(s.sale_sum)}` : null, pur].filter(Boolean).join(' · ');
+  };
+
+  const remaining = list.filter(ti => !done[ti.id]).length;
+  const DONE_STYLE = {
+    matched: 'bg-emerald-50 border-emerald-200 text-emerald-700',
+    skipped: 'bg-slate-50 border-slate-200 text-slate-500',
+    'vendor-skipped': 'bg-slate-50 border-slate-200 text-slate-500',
   };
 
   return (
-    <ModalShell title={`매칭 필요 매입 TI (${list.length}건)`} onClose={onClose} wide>
-      <div className="p-4 space-y-2 max-h-[70vh] overflow-y-auto">
-        {list.length === 0 && <div className="text-center text-slate-400 py-8 text-sm">전부 매칭됐어 🎉</div>}
+    <ModalShell title={`매칭 필요 매입 세금계산서 (남은 ${remaining}건 / ${list.length}건)`} onClose={handleClose} wide>
+      <div className="text-[11px] text-slate-500 mb-2">매입단가는 세금계산서 금액 기준으로 맞춰져. 품목 1개면 자동, 2개 이상이면 분배 표가 열려.</div>
+      <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+        {list.length === 0 && <div className="text-center text-slate-400 py-8 text-sm">매칭 필요한 건이 없어.</div>}
         {list.map(ti => {
+          const amount = Number(ti.amount) || 0;
           const sug = Array.isArray(ti.suggestions) ? ti.suggestions : [];
-          const isDone = done[ti.id];
+          const d = done[ti.id];
+          const a = alloc[ti.id];
           const pick = picks[ti.id] || sug[0]?.id || '';
+          const busy = !!saving[ti.id];
+          const allocSum = a ? a.items.reduce((s, it) => s + qtyOf(it) * (Number(it.newPrice) || 0), 0) : 0;
+          const allocQty = a ? a.items.reduce((s, it) => s + qtyOf(it), 0) : 0;
+          const allocDiff = allocSum - amount;
+          const allocOk = a && Math.abs(allocDiff) < Math.max(1, allocQty);
           return (
-            <div key={ti.id} className={`border rounded-lg p-3 ${isDone ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
-              <div className="flex items-center justify-between gap-2 mb-2">
+            <div key={ti.id} className={`border rounded-lg p-3 ${d ? DONE_STYLE[d.status] : 'bg-white border-slate-200'}`}>
+              <div className="flex items-center justify-between gap-2 mb-1">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-xs text-slate-500">{(ti.issue_date || '').slice(0, 10)}</span>
-                  <span className="text-sm font-semibold">{ti.party_name || '-'}</span>
-                  <span className="font-mono text-sm text-rose-700">{Number(ti.amount || 0).toLocaleString()}원</span>
+                  <span className="text-sm font-semibold text-slate-800">{ti.party_name || '-'}</span>
+                  <span className="font-mono text-sm text-rose-700">{won(amount)}</span>
                 </div>
-                {isDone && <span className="text-xs text-emerald-700 font-semibold">✓ 매칭됨</span>}
+                {d && <span className="text-xs font-semibold">✓ {d.note}</span>}
               </div>
               {ti.memo && <div className="text-xs text-slate-500 mb-2 truncate">{ti.memo}</div>}
-              {!isDone && (
+              {!d && !a && (
                 <div className="flex items-center gap-2 flex-wrap">
                   {sug.length === 0 ? (
-                    <span className="text-xs text-slate-400">추천 PO 없음 (같은 거래처의 unmatched PO가 없음)</span>
+                    <span className="text-xs text-slate-400 flex-1">추천 PO 없음 (이 거래처에 연결 안 된 발주가 없음)</span>
                   ) : (
                     <select value={pick} onChange={e => setPicks(p => ({ ...p, [ti.id]: e.target.value }))}
                       className="text-xs border border-slate-300 rounded px-2 py-1 bg-white flex-1 min-w-0">
-                      {sug.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.po_no} · {Number(s.total_amount).toLocaleString()}원
-                          {s.ordered_at ? ` · ${s.ordered_at}` : ''}
-                          {s.diff === 0 ? ' (정확 일치)' : ` (차이 ${Number(s.diff).toLocaleString()}원)`}
-                        </option>
-                      ))}
+                      {sug.map(s => <option key={s.id} value={s.id}>{optionLabel(s, amount)}</option>)}
                     </select>
                   )}
-                  <button type="button" onClick={() => match(ti.id, pick)} disabled={!pick || saving[ti.id]}
-                    className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40">
-                    {saving[ti.id] ? '매칭 중…' : '매칭'}
+                  {sug.length > 0 && (
+                    <button type="button" onClick={() => startMatch(ti, pick)} disabled={!pick || busy}
+                      className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40">
+                      {busy ? '처리 중…' : '매칭'}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => skipThis(ti)} disabled={busy}
+                    className="px-2.5 py-1 text-xs rounded border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+                    매칭 불필요
                   </button>
+                  <button type="button" onClick={() => skipVendor(ti)} disabled={busy}
+                    className="px-2 py-1 text-[11px] text-slate-400 hover:text-slate-700 underline-offset-2 hover:underline disabled:opacity-40">
+                    거래처 전체 불필요
+                  </button>
+                </div>
+              )}
+              {!d && a && (
+                <div className="mt-1 border border-blue-200 bg-blue-50/40 rounded p-2">
+                  <div className="text-xs font-semibold text-slate-700 mb-1">품목별 매입단가 분배 — 합계를 세금계산서 {won(amount)}에 맞춰줘</div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-500">
+                        <th className="text-left font-normal py-1">품목</th>
+                        <th className="text-right font-normal">수량</th>
+                        <th className="text-right font-normal">매출단가</th>
+                        <th className="text-right font-normal">기존 매입단가</th>
+                        <th className="text-right font-normal">새 매입단가</th>
+                        <th className="text-right font-normal">소계</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {a.items.map((it, i) => (
+                        <tr key={it.id} className="border-t border-blue-100">
+                          <td className="py-1">{it.item_name}{it.model_name ? <span className="text-slate-400"> ({it.model_name})</span> : null}</td>
+                          <td className="text-right tnum">{qtyOf(it)}</td>
+                          <td className="text-right tnum">{won(it.sale_price)}</td>
+                          <td className="text-right tnum text-slate-400">{won(it.unit_price)}</td>
+                          <td className="text-right">
+                            <input type="text" value={Number(it.newPrice || 0).toLocaleString()}
+                              onChange={e => {
+                                const v = e.target.value.replace(/[^0-9]/g, '');
+                                setAlloc(x => ({ ...x, [ti.id]: { ...x[ti.id], items: x[ti.id].items.map((r, j) => j === i ? { ...r, newPrice: v } : r) } }));
+                              }}
+                              className="w-28 text-right tnum border border-slate-300 rounded px-1 py-0.5 bg-white" />
+                          </td>
+                          <td className="text-right tnum">{won(qtyOf(it) * (Number(it.newPrice) || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
+                    <span className={`text-xs ${allocOk ? 'text-emerald-700' : 'text-rose-600'}`}>
+                      합계 {won(allocSum)} / 세금계산서 {won(amount)} · 차이 {allocDiff.toLocaleString()}원
+                      {allocOk && allocDiff !== 0 ? ' (반올림 차이 허용)' : ''}
+                    </span>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setAlloc(x => { const n = { ...x }; delete n[ti.id]; return n; })}
+                        className="px-3 py-1 text-xs rounded text-slate-600 hover:bg-slate-100">취소</button>
+                      <button type="button" onClick={() => saveAlloc(ti)} disabled={!allocOk || busy}
+                        className="px-3 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40">
+                        {busy ? '저장 중…' : '저장하고 매칭'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -17472,6 +17645,31 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
   const [pickerOpen, setPickerOpen] = useState(null); // 'hospital' | 'vendor'
   const [equipOpen, setEquipOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 매입가는 예상값: 같은 거래처의 최근 매입단가 → 없으면 장비 기준가. 직접 입력하면 덮어쓰지 않음.
+  const [priceHint, setPriceHint] = useState(null); // { price, source: 'vendor'|'master', poNo }
+  const purchaseTouchedRef = React.useRef(false);
+
+  useEffect(() => {
+    const eqId = form.equipment?.id, vendorId = form.vendor?.id;
+    if (!eqId || !vendorId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const url = SUPABASE_URL + '/rest/v1/purchase_order_items?select=unit_price,created_at,purchase_orders!po_id(po_no,manufacturer_id,status)' +
+          '&equipment_id=eq.' + eqId + '&unit_price=gt.0&order=created_at.desc&limit=20';
+        const rows = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }).then(r => r.json());
+        if (cancelled || !Array.isArray(rows)) return;
+        const hit = rows.find(x => x.purchase_orders && x.purchase_orders.manufacturer_id === vendorId && x.purchase_orders.status !== '취소');
+        if (!hit) return;
+        const price = Number(hit.unit_price);
+        setPriceHint({ price, source: 'vendor', poNo: hit.purchase_orders.po_no });
+        if (!purchaseTouchedRef.current) setForm(p => ({ ...p, purchasePrice: String(price) }));
+      } catch (e) {
+        console.warn('예상 매입가 조회 실패', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [form.equipment?.id, form.vendor?.id]);
 
   const equipCandidates = useMemo(() => {
     const q = form.equipSearch.trim().toLowerCase();
@@ -17498,6 +17696,8 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
 
   const selectEquip = (eq) => {
     const vendorFromEq = vendors.find(v => v.name === eq.vendor) || vendors.find(v => v.name === eq.model?.manufacturer) || null;
+    purchaseTouchedRef.current = false;
+    setPriceHint(eq.purchasePrice != null ? { price: Number(eq.purchasePrice), source: 'master' } : null);
     setForm(p => ({
       ...p,
       equipment: eq,
@@ -17509,11 +17709,15 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
     setEquipOpen(false);
   };
 
-  const clearForm = () => setForm(p => ({
-    hospital: null, vendor: null, equipment: null, equipSearch: '',
-    quantity: '1', purchasePrice: '', salePrice: '', deliveryDate: '', memo: '',
-    owner: p.owner, // 담당자는 세션 내 반복 저장이 편하니 유지
-  }));
+  const clearForm = () => {
+    purchaseTouchedRef.current = false;
+    setPriceHint(null);
+    setForm(p => ({
+      hospital: null, vendor: null, equipment: null, equipSearch: '',
+      quantity: '1', purchasePrice: '', salePrice: '', deliveryDate: '', memo: '',
+      owner: p.owner, // 담당자는 세션 내 반복 저장이 편하니 유지
+    }));
+  };
 
   const handleAdd = async () => {
     if (!form.hospital) { alert('병원을 선택하세요.'); return; }
@@ -17634,12 +17838,12 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
           onChange={e=>setForm(p=>({...p, quantity:e.target.value.replace(/[^0-9]/g,'')}))}
           onKeyDown={e=>{ if (e.key==='Enter' && !equipOpen) handleAdd(); }}
           placeholder="수량" className={`w-16 ${inputCls} text-center`}/>
-        {/* 매입가 */}
+        {/* 매입가 (예상값 — 세금계산서 매칭 시 실제 금액으로 바뀜) */}
         <input type="text"
           value={form.purchasePrice === '' ? '' : Number(String(form.purchasePrice).replace(/[^0-9]/g,'')||0).toLocaleString()}
-          onChange={e=>setForm(p=>({...p, purchasePrice:e.target.value.replace(/[^0-9]/g,'')}))}
+          onChange={e=>{ purchaseTouchedRef.current = true; setForm(p=>({...p, purchasePrice:e.target.value.replace(/[^0-9]/g,'')})); }}
           onKeyDown={e=>{ if (e.key==='Enter' && !equipOpen) handleAdd(); }}
-          placeholder="매입가" className={`w-32 ${inputCls} tnum text-right`}/>
+          placeholder="매입가(예상)" className={`w-32 ${inputCls} tnum text-right`}/>
         {/* 매출가 */}
         <input type="text"
           value={form.salePrice === '' ? '' : Number(String(form.salePrice).replace(/[^0-9]/g,'')||0).toLocaleString()}
@@ -17665,6 +17869,16 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
             className="px-2 py-1 text-xs text-slate-400 hover:text-slate-600 self-center">초기화</button>
         )}
       </div>
+      {form.equipment && (
+        <div className="mt-2 text-[11px] text-slate-500">
+          {priceHint && !purchaseTouchedRef.current && Number(form.purchasePrice) === priceHint.price
+            ? (priceHint.source === 'vendor'
+                ? `매입가 = 예상값 (이 거래처 최근 발주 ${priceHint.poNo} 기준 ${priceHint.price.toLocaleString()}원)`
+                : `매입가 = 예상값 (장비 기준가 ${priceHint.price.toLocaleString()}원)`)
+            : form.purchasePrice === '' ? '매입가 비워둬도 됨' : '매입가 직접 입력됨'}
+          {' · 세금계산서를 이 발주에 매칭하면 실제 매입가로 바뀜'}
+        </div>
+      )}
       {form.hospital && form.vendor && (() => {
         const existing = (pos || []).find(p =>
           p.hospital_id === form.hospital.id &&

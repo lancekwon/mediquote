@@ -86,11 +86,12 @@ async function recordTiPurchase(o) {
     }
   }
 
-  // PO 자동 매칭 (금액 ±1원 + manufacturer_id + 미매칭)
+  // PO 자동 매칭 (금액 ±1원 + manufacturer_id + 미매칭).
+  // 환입/수정(음수) 세금계산서는 같은 금액의 다른 PO에 잘못 붙을 수 있어 자동 매칭하지 않음 → 매칭 큐에서 처리.
   let poId = o.poId || null;
-  if (!poId && o.autoMatch !== false && o.manufacturerId && o.amount) {
+  if (!poId && o.autoMatch !== false && o.manufacturerId && o.amount > 0) {
     const since = subtractDays(o.happenedAt, 30);
-    const target = Math.abs(o.amount);
+    const target = o.amount;
     const cands = await q(
       `purchase_orders?select=id,total_amount&manufacturer_id=eq.${o.manufacturerId}` +
       `&status=neq.취소&total_amount=gte.${target - 1}&total_amount=lte.${target + 1}` +
@@ -225,6 +226,14 @@ async function recordPoCreate(o) {
     poNo = `PO-${year}-${String(n + 1).padStart(3, '0')}`;
   }
 
+  // total_amount는 품목 매입합계 기준으로 통일 (매입/매출 혼재 방지)
+  // 품목이 있으면 sum(unit_price*quantity), 없으면 o.amount로 fallback
+  const purchaseSum = Array.isArray(o.items) && o.items.length
+    ? o.items.reduce((s, it) => s + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0), 0)
+    : Math.abs(o.amount || 0);
+  const saleSum = Array.isArray(o.items) && o.items.length
+    ? o.items.reduce((s, it) => s + (Number(it.sale_price) || 0) * (Number(it.quantity) || 0), 0)
+    : 0;
   const row = {
     po_no: poNo,
     status: '진행중',
@@ -233,8 +242,8 @@ async function recordPoCreate(o) {
     hospital_name: o.party?.kind === 'hospital' ? o.party.name : null,
     manufacturer_id: o.manufacturerId || null,
     manufacturer_name: (o.party?.kind === 'manufacturer' ? o.party.name : null) || o.vendorName || null,
-    total_amount: Math.abs(o.amount || 0),
-    sale_amount: o.saleAmount != null ? o.saleAmount : null,
+    total_amount: purchaseSum,
+    sale_amount: o.saleAmount != null ? o.saleAmount : (saleSum || null),
     owner: o.owner || null,
     is_active: true,
     source: o.source || 'clobe_sync',
