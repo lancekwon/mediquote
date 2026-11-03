@@ -15552,26 +15552,33 @@ function ActivityFeed() {
 function UnmatchedPurchaseQueueModal({ list, onClose, onMatched }) {
   const [picks, setPicks] = useState({}); // tiId → poId
   const [saving, setSaving] = useState({});
-  const [done, setDone] = useState({});
+  const [done, setDone] = useState({}); // tiId → 'matched' | 'skipped' | 'vendor-skipped'
 
-  async function match(tiId, poId) {
-    if (!poId) return;
-    setSaving(s => ({ ...s, [tiId]: true }));
+  const H = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' };
+
+  async function patch(table, filter, body, loadingKey, doneKey, doneValue) {
+    setSaving(s => ({ ...s, [loadingKey]: true }));
     try {
-      const r = await fetch(SUPABASE_URL + '/rest/v1/tax_invoices?id=eq.' + tiId, {
-        method: 'PATCH',
-        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-        body: JSON.stringify({ po_id: poId }),
+      const r = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?' + filter, {
+        method: 'PATCH', headers: H, body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error(await r.text());
-      setDone(d => ({ ...d, [tiId]: true }));
+      setDone(d => ({ ...d, [doneKey]: doneValue }));
       onMatched && onMatched();
     } catch (e) {
-      alert('매칭 실패: ' + e.message);
+      alert('실패: ' + e.message);
     } finally {
-      setSaving(s => ({ ...s, [tiId]: false }));
+      setSaving(s => ({ ...s, [loadingKey]: false }));
     }
   }
+
+  const match = (tiId, poId) => poId && patch('tax_invoices', 'id=eq.' + tiId, { po_id: poId }, tiId, tiId, 'matched');
+  const skipThis = (tiId) => patch('tax_invoices', 'id=eq.' + tiId, { no_po_needed: true }, tiId, tiId, 'skipped');
+  const skipVendor = (tiId, manufacturerId) => {
+    if (!manufacturerId) return;
+    if (!confirm('이 거래처의 모든 매입(과거·미래 포함)을 "PO 불필요"로 설정할까?\n세무사/광고/운송 등 운영비 전용 거래처에만 쓰세요.')) return;
+    patch('manufacturers', 'id=eq.' + manufacturerId, { default_no_po: true }, 'vendor:' + manufacturerId, tiId, 'vendor-skipped');
+  };
 
   return (
     <ModalShell title={`매칭 필요 매입 TI (${list.length}건)`} onClose={onClose} wide>
