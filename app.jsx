@@ -19511,6 +19511,16 @@ function App() {
     await sb.auth.signOut();
   }, []);
 
+  // 어드민 로그인시 초기 진입을 '매입매출 관리'로 (최초 1회만 — 이후 홈 복귀는 그대로)
+  const didInitialAdminRouteRef = React.useRef(false);
+  useEffect(() => {
+    if (!user || didInitialAdminRouteRef.current) return;
+    if (isAdminEmail(user.email) && view === 'home') {
+      didInitialAdminRouteRef.current = true;
+      setView('payables');
+    }
+  }, [user, view]);
+
   // 인증 완료 후 모든 데이터 프리로드 (user가 설정된 후 실행)
   useEffect(() => {
     if (!user) return;
