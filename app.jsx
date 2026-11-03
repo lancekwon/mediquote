@@ -15326,15 +15326,25 @@ function ActivityFeed() {
     });
   }, [feed, filters]);
 
-  // 합계
+  // 합계 (중복 방지: 같은 거래가 세금계산서/통장/매칭 3곳에 UNION ALL로 들어오므로 소스별로 분리)
   const totals = useMemo(() => {
-    let inflow = 0, outflow = 0, poSum = 0;
+    const t = {
+      tiSale: 0, cashIn: 0, recCollect: 0,
+      tiPurchase: 0, cashOut: 0, payPay: 0,
+      poSum: 0,
+    };
     for (const r of filtered) {
-      if (r.kind === 'ti_sale' || r.kind === 'cash_in' || r.kind === 'receivable_collect') inflow += Number(r.amount || 0);
-      if (r.kind === 'ti_purchase' || r.kind === 'cash_out' || r.kind === 'payable_pay') outflow += Math.abs(Number(r.amount || 0));
-      if (r.kind === 'po_create') poSum += Math.abs(Number(r.amount || 0));
+      const amt = Number(r.amount || 0);
+      const abs = Math.abs(amt);
+      if (r.kind === 'ti_sale') t.tiSale += amt;
+      else if (r.kind === 'cash_in') t.cashIn += amt;
+      else if (r.kind === 'receivable_collect') t.recCollect += amt;
+      else if (r.kind === 'ti_purchase') t.tiPurchase += abs;
+      else if (r.kind === 'cash_out') t.cashOut += abs;
+      else if (r.kind === 'payable_pay') t.payPay += abs;
+      else if (r.kind === 'po_create') t.poSum += abs;
     }
-    return { inflow, outflow, poSum };
+    return t;
   }, [filtered]);
 
   return (
@@ -15367,12 +15377,21 @@ function ActivityFeed() {
         <span className="text-xs text-slate-500">{filtered.length}건 / 전체 {feed.length}</span>
       </div>
 
-      {/* 합계 바 */}
-      <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center gap-x-6 gap-y-1">
-        <span className="text-sm font-bold text-slate-700">합계 (필터 범위)</span>
-        <span className="text-sm text-slate-600">수입 <b className="font-mono text-blue-700">{totals.inflow.toLocaleString()}원</b></span>
-        <span className="text-sm text-slate-600">지출 <b className="font-mono text-rose-700">{totals.outflow.toLocaleString()}원</b></span>
-        <span className="text-sm text-slate-600">발주 <b className="font-mono text-violet-700">{totals.poSum.toLocaleString()}원</b></span>
+      {/* 합계 바 (소스별 분리 — UNION ALL 중복 방지) */}
+      <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 space-y-1">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
+          <span className="font-bold text-slate-700">수입</span>
+          <span className="text-slate-600">세금계산서 <b className="font-mono text-blue-700">{totals.tiSale.toLocaleString()}원</b></span>
+          <span className="text-slate-600">통장 <b className="font-mono text-blue-700">{totals.cashIn.toLocaleString()}원</b></span>
+          <span className="text-slate-600">수금매칭 <b className="font-mono text-blue-700">{totals.recCollect.toLocaleString()}원</b></span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
+          <span className="font-bold text-slate-700">지출</span>
+          <span className="text-slate-600">세금계산서 <b className="font-mono text-rose-700">{totals.tiPurchase.toLocaleString()}원</b></span>
+          <span className="text-slate-600">통장 <b className="font-mono text-rose-700">{totals.cashOut.toLocaleString()}원</b></span>
+          <span className="text-slate-600">지급매칭 <b className="font-mono text-rose-700">{totals.payPay.toLocaleString()}원</b></span>
+          <span className="text-slate-600 ml-4">발주 <b className="font-mono text-violet-700">{totals.poSum.toLocaleString()}원</b></span>
+        </div>
       </div>
 
       {loading ? (
