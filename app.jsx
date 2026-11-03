@@ -15378,17 +15378,17 @@ function ActivityFeed() {
       {loading ? (
         <div className="p-12 text-center text-slate-400 text-sm">로딩 중...</div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-auto" style={{maxHeight: 'calc(100vh - 280px)'}}>
           <table className="w-full text-sm">
-            <thead className="bg-white border-b border-slate-200">
+            <thead className="bg-white border-b border-slate-200 sticky top-0 z-10">
               <tr className="text-xs text-slate-500">
-                <th className="px-3 py-2 text-left w-24">일시</th>
-                <th className="px-3 py-2 text-center w-24">유형</th>
-                <th className="px-3 py-2 text-left">거래처</th>
-                <th className="px-3 py-2 text-right w-36">금액</th>
-                <th className="px-3 py-2 text-left">적요</th>
-                <th className="px-3 py-2 text-center w-16">담당</th>
-                <th className="px-3 py-2 text-center w-12">상세</th>
+                <th className="px-3 py-2 text-left w-24 bg-white">일시</th>
+                <th className="px-3 py-2 text-center w-24 bg-white">유형</th>
+                <th className="px-3 py-2 text-left bg-white">거래처</th>
+                <th className="px-3 py-2 text-right w-36 bg-white">금액</th>
+                <th className="px-3 py-2 text-left bg-white">적요</th>
+                <th className="px-3 py-2 text-center w-16 bg-white">담당</th>
+                <th className="px-3 py-2 text-center w-12 bg-white">상세</th>
               </tr>
             </thead>
             <tbody>
