@@ -15404,7 +15404,14 @@ function ActivityFeed() {
                     <td className="px-3 py-1.5 text-center"><span className={`inline-block px-2 py-0.5 text-[10px] rounded font-medium ${kl.color}`}>{kl.label}</span></td>
                     <td className="px-3 py-1.5 text-slate-800">{r.party_name || r.counterparty_raw || <span className="text-slate-300">-</span>}</td>
                     <td className={`px-3 py-1.5 text-right tnum font-mono ${amtColor}`}>{Number(r.amount || 0).toLocaleString()}원</td>
-                    <td className="px-3 py-1.5 text-xs text-slate-600 truncate max-w-xs" title={r.memo || ''}>{r.memo || <span className="text-slate-300">-</span>}</td>
+                    <td className="px-3 py-1.5 text-xs text-slate-600 truncate max-w-xs" title={r.memo || ''}>
+                      {r.memo || <span className="text-slate-300">-</span>}
+                      {Array.isArray(r.items) && r.items.length > 0 && (
+                        <span className="ml-1 text-slate-400">
+                          · {r.items[0]?.item_name || '-'}{r.items.length > 1 ? ` 외 ${r.items.length - 1}` : ''}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 text-center text-xs text-slate-600">{r.owner || <span className="text-slate-300">-</span>}</td>
                     <td className="px-3 py-1.5 text-center text-xs text-slate-400">▸</td>
                   </tr>
