@@ -12198,6 +12198,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               { k: 'cashflow', l: '발주 외 매출' },
               { k: 'cash', l: '통장 출납' },
               { k: 'taxinv', l: '세금계산서' },
+              { k: 'activity', l: '활동' },
               { k: 'report', l: '리포트' },
               { k: 'profit', l: '병원별 이익' },
               { k: 'todo', l: '할 일' },
@@ -12341,6 +12342,8 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
             <CashflowTab contracts={contracts} hospitals={hospitals} manufacturers={manufacturers} />
           ) : tab === 'taxinv' ? (
             <TaxInvoiceTab onChanged={reload} initialForm={taxinvPrefill} onGoToPo={nav?.poTracking} />
+          ) : tab === 'activity' ? (
+            <ActivityFeed />
           ) : tab === 'report' ? (
             <PayableReportTab transactions={transactions} balances={balances} cashLogs={cashLogs} arBalances={arBalances} arTransactions={arTransactions} expectedRev={expectedRev} manufacturers={manufacturers} saleTax={saleTax} cashCurrent={cashCurrent} hospitals={hospitals} />
           ) : tab === 'profit' ? (
@@ -15244,6 +15247,219 @@ function MissingPriceModal({ hospName, items, onClose, onSaved }) {
 }
 
 /* ============================================================
+   활동 피드 — v_activity_feed 뷰 기반 통합 타임라인 (Phase 1)
+   ============================================================ */
+function ActivityFeed() {
+  const [feed, setFeed] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({ kind: 'all', partyKind: 'all', search: '', days: 7, partyId: '' });
+  const [selected, setSelected] = useState(null);
+
+  // 피드에 나타난 거래처 목록 (중복 제거, 이름 가진 것만)
+  const partyOptions = useMemo(() => {
+    const m = new Map();
+    for (const r of feed) {
+      const nm = r.party_name || r.counterparty_raw;
+      if (nm && r.party_id) m.set(r.party_id, nm);
+      else if (nm && !m.has(nm)) m.set('name:' + nm, nm);
+    }
+    return Array.from(m.entries()).map(([k, v]) => ({ key: k, name: v }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  }, [feed]);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const since = new Date(Date.now() - filters.days * 86400000).toISOString().slice(0, 10);
+      // raw fetch — supabase-js의 openapi 캐시 미스를 우회
+      try {
+        const url = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*&happened_at=gte.' +
+          encodeURIComponent(since) + '&order=happened_at.desc&limit=1000';
+        const r = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } });
+        const data = await r.json();
+        if (!r.ok) { console.error('v_activity_feed load', data); setFeed([]); }
+        else setFeed(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error('v_activity_feed fetch', e);
+        setFeed([]);
+      }
+      setLoading(false);
+    })();
+  }, [filters.days]);
+
+  const KIND_LABELS = {
+    ti_purchase: { label: '매입', color: 'bg-rose-100 text-rose-700' },
+    ti_sale: { label: '매출', color: 'bg-emerald-100 text-emerald-700' },
+    cash_in: { label: '입금', color: 'bg-blue-100 text-blue-700' },
+    cash_out: { label: '출금', color: 'bg-amber-100 text-amber-700' },
+    po_create: { label: '발주', color: 'bg-violet-100 text-violet-700' },
+    payable_pay: { label: '지급매칭', color: 'bg-amber-50 text-amber-600' },
+    payable_adjust: { label: '매입조정', color: 'bg-slate-100 text-slate-600' },
+    receivable_collect: { label: '수금매칭', color: 'bg-blue-50 text-blue-600' },
+    receivable_adjust: { label: '매출조정', color: 'bg-slate-100 text-slate-600' },
+  };
+
+  const filtered = useMemo(() => {
+    return feed.filter(r => {
+      if (filters.kind !== 'all') {
+        if (filters.kind === 'ti' && !(r.kind || '').startsWith('ti_')) return false;
+        if (filters.kind === 'cash' && !(r.kind || '').startsWith('cash_')) return false;
+        if (filters.kind === 'po' && r.kind !== 'po_create') return false;
+        if (filters.kind === 'match' && !((r.kind || '').startsWith('payable_') || (r.kind || '').startsWith('receivable_'))) return false;
+      }
+      if (filters.partyKind !== 'all' && r.party_kind !== filters.partyKind) return false;
+      if (filters.partyId) {
+        if (filters.partyId.startsWith('name:')) {
+          const nm = filters.partyId.slice(5);
+          if ((r.party_name || r.counterparty_raw) !== nm) return false;
+        } else {
+          if (r.party_id !== filters.partyId) return false;
+        }
+      }
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        if (!(r.party_name || '').toLowerCase().includes(q) &&
+            !(r.counterparty_raw || '').toLowerCase().includes(q) &&
+            !(r.memo || '').toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [feed, filters]);
+
+  // 합계
+  const totals = useMemo(() => {
+    let inflow = 0, outflow = 0, poSum = 0;
+    for (const r of filtered) {
+      if (r.kind === 'ti_sale' || r.kind === 'cash_in' || r.kind === 'receivable_collect') inflow += Number(r.amount || 0);
+      if (r.kind === 'ti_purchase' || r.kind === 'cash_out' || r.kind === 'payable_pay') outflow += Math.abs(Number(r.amount || 0));
+      if (r.kind === 'po_create') poSum += Math.abs(Number(r.amount || 0));
+    }
+    return { inflow, outflow, poSum };
+  }, [filtered]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50 flex-wrap">
+        <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5 bg-white">
+          {[1, 7, 30, 90].map(d => (
+            <button key={d} type="button" onClick={() => setFilters(f => ({ ...f, days: d }))}
+              className={`px-2.5 py-1 text-xs rounded ${filters.days === d ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>
+              최근 {d === 1 ? '1일' : d + '일'}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 border border-slate-200 rounded-lg p-0.5 bg-white">
+          {[['all', '전체'], ['ti', '세금계산서'], ['cash', '통장'], ['po', '발주'], ['match', '지급·수금']].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setFilters(f => ({ ...f, kind: k }))}
+              className={`px-2.5 py-1 text-xs rounded ${filters.kind === k ? 'bg-slate-900 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>{l}</button>
+          ))}
+        </div>
+        <select value={filters.partyId} onChange={e => setFilters(f => ({ ...f, partyId: e.target.value }))}
+          className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs max-w-[160px] focus:outline-none focus:border-blue-400">
+          <option value="">거래처 전체</option>
+          {partyOptions.map(p => (
+            <option key={p.key} value={p.key}>{p.name}</option>
+          ))}
+        </select>
+        <input type="text" placeholder="거래처/적요 검색" value={filters.search}
+          onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+          className="flex-1 max-w-xs bg-white border border-slate-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+        <span className="text-xs text-slate-500">{filtered.length}건 / 전체 {feed.length}</span>
+      </div>
+
+      {/* 합계 바 */}
+      <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center gap-x-6 gap-y-1">
+        <span className="text-sm font-bold text-slate-700">합계 (필터 범위)</span>
+        <span className="text-sm text-slate-600">수입 <b className="font-mono text-blue-700">{totals.inflow.toLocaleString()}원</b></span>
+        <span className="text-sm text-slate-600">지출 <b className="font-mono text-rose-700">{totals.outflow.toLocaleString()}원</b></span>
+        <span className="text-sm text-slate-600">발주 <b className="font-mono text-violet-700">{totals.poSum.toLocaleString()}원</b></span>
+      </div>
+
+      {loading ? (
+        <div className="p-12 text-center text-slate-400 text-sm">로딩 중...</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-white border-b border-slate-200">
+              <tr className="text-xs text-slate-500">
+                <th className="px-3 py-2 text-left w-24">일시</th>
+                <th className="px-3 py-2 text-center w-24">유형</th>
+                <th className="px-3 py-2 text-left">거래처</th>
+                <th className="px-3 py-2 text-right w-36">금액</th>
+                <th className="px-3 py-2 text-left">적요</th>
+                <th className="px-3 py-2 text-center w-16">담당</th>
+                <th className="px-3 py-2 text-center w-12">상세</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={7} className="px-3 py-12 text-center text-slate-400 text-xs">해당 기간 활동이 없습니다.</td></tr>
+              ) : filtered.map(r => {
+                const kl = KIND_LABELS[r.kind] || { label: r.kind, color: 'bg-slate-100 text-slate-600' };
+                const amtColor = r.amount > 0 ? 'text-blue-700' : r.amount < 0 ? 'text-rose-700' : 'text-slate-500';
+                return (
+                  <tr key={r.feed_id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => setSelected(r)}>
+                    <td className="px-3 py-1.5 text-xs text-slate-500 tnum">{(r.happened_at || '').slice(0, 10)}</td>
+                    <td className="px-3 py-1.5 text-center"><span className={`inline-block px-2 py-0.5 text-[10px] rounded font-medium ${kl.color}`}>{kl.label}</span></td>
+                    <td className="px-3 py-1.5 text-slate-800">{r.party_name || r.counterparty_raw || <span className="text-slate-300">-</span>}</td>
+                    <td className={`px-3 py-1.5 text-right tnum font-mono ${amtColor}`}>{Number(r.amount || 0).toLocaleString()}원</td>
+                    <td className="px-3 py-1.5 text-xs text-slate-600 truncate max-w-xs" title={r.memo || ''}>{r.memo || <span className="text-slate-300">-</span>}</td>
+                    <td className="px-3 py-1.5 text-center text-xs text-slate-600">{r.owner || <span className="text-slate-300">-</span>}</td>
+                    <td className="px-3 py-1.5 text-center text-xs text-slate-400">▸</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {selected && (
+        <ModalShell title={`${(KIND_LABELS[selected.kind] || {}).label || selected.kind} · ${(selected.happened_at || '').slice(0, 10)}`} onClose={() => setSelected(null)}>
+          <div className="p-4 space-y-2 text-sm">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+              <div><span className="text-slate-500 text-xs">거래처</span><div className="font-medium">{selected.party_name || selected.counterparty_raw || '-'}</div></div>
+              <div><span className="text-slate-500 text-xs">금액</span><div className={`font-mono ${selected.amount > 0 ? 'text-blue-700' : 'text-rose-700'}`}>{Number(selected.amount || 0).toLocaleString()}원</div></div>
+              <div><span className="text-slate-500 text-xs">유형</span><div>{selected.kind}</div></div>
+              <div><span className="text-slate-500 text-xs">출처 테이블</span><div className="font-mono text-xs">{selected.source_table}</div></div>
+              {selected.po_no && (<div><span className="text-slate-500 text-xs">PO</span><div>{selected.po_no}</div></div>)}
+              {selected.account_id && (<div><span className="text-slate-500 text-xs">계좌</span><div className="font-mono text-xs">{selected.account_id.slice(0, 8)}</div></div>)}
+              {selected.balance_after != null && (<div><span className="text-slate-500 text-xs">잔액(통장)</span><div className="font-mono">{Number(selected.balance_after).toLocaleString()}원</div></div>)}
+              {selected.clobe_tx_id && (<div><span className="text-slate-500 text-xs">Clobe tx</span><div className="font-mono text-xs">{selected.clobe_tx_id}</div></div>)}
+              {selected.clobe_ti_id && (<div><span className="text-slate-500 text-xs">Clobe TI</span><div className="font-mono text-xs">{selected.clobe_ti_id}</div></div>)}
+              {selected.po_status && (<div><span className="text-slate-500 text-xs">PO 상태</span><div>{selected.po_status}</div></div>)}
+              {selected.sale_amount != null && (<div><span className="text-slate-500 text-xs">매출(PO)</span><div className="font-mono">{Number(selected.sale_amount).toLocaleString()}원</div></div>)}
+              {selected.margin != null && (<div><span className="text-slate-500 text-xs">이익(PO)</span><div className="font-mono">{Number(selected.margin).toLocaleString()}원</div></div>)}
+            </div>
+            {selected.memo && (<div><span className="text-slate-500 text-xs">적요</span><div>{selected.memo}</div></div>)}
+            {Array.isArray(selected.items) && selected.items.length > 0 && (
+              <div>
+                <span className="text-slate-500 text-xs">품목 ({selected.item_count}건)</span>
+                <table className="w-full text-xs mt-1">
+                  <thead className="bg-slate-50"><tr><th className="px-2 py-1 text-left">품목</th><th className="px-2 py-1 text-left">모델</th><th className="px-2 py-1 text-right">수량</th><th className="px-2 py-1 text-right">매입단가</th><th className="px-2 py-1 text-right">매출단가</th></tr></thead>
+                  <tbody>
+                    {selected.items.map((it, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="px-2 py-1">{it.item_name}</td>
+                        <td className="px-2 py-1 text-slate-500">{it.model_name || '-'}</td>
+                        <td className="px-2 py-1 text-right tnum">{it.quantity}</td>
+                        <td className="px-2 py-1 text-right tnum font-mono">{Number(it.unit_price || 0).toLocaleString()}</td>
+                        <td className="px-2 py-1 text-right tnum font-mono">{it.sale_price != null ? Number(it.sale_price).toLocaleString() : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    주별 영업 리포트 — 발주 등록일 기준, 병원별 매출/매입/이익 + 기타 이익/지출
    ============================================================ */
 function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
@@ -15315,21 +15531,54 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
     setLoading(true);
     (async () => {
       try {
-        // 발주 created_at 기준 · 취소 제외 (납품완료 포함)
-        const [poData, cl, dl] = await Promise.all([
-          sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, total_amount, sale_amount, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
-            .neq('status', '취소')
-            .gte('created_at', w.start + 'T00:00:00').lte('created_at', w.end + 'T23:59:59')
-            .then(r => r.data || []),
-          sb.from('cash_balance_log').select('id, log_date, delta, counterparty, entry_type, memo')
-            .gte('log_date', w.start).lte('log_date', w.end).then(r => r.data || []),
-          // 이 주간에 납품(deliveries)된 할인 — 병원별 순이익 계산용
+        // Phase 2: v_activity_feed 기반 — PO + 통장 피드에서 뽑음 (취소된 PO 는 피드에서 필터)
+        const feedBase = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*';
+        const feedHeaders = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
+        const [poFeed, cashFeed, dl] = await Promise.all([
+          fetch(feedBase + '&kind=eq.po_create&happened_at=gte.' + w.start + 'T00:00:00&happened_at=lte.' + w.end + 'T23:59:59&limit=1000',
+            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
+          fetch(feedBase + '&kind=in.(cash_in,cash_out)&happened_at=gte.' + w.start + '&happened_at=lte.' + w.end + '&limit=1000',
+            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
+          // deliveries는 별도 (할인 관리) — 피드엔 없음
           sb.from('deliveries')
             .select('id, hospital_id, delivered_date, discount_items, discount_total, notes')
             .gte('delivered_date', w.start).lte('delivered_date', w.end)
             .then(r => r.data || []),
         ]);
+        // PO 피드 → 기존 형식 유사하게 매핑 (po_status != '취소' 필터)
+        const poData = (Array.isArray(poFeed) ? poFeed : [])
+          .filter(p => p.po_status !== '취소')
+          .map(p => ({
+            id: p.source_id,
+            po_no: p.po_no,
+            created_at: p.happened_at,
+            hospital_id: p.hospital_id,
+            hospital_name: p.party_name,
+            manufacturer_id: p.manufacturer_id,
+            manufacturer_name: p.party_name,  // 매입처 이름은 piggyback
+            status: p.po_status,
+            owner: p.owner,
+            total_amount: Math.abs(Number(p.amount) || 0),  // PO는 amount 음수로 저장
+            sale_amount: p.sale_amount,
+            // items jsonb → purchase_order_items 포맷으로 변환
+            purchase_order_items: (p.items || []).map(it => ({
+              id: it.equipment_id,
+              item_name: it.item_name,
+              model_name: it.model_name,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              sale_price: it.sale_price,
+            })),
+          }));
+        // 통장 피드 → cLogs 포맷 (delta=amount, log_date=happened_at)
+        const cl = (Array.isArray(cashFeed) ? cashFeed : []).map(c => ({
+          id: c.source_id,
+          log_date: (c.happened_at || '').slice(0, 10),
+          delta: Number(c.amount) || 0,
+          counterparty: c.counterparty_raw || c.party_name,
+          entry_type: c.entry_type,
+          memo: c.memo,
+        }));
         if (!cancelled) { setPos(poData); setCLogs(cl); setDels(dl); }
       } finally { if (!cancelled) setLoading(false); }
     })();
@@ -16099,31 +16348,20 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
     setLoading(true);
     (async () => {
       try {
-        // report_month가 있으면 그 값, 없으면 created_at/delivered_date로 기간 필터
-        // Supabase는 or 조건으로 두 케이스 함께 조회
-        const [poReport, poOrig, dlReport, dlOrig] = await Promise.all([
-          // report_month가 이 월인 발주 (다른 달에서 옮겨온 것)
-          sb.from('purchase_orders')
-            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, total_amount, sale_amount, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
-            .neq('status', '취소')
-            .not('hospital_id', 'is', null)
-            .eq('report_month', rangeFrom)
-            .then(r => r.data || []),
-          // report_month가 없고 created_at이 이 월인 발주
-          sb.from('purchase_orders')
-            .select('id, po_no, created_at, report_month, hospital_id, hospital_name, manufacturer_id, manufacturer_name, status, owner, total_amount, sale_amount, purchase_order_items(id, item_name, model_name, quantity, unit_price, sale_price)')
-            .neq('status', '취소')
-            .not('hospital_id', 'is', null)
-            .is('report_month', null)
-            .gte('created_at', rangeFrom + 'T00:00:00')
-            .lte('created_at', rangeTo + 'T23:59:59')
-            .then(r => r.data || []),
-          // report_month가 이 월인 deliveries
+        // Phase 2: v_activity_feed 기반 PO 피드 + deliveries (할인은 별도)
+        const feedBase = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*&kind=eq.po_create&hospital_id=not.is.null';
+        const feedHeaders = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
+        const [poReportFeed, poOrigFeed, dlReport, dlOrig] = await Promise.all([
+          // report_month가 이 월인 PO
+          fetch(feedBase + '&report_month=eq.' + rangeFrom + '&limit=1000',
+            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
+          // report_month null + happened_at이 이 월인 PO
+          fetch(feedBase + '&report_month=is.null&happened_at=gte.' + rangeFrom + 'T00:00:00&happened_at=lte.' + rangeTo + 'T23:59:59&limit=1000',
+            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
           sb.from('deliveries')
             .select('id, hospital_id, delivered_date, report_month, discount_total, notes')
             .eq('report_month', rangeFrom)
             .then(r => r.data || []),
-          // report_month가 없고 delivered_date가 이 월인 deliveries
           sb.from('deliveries')
             .select('id, hospital_id, delivered_date, report_month, discount_total, notes')
             .is('report_month', null)
@@ -16131,6 +16369,31 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
             .lte('delivered_date', rangeTo)
             .then(r => r.data || []),
         ]);
+        // 피드 → PO 포맷 매핑 (취소 제외)
+        const toPo = (p) => ({
+          id: p.source_id,
+          po_no: p.po_no,
+          created_at: p.happened_at,
+          report_month: p.report_month,
+          hospital_id: p.hospital_id,
+          hospital_name: p.party_name,
+          manufacturer_id: p.manufacturer_id,
+          manufacturer_name: p.party_name,
+          status: p.po_status,
+          owner: p.owner,
+          total_amount: Math.abs(Number(p.amount) || 0),
+          sale_amount: p.sale_amount,
+          purchase_order_items: (p.items || []).map(it => ({
+            id: it.equipment_id,
+            item_name: it.item_name,
+            model_name: it.model_name,
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            sale_price: it.sale_price,
+          })),
+        });
+        const poReport = (Array.isArray(poReportFeed) ? poReportFeed : []).filter(p => p.po_status !== '취소').map(toPo);
+        const poOrig = (Array.isArray(poOrigFeed) ? poOrigFeed : []).filter(p => p.po_status !== '취소').map(toPo);
         if (!cancelled) {
           setPos([...poReport, ...poOrig]);
           setDels([...dlReport, ...dlOrig]);

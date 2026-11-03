@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.24.0"
+  },
+  "dependencies": {
+    "@babel/standalone": "^8.0.3"
   }
 }
