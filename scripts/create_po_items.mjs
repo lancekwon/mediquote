@@ -1,13 +1,23 @@
 // purchase_order_items 자동 생성 유틸 — Clobe TI items[] 받아서 equipment 매칭·등록까지
 //
 // 사용 예:
-//   import { createPoItems } from './scripts/create_po_items.mjs';
+//   import { createPoItems, findEquipmentCandidates } from './scripts/create_po_items.mjs';
+//   // 1) 미리보기 단계: 품목마다 기존 장비 연결 결과를 사용자에게 보여줌
+//   const report = await findEquipmentCandidates(clobeTI.items);   // [{ index, name, model, equipment, candidates }]
+//   //    candidates가 있는 품목은 사용자가 고른 걸 equipmentIds[index]에 넣음 (기존 장비 id 또는 'new')
+//   // 2) 저장 단계 — PO 만들기 전에 resolvePoEquipment로 미결 후보가 없는지 먼저 확인할 것 (recordActivity po_create는 알아서 함)
 //   const po = await ins('purchase_orders', { ..., total_amount, sale_amount });
 //   await createPoItems(po.id, clobeTI.items, {
 //     manufacturerId: po.manufacturer_id,
 //     manufacturerName: po.manufacturer_name,
 //     saleSupplyValue: 10000000,   // 매출 공급가 (null이면 sale_price 미설정)
+//     equipmentIds: { 0: '<기존 장비 id>', 2: 'new' },   // 후보가 있던 품목만
 //   });
+//
+// 장비 중복 방지 (2026-11-04): 이름이 글자까지 같아야만 기존 장비로 보던 탓에 사진 없는 중복 장비가 생겼음.
+// 이제 scripts/equipment_match.mjs 기준으로 확실하면 자동 연결, 비슷한 장비가 있으면 사용자가 고르기 전엔 등록하지 않고 에러.
+
+import { matchEquipment } from './equipment_match.mjs';
 
 const K = process.env.SB_KEY || 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 const B = (process.env.SB_URL || 'https://nbgubiywavozgigiwkpr.supabase.co') + '/rest/v1/';
@@ -38,6 +48,50 @@ export function clobeItemPurchase(it) {
   return { qty, unitPrice: qty > 0 ? Math.round(itemTotal / qty) : 0 };
 }
 
+const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
+const loadEquipment = async () => {
+  const rows = await q('equipment?select=id,equip_code,item_name,model_name,image_url&limit=5000');
+  if (!Array.isArray(rows)) throw new Error('장비 목록 조회 실패: ' + JSON.stringify(rows));
+  return rows;
+};
+
+/**
+ * 품목마다 기존 장비 연결 결과 (미리보기용, 아무것도 쓰지 않음).
+ * equipment: 자동으로 붙을 기존 장비 (없으면 null) / candidates: 비슷한 기존 장비 (사용자가 골라야 함)
+ */
+export async function findEquipmentCandidates(clobeItems, equipment = null) {
+  const list = equipment || await loadEquipment();
+  return (clobeItems || []).map((it, index) => {
+    const name = String(it.name || '').trim(), model = String(it.standards || '').trim();
+    const { strong, candidates } = matchEquipment(name, model, list);
+    return { index, name, model, equipment: strong, candidates: strong ? [] : candidates };
+  });
+}
+
+/**
+ * 저장 전 확인: 품목마다 쓸 장비 id 결정. 비슷한 기존 장비가 있는데 equipmentIds로 정하지 않은 품목이 있으면 에러 (아무것도 안 씀).
+ * @returns {Promise<Array<string|'new'>>} index별 기존 장비 id 또는 'new'(새로 등록)
+ */
+export async function resolvePoEquipment(clobeItems, { equipmentIds = {}, equipment = null } = {}) {
+  const report = await findEquipmentCandidates(clobeItems, equipment);
+  const undecided = [];
+  const ids = report.map((r) => {
+    const pick = equipmentIds[r.index];
+    if (isUuid(pick) || pick === 'new') return pick;
+    if (r.equipment) return r.equipment.id;
+    if (r.candidates.length) { undecided.push(r); return null; }
+    return 'new';
+  });
+  if (undecided.length) {
+    const lines = undecided.map((r) => `  [${r.index}] ${r.name}${r.model ? ' / ' + r.model : ''} → 후보 ` +
+      r.candidates.map((c) => `${c.equip_code} ${c.item_name}${c.model_name ? '/' + c.model_name : ''}`).join(' | '));
+    const err = new Error(`비슷한 기존 장비가 있어 새로 등록하지 않음 — equipmentIds로 정해 주세요 (기존 id 또는 'new'):\n${lines.join('\n')}`);
+    err.undecided = undecided;
+    throw err;
+  }
+  return ids;
+}
+
 /**
  * Clobe TI items[]를 받아 purchase_order_items를 생성.
  * equipment에 매칭되면 재사용, 없으면 신규 등록 (E코드 증번).
@@ -57,12 +111,17 @@ export async function createPoItems(poId, clobeItems, options = {}) {
     manufacturerName = null,
     saleSupplyValue = null,
     category = '미분류',
+    equipmentIds = {},
   } = options;
 
   if (!poId) throw new Error('poId 필수');
   if (!Array.isArray(clobeItems) || clobeItems.length === 0) {
     return { poiIds: [], created: { equip: 0, items: 0 } };
   }
+
+  // 품목 넣기 전에 장비 연결부터 전부 결정 — 비슷한 기존 장비가 있는데 안 정했으면 여기서 에러 (품목은 하나도 안 들어감)
+  const resolved = await resolvePoEquipment(clobeItems, { equipmentIds });
+  const madeInThisCall = new Map(); // 같은 PO 안에서 같은 새 품목이 두 줄이면 장비는 하나만
 
   // 매출 안분 기준 (총 공급가)
   const totalSupplyValue = clobeItems.reduce((s, it) => s + (Number(it.supplyValue) || 0), 0);
@@ -71,7 +130,7 @@ export async function createPoItems(poId, clobeItems, options = {}) {
   const poiIds = [];
   let createdEquip = 0;
 
-  for (const it of clobeItems) {
+  for (const [i, it] of clobeItems.entries()) {
     const itemName = String(it.name || '').trim();
     const modelName = String(it.standards || '').trim();
     const { qty, unitPrice } = clobeItemPurchase(it); // VAT 포함
@@ -85,17 +144,14 @@ export async function createPoItems(poId, clobeItems, options = {}) {
       salePrice = Math.round(itemSaleTotal / qty);
     }
 
-    // equipment 매칭 (item_name + model_name 완전 일치)
+    // equipment: resolvePoEquipment가 정한 기존 장비 id, 또는 'new'면 새로 등록
     let equipId = null;
+    const newKey = `${itemName}|${modelName}`.toLowerCase();
     if (itemName) {
-      const existing = await q(
-        'equipment?select=id&item_name=eq.' + encodeURIComponent(itemName) +
-        // 모델 없음 = null 또는 '' (범용 배송비 E739처럼 ''로 저장된 장비가 있어서 둘 다 찾아야 중복 등록 안 됨)
-        (modelName ? '&model_name=eq.' + encodeURIComponent(modelName) : '&or=(model_name.is.null,model_name.eq.)') +
-        '&limit=1'
-      );
-      if (Array.isArray(existing) && existing.length) {
-        equipId = existing[0].id;
+      if (resolved[i] !== 'new') {
+        equipId = resolved[i];
+      } else if (madeInThisCall.has(newKey)) {
+        equipId = madeInThisCall.get(newKey);
       } else {
         // 신규 equipment 등록
         const lastE = await q('equipment?select=equip_code&equip_code=like.E*&order=equip_code.desc&limit=1');
@@ -116,6 +172,7 @@ export async function createPoItems(poId, clobeItems, options = {}) {
           memo: '',
         });
         equipId = eq?.id || null;
+        if (equipId) madeInThisCall.set(newKey, equipId);
         createdEquip++;
       }
     }

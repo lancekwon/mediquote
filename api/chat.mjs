@@ -1,5 +1,7 @@
 // mediquote AI 챗 (Phase 1 — 견적 작성)
 // Vercel Serverless Function (Node runtime)
+
+import { matchEquipment } from '../scripts/equipment_match.mjs';
 //
 // ⚠ 데이터 안전 원칙:
 //   - 기존 테이블(equipment, hospitals, manufacturers, quotes, purchase_orders 등)은 READ ONLY
@@ -190,13 +192,15 @@ const TOOLS = [
   {
     name: 'register_equipment',
     description:
-      '장비 신규 등록 (E코드 자동). search_equipment로 못 찾은 품목만. **발주 미리보기에서 "신규 장비 등록"으로 보여주고 승인받은 뒤 호출.** 같은 품목명+모델명이 이미 있으면 새로 만들지 않고 기존 장비를 돌려줌.',
+      '장비 신규 등록 (E코드 자동). search_equipment로 못 찾은 품목만. **발주 미리보기에서 "신규 장비 등록"으로 보여주고 승인받은 뒤 호출.** ' +
+      '같은 제품(모델명 일치 등)이 이미 있으면 새로 만들지 않고 기존 장비를 돌려줌. 비슷한 장비가 있으면 만들지 않고 similar를 돌려줌 → 사용자에게 같은 제품인지 묻고, 같으면 그 id를 쓰고 다르면 confirm_new: true로 다시 호출.',
     input_schema: {
       type: 'object',
       properties: {
         item_name: { type: 'string', description: '품목명 (예: 소형고압증기멸균기)' },
         model_name: { type: 'string', description: '모델명 (없으면 생략)' },
         manufacturer_id: { type: 'string', description: '이 장비를 사는 거래처 UUID' },
+        confirm_new: { type: 'boolean', description: 'similar를 사용자에게 보여줬고 다른 제품이라고 확인했을 때만 true' },
       },
       required: ['item_name', 'manufacturer_id'],
     },
@@ -438,12 +442,17 @@ async function runTool(name, input, { sessionId, owner }) {
       const itemName = String(input.item_name || '').trim();
       const modelName = String(input.model_name || '').trim();
       if (!itemName) return { error: 'item_name이 필요합니다.' };
-      // createPoItems와 같은 기준: 품목명+모델명 완전 일치면 기존 장비 (모델 없음 = null 또는 '')
-      const existing = await sb(
-        `equipment?select=id,equip_code,item_name,model_name&item_name=eq.${esc(itemName)}` +
-        (modelName ? `&model_name=eq.${esc(modelName)}` : '&or=(model_name.is.null,model_name.eq.)') + '&limit=1'
-      );
-      if (existing.length) return { created: false, existing: true, equipment_id: existing[0].id, equip_code: existing[0].equip_code };
+      // 중복 장비 방지 — Clobe 업데이트(createPoItems)와 같은 기준 (scripts/equipment_match.mjs)
+      const all = await sb('equipment?select=id,equip_code,item_name,model_name,image_url&limit=5000');
+      const { strong, candidates } = matchEquipment(itemName, modelName, all);
+      if (strong) return { created: false, existing: true, equipment_id: strong.id, equip_code: strong.equip_code, item_name: strong.item_name, model_name: strong.model_name };
+      if (candidates.length && !input.confirm_new) {
+        return {
+          created: false,
+          similar: candidates.map((c) => ({ equipment_id: c.id, equip_code: c.equip_code, item_name: c.item_name, model_name: c.model_name })),
+          message: '비슷한 기존 장비가 있어 새로 만들지 않았습니다. 같은 제품인지 사용자에게 묻고, 같으면 그 equipment_id를 쓰고, 다른 제품이면 confirm_new: true로 다시 호출하세요.',
+        };
+      }
       const [mfr] = await sb(`manufacturers?id=eq.${input.manufacturer_id}&select=id,name`);
       if (!mfr) return { error: '해당 manufacturer_id의 거래처가 없습니다.' };
       const lastE = await sb('equipment?select=equip_code&equip_code=like.E*&order=equip_code.desc&limit=1');

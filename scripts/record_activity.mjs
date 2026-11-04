@@ -7,7 +7,7 @@
 //   const { results, needRebalance } = await recordActivityBatch([...]);
 //   if (needRebalance) await rebuildBalanceAfter();
 
-import { createPoItems, clobeItemPurchase } from './create_po_items.mjs';
+import { createPoItems, clobeItemPurchase, resolvePoEquipment } from './create_po_items.mjs';
 
 const K = process.env.SB_KEY || 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 const B = (process.env.SB_URL || 'https://nbgubiywavozgigiwkpr.supabase.co') + '/rest/v1/';
@@ -54,6 +54,7 @@ function subtractDays(dateStr, n) {
  * @param {array} [opts.items] - PO 생성 시 품목 [{name,standards,quantity,supplyValue,taxAmount}]
  * @param {number} [opts.saleAmount] - PO 매출합계 VAT 포함
  * @param {number} [opts.saleSupplyValue] - PO 매출 공급가 (품목 안분용)
+ * @param {object} [opts.equipmentIds] - PO 품목별 장비 { index: 기존 장비 id | 'new' } — 비슷한 기존 장비가 있는 품목은 필수 (findEquipmentCandidates로 미리보기)
  * @param {boolean} [opts.autoMatch=true] - 자동 매칭 활성화
  * @param {string} [opts.cashLogId] - payable/receivable 연계 시
  *
@@ -233,6 +234,10 @@ async function recordPoCreate(o) {
   const purchaseSum = Array.isArray(o.items) && o.items.length
     ? o.items.reduce((s, it) => { const { qty, unitPrice } = clobeItemPurchase(it); return s + qty * unitPrice; }, 0)
     : Math.abs(o.amount || 0);
+  // 장비 연결을 PO 만들기 전에 확정 — 비슷한 기존 장비가 있는데 o.equipmentIds로 안 정했으면 여기서 멈춤 (빈 PO가 안 남게)
+  const equipmentIds = Array.isArray(o.items) && o.items.length
+    ? Object.fromEntries((await resolvePoEquipment(o.items, { equipmentIds: o.equipmentIds || {} })).map((id, i) => [i, id]))
+    : {};
   const row = {
     po_no: poNo,
     status: '진행중',
@@ -256,6 +261,7 @@ async function recordPoCreate(o) {
       manufacturerId: po.manufacturer_id,
       manufacturerName: po.manufacturer_name,
       saleSupplyValue: o.saleSupplyValue != null ? o.saleSupplyValue : (o.saleAmount ? Math.round(o.saleAmount / 1.1) : null),
+      equipmentIds,
     });
     itemsCreated = r.created.items;
   }
