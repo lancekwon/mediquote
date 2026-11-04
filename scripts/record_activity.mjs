@@ -98,7 +98,8 @@ async function recordTiPurchase(o) {
       `&created_at=gte.${since}T00:00:00&limit=5`
     );
     for (const c of (cands || [])) {
-      const used = await q(`tax_invoices?select=id&po_id=eq.${c.id}&limit=1`);
+      // "이미 매입 확정된 PO" = 플러스 매입 TI가 연결됨 (v_activity_feed confirmed와 같은 기준)
+      const used = await q(`tax_invoices?select=id&po_id=eq.${c.id}&kind=eq.purchase&amount=gt.0&limit=1`);
       if (!used.length) { poId = c.id; break; }
     }
   }

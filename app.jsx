@@ -15250,12 +15250,41 @@ function MissingPriceModal({ hospName, items, onClose, onSaved }) {
   );
 }
 
+// PostgREST 뷰 조회 — 스키마 캐시 미스(PGRST205) 같은 일시 오류는 1번 재시도, 그래도 실패하면 throw.
+// (실패를 빈 배열로 삼키면 "거래 0건"처럼 보여서 실제로 없는 건지 구분이 안 됨)
+async function fetchView(url) {
+  const headers = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise(r => setTimeout(r, 800));
+    try {
+      const r = await fetch(url, { headers });
+      const data = await r.json();
+      if (r.ok && Array.isArray(data)) return data;
+      lastErr = new Error((data && (data.code || data.message)) || ('HTTP ' + r.status));
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+function LoadErrorBar({ error, onRetry }) {
+  if (!error) return null;
+  return (
+    <div className="mb-3 px-3 py-2 rounded border border-rose-200 bg-rose-50 text-xs text-rose-700 flex items-center justify-between gap-2">
+      <span>⚠ 데이터를 불러오지 못했어 — 아래 숫자는 실제와 다를 수 있음 ({String(error.message || error)})</span>
+      <button type="button" onClick={onRetry} className="px-2.5 py-1 rounded bg-rose-600 text-white hover:bg-rose-500 shrink-0">다시 시도</button>
+    </div>
+  );
+}
+
 /* ============================================================
    활동 피드 — v_activity_feed 뷰 기반 통합 타임라인 (Phase 1)
    ============================================================ */
 function ActivityFeed() {
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [feedReload, setFeedReload] = useState(0);
   const [filters, setFilters] = useState({ kind: 'all', partyKind: 'all', search: '', days: 7, partyId: '' });
   const [selected, setSelected] = useState(null);
 
@@ -15298,22 +15327,21 @@ function ActivityFeed() {
   useEffect(() => {
     (async () => {
       setLoading(true);
+      setLoadError(null);
       const since = new Date(Date.now() - filters.days * 86400000).toISOString().slice(0, 10);
       // raw fetch — supabase-js의 openapi 캐시 미스를 우회
       try {
         const url = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*&happened_at=gte.' +
           encodeURIComponent(since) + '&order=happened_at.desc&limit=1000';
-        const r = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } });
-        const data = await r.json();
-        if (!r.ok) { console.error('v_activity_feed load', data); setFeed([]); }
-        else setFeed(Array.isArray(data) ? data : []);
+        setFeed(await fetchView(url));
       } catch (e) {
-        console.error('v_activity_feed fetch', e);
+        console.error('v_activity_feed load', e);
         setFeed([]);
+        setLoadError(e);
       }
       setLoading(false);
     })();
-  }, [filters.days]);
+  }, [filters.days, feedReload]);
 
   const KIND_LABELS = {
     ti_purchase: { label: '매입', color: 'bg-rose-100 text-rose-700' },
@@ -15438,6 +15466,9 @@ function ActivityFeed() {
         </button>
       </div>
 
+      {!loading && loadError && (
+        <div className="px-4 pt-3"><LoadErrorBar error={loadError} onRetry={() => setFeedReload(x => x + 1)} /></div>
+      )}
       {loading ? (
         <div className="p-12 text-center text-slate-400 text-sm">로딩 중...</div>
       ) : (
@@ -15960,6 +15991,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
   const [cLogs, setCLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [loadError, setLoadError] = useState(null);
   const [detailModal, setDetailModal] = useState(null); // {hospName, items} — 발주 품목 상세 팝업
   const [missingModal, setMissingModal] = useState(null); // {hospName, items} — 매입가 편집
   const [expandedHosp, setExpandedHosp] = useState(new Set()); // 펼친 병원 id 집합
@@ -15973,19 +16005,17 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
 
   useEffect(() => {
     if (!w) return;
-    if (w.disabled) { setPos([]); setCLogs([]); return; }
+    if (w.disabled) { setPos([]); setCLogs([]); setLoadError(null); return; }
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     (async () => {
       try {
         // Phase 2: v_activity_feed 기반 — PO + 통장 피드에서 뽑음 (취소된 PO 는 피드에서 필터)
         const feedBase = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*';
-        const feedHeaders = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
         const [poFeed, cashFeed, dl] = await Promise.all([
-          fetch(feedBase + '&kind=eq.po_create&happened_at=gte.' + w.start + 'T00:00:00&happened_at=lte.' + w.end + 'T23:59:59&limit=1000',
-            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
-          fetch(feedBase + '&kind=in.(cash_in,cash_out)&happened_at=gte.' + w.start + '&happened_at=lte.' + w.end + '&limit=1000',
-            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
+          fetchView(feedBase + '&kind=eq.po_create&happened_at=gte.' + w.start + 'T00:00:00&happened_at=lte.' + w.end + 'T23:59:59&limit=1000'),
+          fetchView(feedBase + '&kind=in.(cash_in,cash_out)&happened_at=gte.' + w.start + '&happened_at=lte.' + w.end + '&limit=1000'),
           // deliveries는 별도 (할인 관리) — 피드엔 없음
           sb.from('deliveries')
             .select('id, hospital_id, delivered_date, discount_items, discount_total, notes')
@@ -16027,6 +16057,9 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
           memo: c.memo,
         }));
         if (!cancelled) { setPos(poData); setCLogs(cl); setDels(dl); }
+      } catch (e) {
+        console.error('주별 리포트 로드 실패', e);
+        if (!cancelled) { setPos([]); setCLogs([]); setDels([]); setLoadError(e); }
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -16277,6 +16310,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
         </div>
       </div>
 
+      {!loading && <LoadErrorBar error={loadError} onRetry={() => setReloadKey(k => k + 1)} />}
       {loading ? <div className="p-8 text-center text-slate-400 text-sm">불러오는 중…</div> : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
@@ -16766,6 +16800,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
   const [missingModal, setMissingModal] = useState(null);
   const [moveModal, setMoveModal] = useState(null); // { hosp, targetYm }
   const [reloadKey, setReloadKey] = useState(0);
+  const [loadError, setLoadError] = useState(null);
 
   const { rangeFrom, rangeTo, ymLabel } = useMemo(() => {
     const [y, m] = ym.split('-').map(Number);
@@ -16793,18 +16828,16 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     (async () => {
       try {
         // Phase 2: v_activity_feed 기반 PO 피드 + deliveries (할인은 별도)
         const feedBase = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*&kind=eq.po_create&hospital_id=not.is.null';
-        const feedHeaders = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
         const [poReportFeed, poOrigFeed, dlReport, dlOrig] = await Promise.all([
           // report_month가 이 월인 PO
-          fetch(feedBase + '&report_month=eq.' + rangeFrom + '&limit=1000',
-            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
+          fetchView(feedBase + '&report_month=eq.' + rangeFrom + '&limit=1000'),
           // report_month null + happened_at이 이 월인 PO
-          fetch(feedBase + '&report_month=is.null&happened_at=gte.' + rangeFrom + 'T00:00:00&happened_at=lte.' + rangeTo + 'T23:59:59&limit=1000',
-            { headers: feedHeaders }).then(r => r.json()).catch(() => []),
+          fetchView(feedBase + '&report_month=is.null&happened_at=gte.' + rangeFrom + 'T00:00:00&happened_at=lte.' + rangeTo + 'T23:59:59&limit=1000'),
           sb.from('deliveries')
             .select('id, hospital_id, delivered_date, report_month, discount_total, notes')
             .eq('report_month', rangeFrom)
@@ -16845,6 +16878,9 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           setPos([...poReport, ...poOrig]);
           setDels([...dlReport, ...dlOrig]);
         }
+      } catch (e) {
+        console.error('병원별 이익 로드 실패', e);
+        if (!cancelled) { setPos([]); setDels([]); setLoadError(e); }
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -16968,6 +17004,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
 
   return (
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
+      {!loading && <LoadErrorBar error={loadError} onRetry={() => setReloadKey(k => k + 1)} />}
       {/* 요약 카드 */}
       <div className="grid grid-cols-4 gap-2">
         <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
@@ -17654,24 +17691,34 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
   const [priceHint, setPriceHint] = useState(null); // { price, source: 'vendor'|'master', poNo }
   const purchaseTouchedRef = React.useRef(false);
 
+  // 우선순위: 이 거래처 발주 중 세금계산서로 확정된 최근 단가 → 확정 안 된 최근 단가 → 장비 기준가.
+  // 거래처를 바꿨는데 이력이 없으면 장비 기준가로 되돌림 (이전 거래처 단가가 남지 않게)
   useEffect(() => {
-    const eqId = form.equipment?.id, vendorId = form.vendor?.id;
-    if (!eqId || !vendorId) return;
+    const eq = form.equipment, vendorId = form.vendor?.id;
+    if (!eq) return;
+    const master = eq.purchasePrice != null ? { price: Number(eq.purchasePrice), source: 'master' } : null;
+    const apply = (hint) => {
+      setPriceHint(hint);
+      if (!purchaseTouchedRef.current) setForm(p => ({ ...p, purchasePrice: hint ? String(hint.price) : '' }));
+    };
+    if (!eq.id || !vendorId) { apply(master); return; }
     let cancelled = false;
     (async () => {
+      let hint = master;
       try {
-        const url = SUPABASE_URL + '/rest/v1/purchase_order_items?select=unit_price,created_at,purchase_orders!po_id(po_no,manufacturer_id,status)' +
-          '&equipment_id=eq.' + eqId + '&unit_price=gt.0&order=created_at.desc&limit=20';
+        const url = SUPABASE_URL + '/rest/v1/purchase_order_items?select=unit_price,created_at,po:purchase_orders!po_id!inner(po_no,manufacturer_id,status,tax_invoices(kind,amount))' +
+          '&equipment_id=eq.' + eq.id + '&po.manufacturer_id=eq.' + vendorId + '&po.status=neq.' + encodeURIComponent('취소') +
+          '&unit_price=gt.0&order=created_at.desc&limit=20';
         const rows = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }).then(r => r.json());
-        if (cancelled || !Array.isArray(rows)) return;
-        const hit = rows.find(x => x.purchase_orders && x.purchase_orders.manufacturer_id === vendorId && x.purchase_orders.status !== '취소');
-        if (!hit) return;
-        const price = Number(hit.unit_price);
-        setPriceHint({ price, source: 'vendor', poNo: hit.purchase_orders.po_no });
-        if (!purchaseTouchedRef.current) setForm(p => ({ ...p, purchasePrice: String(price) }));
+        if (Array.isArray(rows) && rows.length) {
+          const isConfirmed = x => (x.po.tax_invoices || []).some(t => t.kind === 'purchase' && Number(t.amount) > 0);
+          const hit = rows.find(isConfirmed) || rows[0];
+          hint = { price: Number(hit.unit_price), source: isConfirmed(hit) ? 'confirmed' : 'estimate', poNo: hit.po.po_no };
+        }
       } catch (e) {
         console.warn('예상 매입가 조회 실패', e);
       }
+      if (!cancelled) apply(hint);
     })();
     return () => { cancelled = true; };
   }, [form.equipment?.id, form.vendor?.id]);
@@ -17877,8 +17924,10 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
       {form.equipment && (
         <div className="mt-2 text-[11px] text-slate-500">
           {priceHint && !purchaseTouchedRef.current && Number(form.purchasePrice) === priceHint.price
-            ? (priceHint.source === 'vendor'
-                ? `매입가 = 예상값 (이 거래처 최근 발주 ${priceHint.poNo} 기준 ${priceHint.price.toLocaleString()}원)`
+            ? (priceHint.source === 'confirmed'
+                ? `매입가 = 예상값 (이 거래처 ${priceHint.poNo} 세금계산서 확정 단가 ${priceHint.price.toLocaleString()}원)`
+                : priceHint.source === 'estimate'
+                ? `매입가 = 예상값 (이 거래처 ${priceHint.poNo} 단가 ${priceHint.price.toLocaleString()}원 — 이것도 아직 확정 안 된 예상가)`
                 : `매입가 = 예상값 (장비 기준가 ${priceHint.price.toLocaleString()}원)`)
             : form.purchasePrice === '' ? '매입가 비워둬도 됨' : '매입가 직접 입력됨'}
           {' · 세금계산서를 이 발주에 매칭하면 실제 매입가로 바뀜'}
