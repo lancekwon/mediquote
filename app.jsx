@@ -15596,7 +15596,11 @@ function ActivityFeed() {
                     <td className="px-3 py-1.5 text-slate-800">{r.party_name || r.counterparty_raw || <span className="text-slate-300">-</span>}</td>
                     <td className={`px-3 py-1.5 text-right tnum font-mono ${amtColor}`}>
                       {Number(r.amount || 0).toLocaleString()}원
-                      {r.kind === 'po_create' && r.confirmed === false && (
+                      {r.kind === 'po_create' && r.deal_type === 'commission' ? (
+                        <div className="text-[10px] font-sans text-violet-600" title="제조사 직거래 — 매입·매출 없이 수수료">
+                          직거래 · 수수료 {r.commission != null ? Number(r.commission).toLocaleString() + '원' : '미정'}{r.confirmed ? '' : ' (예상)'}
+                        </div>
+                      ) : r.kind === 'po_create' && r.confirmed === false && (
                         <div className="text-[10px] font-sans text-amber-600" title="매입 세금계산서가 아직 연결되지 않음">
                           {Number(r.amount) ? '매입 예상가' : '매입 미확정'}
                         </div>
@@ -15642,6 +15646,7 @@ function ActivityFeed() {
               {selected.po_status && (<div><span className="text-slate-500 text-xs">PO 상태</span><div>{selected.po_status}</div></div>)}
               {selected.sale_amount != null && (<div><span className="text-slate-500 text-xs">매출(PO)</span><div className="font-mono">{Number(selected.sale_amount).toLocaleString()}원</div></div>)}
               {selected.margin != null && (<div><span className="text-slate-500 text-xs">이익(PO)</span><div className="font-mono">{Number(selected.margin).toLocaleString()}원</div></div>)}
+              {selected.deal_type === 'commission' && (<div><span className="text-slate-500 text-xs">거래 방식</span><div className="text-violet-700">제조사 직거래 · 수수료 {selected.commission != null ? Number(selected.commission).toLocaleString() + '원' : '미정'} {selected.confirmed ? '(계산서 확정)' : '(예상)'}</div></div>)}
             </div>
             {selected.memo && (<div><span className="text-slate-500 text-xs">적요</span><div>{selected.memo}</div></div>)}
             {Array.isArray(selected.items) && selected.items.length > 0 && (
@@ -16052,7 +16057,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
       try {
         const [po, pt, st] = await Promise.all([
           sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, owner, status, is_active, total_amount, sale_amount')
+            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, owner, status, is_active, total_amount, sale_amount, deal_type, commission_amount')
             .neq('status', '취소')
             .not('hospital_id', 'is', null)
             .gte('created_at', '2026-05-29T00:00:00')
@@ -16096,7 +16101,15 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
       const invSum = invs.reduce((s,t)=>s+Number(t.amount||0),0);
       const purchaseAmount = Number(p.total_amount||0);
       let purchaseStatus, purchaseLabel, purchaseBadge;
-      if (purchaseAmount === 0) {
+      if (p.deal_type === 'commission') {
+        // 제조사 직거래: 우리 매입 계산서는 없음. 제조사에 끊은 수수료 계산서(매출, po_id 연결)가 있으면 확정
+        const comm = saleTax.filter(t => t.po_id === p.id);
+        const commSum = comm.reduce((s, t) => s + Number(t.amount || 0), 0);
+        purchaseStatus = 'commission'; purchaseBadge = 'violet';
+        purchaseLabel = comm.length
+          ? `🤝 수수료 ✅ ${commSum.toLocaleString()}`
+          : `🤝 직거래 · 수수료 대기${p.commission_amount != null ? ` (예상 ${Number(p.commission_amount).toLocaleString()})` : ''}`;
+      } else if (purchaseAmount === 0) {
         purchaseStatus = 'na'; purchaseLabel = '매입액 0'; purchaseBadge = 'slate';
       } else if (invs.length === 0) {
         const days = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000);
@@ -16187,6 +16200,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
     amber:   'bg-amber-100 text-amber-700',
     rose:    'bg-rose-100 text-rose-700',
     slate:   'bg-slate-100 text-slate-500',
+    violet:  'bg-violet-100 text-violet-700',
   }[c] || 'bg-slate-100 text-slate-600');
 
   const filterBtns = [
@@ -16408,6 +16422,10 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           owner: p.owner,
           total_amount: Math.abs(Number(p.amount) || 0),
           sale_amount: p.sale_amount,
+          // 제조사 직거래(SQL 42): 매출·매입 대신 수수료 (계산서 연결되면 확정, 없으면 예상)
+          deal_type: p.deal_type || 'normal',
+          commission: Number(p.commission) || 0,
+          commission_confirmed: p.deal_type === 'commission' && !!p.confirmed,
           purchase_order_items: (p.items || []).map(it => ({
             id: it.id,
             item_name: it.item_name,
@@ -16449,7 +16467,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       const v = m.get(p.hospital_id) || {
         id: p.hospital_id,
         name: hospName(p.hospital_id),
-        sale: 0, purchase: 0,
+        sale: 0, purchase: 0, commission: 0, commissionPending: 0,
         items: [], missingItems: [], saleMissingItems: [],
         vendors: new Map(),
         poList: [],
@@ -16458,14 +16476,26 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       };
       if (p.owner) v.owners.add(p.owner);
       if (p.report_month) v.movedCount += 1;
-      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, report_month: p.report_month, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status, owner: p.owner });
+      v.poList.push({ id: p.id, po_no: p.po_no, created_at: p.created_at, report_month: p.report_month, vendor: p.manufacturer_name || '(거래처 미배정)', status: p.status, owner: p.owner, deal_type: p.deal_type });
       const vKey = p.manufacturer_id || `__novend__:${p.manufacturer_name || 'unknown'}`;
       const vg = v.vendors.get(vKey) || {
         id: p.manufacturer_id || null,
         name: p.manufacturer_name || '(거래처 미배정)',
-        sale: 0, purchase: 0, poCount: 0, items: [], saleMissing: 0,
+        sale: 0, purchase: 0, commission: 0, commissionDeal: false, poCount: 0, items: [], saleMissing: 0,
       };
       vg.poCount += 1;
+      // 제조사 직거래: 품목은 상세에만 보이고 매출·매입·경고에서 빠짐, 수수료만 더함
+      if (p.deal_type === 'commission') {
+        (p.purchase_order_items || []).forEach(it => {
+          const row = { id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: Number(it.quantity) || 0, sale_price: 0, unit_price: 0 };
+          v.items.push(row); vg.items.push(row);
+        });
+        v.commission += p.commission; vg.commission += p.commission; vg.commissionDeal = true;
+        if (!p.commission_confirmed) v.commissionPending += 1;
+        v.vendors.set(vKey, vg);
+        m.set(p.hospital_id, v);
+        return;
+      }
       (p.purchase_order_items || []).forEach(it => {
         const qty = Number(it.quantity) || 0;
         const sp = Number(it.sale_price) || 0;
@@ -16498,13 +16528,13 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       const discount = discountByHosp.get(v.id) || 0;
       return {
         ...v,
-        vendorList: Array.from(v.vendors.values()).map(vg => ({ ...vg, profit: vg.sale - vg.purchase })).sort((a,b) => b.sale - a.sale),
+        vendorList: Array.from(v.vendors.values()).map(vg => ({ ...vg, profit: vg.sale - vg.purchase + vg.commission })).sort((a,b) => (b.sale + b.commission) - (a.sale + a.commission)),
         ownerList: Array.from(v.owners),
         discount,
-        profit: v.sale - v.purchase - discount,
+        profit: v.sale - v.purchase - discount + v.commission,
         missingPrice: v.missingItems.length > 0,
       };
-    }).sort((a,b) => b.sale - a.sale);
+    }).sort((a,b) => (b.sale + b.commission) - (a.sale + a.commission));
   }, [pos, hospitals, discountByHosp]);
 
   // 담당자별 요약 (owner 지정된 발주만)
@@ -16516,15 +16546,16 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       const owners = h.ownerList.length > 0 ? h.ownerList : ['(미지정)'];
       const share = 1 / owners.length;
       owners.forEach(o => {
-        const cur = m.get(o) || { owner: o, sale: 0, purchase: 0, discount: 0, hospCount: 0 };
+        const cur = m.get(o) || { owner: o, sale: 0, purchase: 0, discount: 0, commission: 0, hospCount: 0 };
         cur.sale += h.sale * share;
         cur.purchase += h.purchase * share;
         cur.discount += h.discount * share;
+        cur.commission += h.commission * share;
         cur.hospCount += 1;
         m.set(o, cur);
       });
     });
-    return Array.from(m.values()).map(x => ({ ...x, profit: x.sale - x.purchase - x.discount }))
+    return Array.from(m.values()).map(x => ({ ...x, profit: x.sale - x.purchase - x.discount + x.commission }))
       .sort((a,b) => b.profit - a.profit);
   }, [byHosp]);
 
@@ -16541,7 +16572,8 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
     const sale = filtered.reduce((s, h) => s + h.sale, 0);
     const purchase = filtered.reduce((s, h) => s + h.purchase, 0);
     const discount = filtered.reduce((s, h) => s + h.discount, 0);
-    return { sale, purchase, discount, profit: sale - purchase - discount };
+    const commission = filtered.reduce((s, h) => s + h.commission, 0);
+    return { sale, purchase, discount, commission, profit: sale - purchase - discount + commission };
   }, [filtered]);
 
   const fmt = (n) => (n || 0).toLocaleString('ko-KR');
@@ -16555,7 +16587,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
     <div className="p-4 space-y-4" style={{maxHeight:'calc(100vh - 240px)', overflowY:'auto'}}>
       {!loading && <LoadErrorBar error={loadError} onRetry={() => setReloadKey(k => k + 1)} />}
       {/* 요약 카드 */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-2">
         <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
           <div className="text-[10px] text-slate-600 mb-1">총 매출</div>
           <div className="text-base font-bold font-mono text-blue-700">{fmt(totals.sale)}</div>
@@ -16567,6 +16599,10 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         <div className="bg-amber-50 border border-amber-200 rounded p-3 text-center">
           <div className="text-[10px] text-slate-600 mb-1">총 할인</div>
           <div className="text-base font-bold font-mono text-amber-700">-{fmt(totals.discount)}</div>
+        </div>
+        <div className="bg-violet-50 border border-violet-200 rounded p-3 text-center" title="제조사 직거래 발주의 수수료 (계산서 연결 전엔 예상 수수료)">
+          <div className="text-[10px] text-slate-600 mb-1">수수료 (직거래)</div>
+          <div className="text-base font-bold font-mono text-violet-700">{fmt(totals.commission)}</div>
         </div>
         <div className={`border rounded p-3 text-center ${totals.profit < 0 ? 'bg-rose-50 border-rose-300' : 'bg-emerald-50 border-emerald-200'}`}>
           <div className="text-[10px] text-slate-600 mb-1">순이익</div>
@@ -16587,6 +16623,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                 </div>
                 <div className="text-[10px] text-slate-500">매출 <span className="font-mono text-slate-700">{fmt(Math.round(o.sale))}</span></div>
                 <div className="text-[10px] text-slate-500">매입 <span className="font-mono text-slate-700">{fmt(Math.round(o.purchase))}</span></div>
+                {o.commission > 0 && <div className="text-[10px] text-slate-500">수수료 <span className="font-mono text-violet-700">{fmt(Math.round(o.commission))}</span></div>}
                 <div className="text-[10px] text-slate-500 mt-1">
                   순이익 <span className={`font-mono font-bold text-sm ${o.profit < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmt(Math.round(o.profit))}</span>
                 </div>
@@ -16627,15 +16664,16 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
               <th className="px-2 py-2 text-right w-28">매출</th>
               <th className="px-2 py-2 text-right w-28">매입</th>
               <th className="px-2 py-2 text-right w-24">할인</th>
+              <th className="px-2 py-2 text-right w-24" title="제조사 직거래 발주의 수수료 (계산서 연결 전엔 예상)">수수료</th>
               <th className="px-2 py-2 text-right w-28">순이익</th>
               <th className="px-2 py-2 text-right w-14">발주</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="text-center text-slate-400 p-6">불러오는 중…</td></tr>
+              <tr><td colSpan={7} className="text-center text-slate-400 p-6">불러오는 중…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} className="text-center text-slate-400 p-6">해당하는 병원이 없습니다.</td></tr>
+              <tr><td colSpan={7} className="text-center text-slate-400 p-6">해당하는 병원이 없습니다.</td></tr>
             ) : filtered.map(h => {
               const isExp = expanded.has(h.id);
               return (
@@ -16688,6 +16726,12 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                     <td className="px-2 py-2 text-right font-mono text-amber-700 text-[11px]">
                       {h.discount > 0 ? `-${fmt(h.discount)}` : <span className="text-slate-300">—</span>}
                     </td>
+                    <td className="px-2 py-2 text-right font-mono text-violet-700 text-[11px]"
+                      title={h.commissionPending > 0 ? `수수료 계산서 미연결 ${h.commissionPending}건 — 예상 수수료로 표시` : '수수료 계산서 연결됨 (확정)'}>
+                      {h.commission > 0 || h.commissionPending > 0
+                        ? <>{fmt(h.commission)}{h.commissionPending > 0 && <span className="text-[9px] text-violet-400 ml-0.5">예상</span>}</>
+                        : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className={`px-2 py-2 text-right font-mono font-semibold ${h.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(h.profit)}</td>
                     <td className="px-2 py-2 text-right text-slate-500">{h.poList.length}</td>
                   </tr>
@@ -16700,6 +16744,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                             <td className="px-2 py-1 pl-8 text-slate-600">
                               <div className="flex items-baseline gap-2 min-w-0">
                                 <span className="shrink-0">└ {v.name}</span>
+                                {v.commissionDeal && <span className="shrink-0 text-[9px] font-semibold text-violet-700 bg-violet-100 rounded px-1" title="제조사가 병원에 직접 계산서 — 우리는 수수료">직거래</span>}
                                 {v.items.length > 0 && (
                                   <button type="button" onClick={() => setDetailModal({ hospName: `${h.name} · ${v.name}`, items: v.items })}
                                     className="text-[10px] text-slate-400 hover:text-blue-600 hover:underline truncate text-left max-w-[360px]"
@@ -16713,6 +16758,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                             <td className="px-2 py-1 text-right font-mono text-blue-700">{fmt(v.sale)}</td>
                             <td className="px-2 py-1 text-right font-mono text-rose-700">{fmt(v.purchase)}</td>
                             <td className="px-2 py-1 text-right text-slate-300">—</td>
+                            <td className="px-2 py-1 text-right font-mono text-violet-700">{v.commissionDeal ? fmt(v.commission) : <span className="text-slate-300">—</span>}</td>
                             <td className={`px-2 py-1 text-right font-mono ${v.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(v.profit)}</td>
                             <td className="px-2 py-1 text-right text-slate-500">{v.poCount}</td>
                           </tr>
@@ -16720,7 +16766,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                       })}
                       {h.poList.length > 0 && (
                         <tr className="border-t border-slate-50 bg-slate-50/30 text-[10px]">
-                          <td colSpan={6} className="px-2 py-1 pl-8 text-slate-500">
+                          <td colSpan={7} className="px-2 py-1 pl-8 text-slate-500">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="text-slate-400">발주:</span>
                               {h.poList.map(p => (
@@ -16746,6 +16792,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                 <td className="px-2 py-2 text-right font-mono text-blue-700">{fmt(totals.sale)}</td>
                 <td className="px-2 py-2 text-right font-mono text-rose-700">{fmt(totals.purchase)}</td>
                 <td className="px-2 py-2 text-right font-mono text-amber-700">-{fmt(totals.discount)}</td>
+                <td className="px-2 py-2 text-right font-mono text-violet-700">{fmt(totals.commission)}</td>
                 <td className={`px-2 py-2 text-right font-mono ${totals.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(totals.profit)}</td>
                 <td className="px-2 py-2 text-right text-slate-500">{filtered.reduce((s,h)=>s+h.poList.length,0)}</td>
               </tr>
@@ -16753,7 +16800,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           )}
         </table>
       </div>
-      <div className="text-[10px] text-slate-500">※ 발주 등록일 기준 · 취소 제외 (준비중·발주완료·납품완료 모두 포함) · 매입가 0원 발주는 이익이 매출과 같게 표시됨 · 할인은 병원관리 저장된 것만 반영</div>
+      <div className="text-[10px] text-slate-500">※ 발주일 기준 (없으면 등록일) · 취소 제외 (준비중·발주완료·납품완료 모두 포함) · 매입가 0원 발주는 이익이 매출과 같게 표시됨 · 할인은 병원관리 저장된 것만 반영 · 직거래(제조사가 병원에 직접 계산서) 발주는 매출·매입 대신 수수료로 계산 — 수수료 계산서 연결 전엔 예상 수수료</div>
 
       {detailModal && (
         <PoDetailModal hospName={detailModal.hospName} items={detailModal.items} title={detailModal.title}
@@ -16890,7 +16937,10 @@ function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) 
               {vi.contact_phone && <a href={`tel:${vi.contact_phone}`} className="font-mono text-blue-600">{vi.contact_phone}</a>}
             </div>
           )}
-          <div className="text-[11px] font-mono text-slate-400 mt-0.5">{p.po_no || '—'}</div>
+          <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+            {p.po_no || '—'}
+            {p.deal_type === 'commission' && <span className="ml-1.5 font-sans text-[10px] font-semibold text-violet-700 bg-violet-100 rounded px-1">직거래{p.commission_amount != null ? ` · 수수료 ${Number(p.commission_amount).toLocaleString()}` : ''}</span>}
+          </div>
         </div>
         <button onClick={toggleTrackingDelivered}
           className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${p.trackingDone ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
@@ -17982,9 +18032,12 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
             {groupedByHosp.map(g => {
               const groupKey = `${g.hospName}||${g.contractId || g.quoteName || 'no-ctr'}`;
               const isOpen = !!expandedGroups[groupKey];
-              const groupSale = (g.list || []).reduce((s,p)=>s+(p.purchase_order_items||[]).reduce((ss,it)=>ss+(Number(it.sale_price)||0)*(Number(it.quantity)||0),0),0);
-              const groupPur  = (g.list || []).reduce((s,p)=>s+(p.purchase_order_items||[]).reduce((ss,it)=>ss+(Number(it.unit_price)||0)*(Number(it.quantity)||0),0),0);
-              const groupProfit = groupSale - groupPur;
+              // 제조사 직거래 발주는 매출·매입에서 빼고 수수료로 (병원별 이익과 같은 기준)
+              const normalPos = (g.list || []).filter(p => p.deal_type !== 'commission');
+              const groupSale = normalPos.reduce((s,p)=>s+(p.purchase_order_items||[]).reduce((ss,it)=>ss+(Number(it.sale_price)||0)*(Number(it.quantity)||0),0),0);
+              const groupPur  = normalPos.reduce((s,p)=>s+(p.purchase_order_items||[]).reduce((ss,it)=>ss+(Number(it.unit_price)||0)*(Number(it.quantity)||0),0),0);
+              const groupComm = (g.list || []).filter(p => p.deal_type === 'commission').reduce((s,p)=>s+(Number(p.commission_amount)||0),0);
+              const groupProfit = groupSale - groupPur + groupComm;
               return (
               <div key={groupKey} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <div className="w-full px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
@@ -17997,10 +18050,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                       <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold" title="납기일">📅 {g.deliveryTargetDate}</span>
                     )}
                     <span className="text-xs text-slate-500">{g.total}개 발주</span>
-                    {groupBy === 'hospital' && (groupSale > 0 || groupPur > 0) && (
+                    {groupBy === 'hospital' && (groupSale > 0 || groupPur > 0 || groupComm > 0) && (
                       <span className="text-[11px] text-slate-600 font-mono ml-1">
                         · <span className="text-emerald-700 font-semibold">매출 {groupSale.toLocaleString()}</span>
                         {' / '}<span className="text-rose-700 font-semibold">매입 {groupPur.toLocaleString()}</span>
+                        {groupComm > 0 && <>{' / '}<span className="text-violet-700 font-semibold">수수료 {groupComm.toLocaleString()}</span></>}
                         {' / '}<span className={groupProfit < 0 ? 'text-red-600 font-semibold' : 'text-blue-700 font-semibold'}>이익 {groupProfit.toLocaleString()}</span>
                       </span>
                     )}
@@ -18074,10 +18128,14 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             {/* 발주번호 + 담당자: 첫 행만 */}
                             <td className="px-2 py-1.5 text-xs font-mono text-slate-600 align-top">
                               {isFirst && (
-                                <div className="flex items-center gap-1.5">
-                                  <EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} />
-                                  <span>{p.po_no || '—'}</span>
-                                </div>
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} />
+                                    <span>{p.po_no || '—'}</span>
+                                  </div>
+                                  {!viewer && <div className="mt-0.5"><DealTypeCell po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>}
+                                  {viewer && p.deal_type === 'commission' && <div className="mt-0.5 text-[10px] text-violet-700">직거래</div>}
+                                </>
                               )}
                             </td>
                             {/* 거래처/병원: 첫 행만 */}
@@ -18108,13 +18166,17 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             </td>
                             {/* 수량 */}
                             <td className="px-2 py-1.5 text-center text-slate-700">{it?.quantity || (it ? 1 : '')}</td>
-                            {/* 매출가 — 인라인 편집 */}
+                            {/* 매출가 — 인라인 편집 (직거래는 우리 매출·매입이 없어서 입력 안 받음) */}
                             <td className="px-1 py-1 text-right align-top">
-                              {it ? <EditablePrice po={p} item={it} field="sale_price" setPos={setPos} reload={reload} showToast={showToast} /> : ''}
+                              {it ? (p.deal_type === 'commission'
+                                ? <span className="text-[10px] text-violet-400" title="제조사 직거래 — 수수료로 계산">직거래</span>
+                                : <EditablePrice po={p} item={it} field="sale_price" setPos={setPos} reload={reload} showToast={showToast} />) : ''}
                             </td>
                             {/* 매입가 — 인라인 편집 */}
                             <td className="px-1 py-1 text-right align-top">
-                              {it ? <EditablePrice po={p} item={it} field="unit_price" setPos={setPos} reload={reload} showToast={showToast} /> : ''}
+                              {it ? (p.deal_type === 'commission'
+                                ? <span className="text-[10px] text-violet-400" title="제조사 직거래 — 수수료로 계산">직거래</span>
+                                : <EditablePrice po={p} item={it} field="unit_price" setPos={setPos} reload={reload} showToast={showToast} />) : ''}
                             </td>
                             {/* 납기일 — 첫 행만 (편집 가능) */}
                             <td className="px-2 py-1.5 text-center align-top">
@@ -18356,6 +18418,78 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
 }
 
 // 발주 담당자 인라인 편집 — 뱃지 클릭 → 3개 버튼 나옴 → 하나 선택 → 즉시 저장
+/* 거래 방식 — 일반 / 제조사 직거래(수수료). SQL 42 (deal_type, commission_amount)
+   직거래: 제조사가 병원에 직접 세금계산서, 우리는 나중에 제조사에서 수수료. 병원 포털엔 장비로 보이고 병원별 이익엔 수수료로만 잡힘 */
+function DealTypeCell({ po, setPos, reload, showToast }) {
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState(po.deal_type || 'normal');
+  const [amt, setAmt] = useState(po.commission_amount != null ? Number(po.commission_amount).toLocaleString() : '');
+  const [saving, setSaving] = useState(false);
+  const isComm = po.deal_type === 'commission';
+  const save = async () => {
+    const commission_amount = type === 'commission' && amt.trim() ? parseInt(amt.replace(/[^\d]/g, ''), 10) || 0 : null;
+    const patch = { deal_type: type, commission_amount };
+    setSaving(true);
+    try {
+      await dbUpdatePurchaseOrder(po.id, patch);
+      if (setPos) setPos(prev => prev.map(p => p.id === po.id ? { ...p, ...patch } : p));
+      showToast && showToast(type === 'commission' ? `${po.po_no} 직거래(수수료)로 저장` : `${po.po_no} 일반 발주로 저장`);
+      setOpen(false);
+      if (!setPos && reload) reload();
+    } catch (e) { alert('저장 실패: ' + (e.message || e)); }
+    setSaving(false);
+  };
+  return (
+    <>
+      {isComm ? (
+        <button type="button" onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-100 hover:bg-violet-200 rounded px-1.5 py-0.5 whitespace-nowrap"
+          title="제조사 직거래 — 클릭해서 예상 수수료 수정">
+          직거래 · {po.commission_amount != null ? `수수료 ${Number(po.commission_amount).toLocaleString()}` : '수수료 미정'}
+        </button>
+      ) : (
+        <button type="button" onClick={() => setOpen(true)}
+          className="text-[10px] text-slate-300 hover:text-violet-600 whitespace-nowrap" title="거래 방식 변경 (제조사 직거래·수수료)">
+          ⇄ 거래방식
+        </button>
+      )}
+      {open && (
+        <ModalShell title={`거래 방식 — ${po.po_no || ''}`} subtitle={`${po.hospital_name || po.hospName || ''} · ${po.manufacturer_name || po.vendor_name || ''}`} onClose={() => setOpen(false)}>
+          <div className="space-y-2 text-sm">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" checked={type === 'normal'} onChange={() => setType('normal')} className="mt-1" />
+              <span><b>일반</b><span className="block text-xs text-slate-500">우리가 거래처에서 사서 병원에 팖 (매입·매출 계산서 모두 우리)</span></span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" checked={type === 'commission'} onChange={() => setType('commission')} className="mt-1" />
+              <span><b>제조사 직거래 (수수료)</b><span className="block text-xs text-slate-500">제조사가 병원에 직접 계산서를 끊고, 우리는 나중에 제조사에서 수수료를 받음</span></span>
+            </label>
+            {type === 'commission' && (
+              <div className="pl-6 pt-1">
+                <label className="text-xs text-slate-500 block mb-1">예상 수수료 (VAT 포함, 원)</label>
+                <input value={amt} inputMode="numeric" placeholder="모르면 비워두기"
+                  onChange={e => { const d = e.target.value.replace(/[^\d]/g, ''); setAmt(d ? Number(d).toLocaleString() : ''); }}
+                  className="w-48 border border-slate-200 rounded px-2 py-1 text-sm font-mono text-right focus:outline-none focus:border-violet-400" />
+                <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  · 병원별 이익: 이 발주의 매출·매입 대신 수수료로 계산<br />
+                  · 병원 포털(my.): 장비로 그대로 보임<br />
+                  · 제조사에 수수료 세금계산서를 끊으면 업데이트 때 이 발주에 연결 → 확정 수수료
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={() => setOpen(false)} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">취소</button>
+            <button onClick={save} disabled={saving} className="px-5 py-2 text-sm bg-violet-600 hover:bg-violet-500 text-white rounded font-semibold disabled:opacity-40">
+              {saving ? '저장 중…' : '저장'}
+            </button>
+          </div>
+        </ModalShell>
+      )}
+    </>
+  );
+}
+
 function EditableOwner({ po, setPos, reload, showToast }) {
   const [open, setOpen] = useState(false);
   const cur = po.owner || '';
