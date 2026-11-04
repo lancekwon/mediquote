@@ -95,6 +95,11 @@ async function loadBundle(h) {
   ];
   const eqById = new Map(eqRows.map((e) => [e.id, e]));
   const eqByModel = new Map(eqRows.filter((e) => e.model_name).map((e) => [norm(e.model_name), e]));
+  // 병원에 보여줄 이름 = 장비 관리 이름 (사용자 결정 2026-11-04 — 사진·분류·이름을 장비 관리 한 곳에서 관리).
+  // 장비에 연결 안 된 품목만 발주·납품에 적힌 이름 그대로
+  const shown = (eq, name, model) => (String(eq?.item_name || '').trim()
+    ? { name: eq.item_name.trim(), model: String(eq.model_name || '').trim() }
+    : { name: prettyName(name), model: model || '' });
   const eqView = (e) => e && {
     category: e.cat_name || e.category || null,
     // 제조사가 매입처와 같게 저장된 장비(스크립트로 등록된 것)는 매입처일 수 있어서 안 보여줌
@@ -146,8 +151,11 @@ async function loadBundle(h) {
     const qty = dels.reduce((s, e) => s + e.qty, 0) + ownOrders.reduce((s, e) => s + e.qty, 0);
     const dates = g.events.map((e) => e.date).filter(Boolean).sort();
     const pending = ownOrders.filter((o) => !o.delivered);
-    const nameKey = norm(g.name), modelKey = norm(g.model);
-    const svc = services.filter((s) => (nameKey && norm(s.equipment_name) === nameKey) || (modelKey && norm(s.model_name) === modelKey));
+    const disp = shown(g.eq, g.name, g.model);
+    // 점검·수리 신청은 신청 당시 화면 이름으로 저장됨 → 장비 관리 이름·발주 품목명 어느 쪽이든 같으면 이 장비
+    const nameKeys = new Set([disp.name, ...g.events.map((e) => e.name)].map(norm).filter(Boolean));
+    const modelKeys = new Set([disp.model, ...g.events.map((e) => e.model)].map(norm).filter(Boolean));
+    const svc = services.filter((s) => nameKeys.has(norm(s.equipment_name)) || modelKeys.has(norm(s.model_name)));
     const timeline = [
       ...g.events.map((e) => ({
         date: e.date,
@@ -158,8 +166,8 @@ async function loadBundle(h) {
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     return {
       key: g.key,
-      name: prettyName(g.name),
-      model: g.model,
+      name: disp.name,
+      model: disp.model,
       ...(eqView(g.eq) || { category: null, maker: null, image: null }),
       qty,
       firstDate: dates[0] || null,
@@ -179,7 +187,7 @@ async function loadBundle(h) {
 
   // 문서함 — 금액 없이 날짜·품목만
   const summary = (items) => {
-    const names = items.map((i) => `${prettyName(i.name)}${i.qty > 1 ? ` ×${i.qty}` : ''}`);
+    const names = items.map((i) => `${shown(i.eq, i.name, '').name}${i.qty > 1 ? ` ×${i.qty}` : ''}`);
     return names.length > 4 ? `${names.slice(0, 4).join(', ')} 외 ${names.length - 4}건` : names.join(', ');
   };
   const orderByDate = new Map();
@@ -190,7 +198,8 @@ async function loadBundle(h) {
   const documents = {
     orders: [...orderByDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
     deliveries: deliveries.map((d) => {
-      const items = d.delivery_items.filter((i) => !NOT_EQUIPMENT_RE.test(`${i.item_name || ''} ${i.model_name || ''}`)).map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.quantity) || 1 }));
+      const items = d.delivery_items.filter((i) => !NOT_EQUIPMENT_RE.test(`${i.item_name || ''} ${i.model_name || ''}`))
+        .map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.quantity) || 1, eq: eqByModel.get(norm(i.model_name)) }));
       return { date: d.delivered_date, docNo: d.doc_no || null, summary: summary(items), count: items.length };
     }),
     invoices: invoices.map((t) => ({ date: t.issue_date, summary: String(t.memo || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '') || '세금계산서 발행' })),
