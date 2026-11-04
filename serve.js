@@ -44,6 +44,7 @@ http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
   if (url.startsWith('/api/')) { runApi(url.slice(5), req, res); return; }
   if (url === '/') url = '/index.html';
+  if (/^\/h\/[0-9a-fA-F]{8}\/?$/.test(url)) url = '/hospital.html'; // 병원 포털 짧은 링크 (vercel.json 리라이트와 같게)
   const filePath = path.join(__dirname, url);
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }

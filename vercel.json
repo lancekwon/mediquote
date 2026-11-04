@@ -3,6 +3,7 @@
   "buildCommand": "",
   "outputDirectory": ".",
   "rewrites": [
+    { "source": "/h/:code", "destination": "/hospital.html" },
     { "source": "/hospital", "destination": "/hospital.html" },
     { "source": "/preview", "destination": "/hospital_preview.html" },
     { "source": "/((?!api/|dw-logo\\.png|DW_logo\\.png|manifest\\.json|sw\\.js|hospital\\.html|hospital\\.js|hospital_preview\\.html|app\\.js|img/).*)", "destination": "/index.html" }

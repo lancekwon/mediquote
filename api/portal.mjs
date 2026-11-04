@@ -6,8 +6,8 @@
 // - 우리 매입처(거래처) 이름도 넣지 않음. 장비 제조사는 장비 마스터의 manufacturer가 vendor와 다를 때만
 // - 포털 페이지에는 DB 키가 없음. 예전 hospital.html은 브라우저가 DB를 직접 읽어서 다른 병원 데이터도 볼 수 있었음
 //
-// POST /api/portal  { action, token, pin, ... }
-//   check   { token }                         → 링크가 유효한지만
+// POST /api/portal  { action, token, pin, ... }   token = 전체 토큰(UUID) 또는 짧은 링크 /h/<앞 8자리>, pin = 사업자등록번호
+//   check   { token }                         → 링크가 유효한지 + 로그인 방식(bizno/pin)
 //   load    { token, pin }                    → 병원 화면 데이터 전체
 //   service { token, pin, equipment_name, model_name, issue, notes }      → A/S·점검 신청 (service_requests)
 //   order   { token, pin, items:[{name, model, quantity}], note, contact } → 재주문 요청 (order_requests, 관리자 "발주 요청")
@@ -49,19 +49,28 @@ const clip = (s, n) => String(s ?? '').trim().slice(0, n);
 // 예전 엑셀 임포트 품목명 "OperatingTableAcc" → "Operating Table Acc" (영문 붙여쓰기만)
 const prettyName = (s) => /^[A-Za-z][A-Za-z0-9]*$/.test(String(s || '')) ? String(s).replace(/([a-z])([A-Z])/g, '$1 $2') : String(s || '');
 
+// 링크 코드: 예전 전체 토큰(UUID 36자) 또는 짧은 링크 /h/<토큰 앞 8자리>
 async function findHospital(token) {
-  if (!isUuid(token)) return null;
-  const [h] = await sb(`hospitals?token=eq.${token}&select=id,name,address,contact_name,phone,hospital_code,access_pin`);
-  return h || null;
+  const sel = 'select=id,name,address,contact_name,phone,hospital_code,access_pin,business_reg_no';
+  let rows = [];
+  if (isUuid(token)) rows = await sb(`hospitals?token=eq.${token}&${sel}`);
+  else if (/^[0-9a-f]{8}$/i.test(String(token || ''))) rows = await sb(`hospitals?token=like.${String(token).toLowerCase()}*&${sel}`);
+  return rows.length === 1 ? rows[0] : null; // 앞 8자리가 겹치면(거의 없음) 열지 않음
 }
 
-// 토큰+PIN 확인. 틀리면 null (응답 지연으로 무작위 대입을 느리게)
+// 접속 코드 = 병원 사업자등록번호 10자리 (사용자 결정 2026-11-04). 사업자번호가 없는 병원만 예전 PIN
+const bizNo = (h) => { const d = String(h?.business_reg_no || '').replace(/\D/g, ''); return d.length === 10 ? d : null; };
+const loginKind = (h) => (bizNo(h) ? 'bizno' : (String(h?.access_pin || '').trim() ? 'pin' : null));
+
+// 링크+접속코드 확인. 틀리면 null (응답 지연으로 무작위 대입을 느리게)
 async function auth(token, pin) {
   const h = await findHospital(token);
-  if (!h || !h.access_pin || String(pin || '').trim() !== String(h.access_pin).trim()) {
-    await new Promise((r) => setTimeout(r, 600));
-    return null;
-  }
+  const kind = loginKind(h);
+  const input = String(pin || '').trim();
+  const ok = kind === 'bizno' ? input.replace(/\D/g, '') === bizNo(h)
+    : kind === 'pin' ? input === String(h.access_pin).trim()
+    : false;
+  if (!ok) { await new Promise((r) => setTimeout(r, 600)); return null; }
   return h;
 }
 
@@ -213,7 +222,8 @@ export default async function handler(req, res) {
 
     if (action === 'check') {
       const h = await findHospital(token);
-      res.status(200).json({ ok: !!(h && h.access_pin) });
+      const kind = loginKind(h);
+      res.status(200).json({ ok: !!kind, login: kind }); // login: 'bizno' | 'pin' — 입력 안내 문구용 (번호 자체는 안 보냄)
       return;
     }
 

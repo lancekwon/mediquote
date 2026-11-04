@@ -383,6 +383,18 @@ async function dbDeleteDynItem(id) {
   if (error) throw error;
 }
 
+/* ---------- 병원 포털 링크 ---------- */
+// 짧은 링크 /h/<토큰 앞 8자리> (api/portal.mjs가 앞 8자리로 병원을 찾음). 포털용 도메인을 연결하면 PORTAL_ORIGIN만 바꾸면 됨
+const PORTAL_ORIGIN = window.location.origin;
+const portalUrl = (token) => `${PORTAL_ORIGIN}/h/${String(token || '').slice(0, 8)}`;
+const portalBizNo = (h) => { const d = String(h?.business_reg_no || '').replace(/\D/g, ''); return d.length === 10 ? d : null; };
+const fmtBizNo = (d) => d ? `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}` : '';
+function newPortalToken(hospitals = []) {
+  const used = new Set(hospitals.map(h => String(h.token || '').slice(0, 8)).filter(Boolean));
+  for (let i = 0; i < 20; i++) { const t = crypto.randomUUID(); if (!used.has(t.slice(0, 8))) return t; }
+  return crypto.randomUUID();
+}
+
 /* ---------- Hospitals DB ---------- */
 async function dbLoadHospitals() {
   const { data, error } = await sb.from('hospitals').select('*').order('created_at', { ascending: false });
@@ -8851,7 +8863,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   const [showDashboard, setShowDashboard] = React.useState(false);
   const [showNewHospForm, setShowNewHospForm] = React.useState(false);
   const [editingHosp, setEditingHosp] = React.useState(null);
-  const [newHosp, setNewHosp] = React.useState({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'', access_pin:'' });
+  const [newHosp, setNewHosp] = React.useState({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'', access_pin:'', business_reg_no:'' });
   const [savingHosp, setSavingHosp] = React.useState(false);
   const [linkCopied, setLinkCopied] = React.useState(false);
   const [showNewSRForm, setShowNewSRForm] = React.useState(false);
@@ -8919,22 +8931,25 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
 
   const openNewHospForm = () => {
     setEditingHosp(null);
-    setNewHosp({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'', access_pin:'' });
+    setNewHosp({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'', access_pin:'', business_reg_no:'' });
     setShowNewHospForm(true);
   };
   const openEditHospForm = (h) => {
     setEditingHosp(h);
-    setNewHosp({ name:h.name||'', region:h.region||'', address:h.address||'', phone:h.phone||'', contact_name:h.contact_name||'', contact_phone:h.contact_phone||'', contact_email:h.contact_email||'', notes:h.notes||'', access_pin:h.access_pin||'' });
+    setNewHosp({ name:h.name||'', region:h.region||'', address:h.address||'', phone:h.phone||'', contact_name:h.contact_name||'', contact_phone:h.contact_phone||'', contact_email:h.contact_email||'', notes:h.notes||'', access_pin:h.access_pin||'', business_reg_no:h.business_reg_no||'' });
     setShowNewHospForm(true);
   };
 
   const handleSaveHosp = async () => {
     if (!newHosp.name.trim()) { alert('병원명을 입력해주세요.'); return; }
     setSavingHosp(true);
+    // 사업자등록번호 = 병원 포털 접속 코드. 숫자 10자리로 저장
+    const biz = String(newHosp.business_reg_no || '').replace(/\D/g, '');
+    if (biz && biz.length !== 10) { alert('사업자등록번호는 숫자 10자리입니다.'); return; }
     try {
-      // 포털 링크 토큰 — 4월(H086)에 한 번 일괄 생성된 뒤로 새 병원엔 토큰이 없어서, 접속코드를 넣어도 포털 링크가 안 생겼음
-      const row = { ...newHosp };
-      if ((row.access_pin || '').trim() && !editingHosp?.token) row.token = crypto.randomUUID();
+      // 포털 링크 토큰 — 4월(H086)에 한 번 일괄 생성된 뒤로 새 병원엔 토큰이 없어서 포털 링크가 안 생겼음
+      const row = { ...newHosp, business_reg_no: biz || null };
+      if ((biz || (row.access_pin || '').trim()) && !editingHosp?.token) row.token = newPortalToken(hospitals);
       if (editingHosp) {
         await dbUpdateHospital(editingHosp.id, row);
         setHospitals(p => p.map(h => h.id === editingHosp.id ? { ...h, ...row } : h));
@@ -9202,17 +9217,36 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                       <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
                       <div className="font-semibold text-blue-900 text-sm">병원 포털 링크</div>
                     </div>
-                    {!selectedHosp.token || !selectedHosp.access_pin ? (
-                      <div className="px-5 py-4 text-xs text-blue-700">
-                        병원 수정에서 <span className="font-semibold">접속 코드(PIN)</span>를 설정하면 포털 링크가 생성됩니다.
-                      </div>
-                    ) : (
+                    {(() => {
+                      // 접속 코드 = 사업자등록번호. 사업자번호 없는 예전 병원만 PIN
+                      const biz = portalBizNo(selectedHosp);
+                      const legacyPin = !biz && String(selectedHosp.access_pin || '').trim();
+                      if (!biz && !legacyPin) return (
+                        <div className="px-5 py-4 text-xs text-blue-700">
+                          병원 수정에서 <span className="font-semibold">사업자등록번호</span>를 넣고 저장하면 포털 링크가 생깁니다. 병원은 사업자등록번호로 들어옵니다.
+                        </div>
+                      );
+                      if (!selectedHosp.token) return (
+                        <div className="px-5 py-4 flex items-center gap-3">
+                          <div className="text-xs text-blue-700 flex-1">사업자등록번호는 있는데 포털 링크가 아직 없습니다.</div>
+                          <button onClick={async () => {
+                            const token = newPortalToken(hospitals);
+                            try {
+                              await dbUpdateHospital(selectedHosp.id, { token });
+                              setHospitals(p => p.map(h => h.id === selectedHosp.id ? { ...h, token } : h));
+                              setSelectedHosp(p => ({ ...p, token }));
+                            } catch (e) { alert('링크 만들기 실패: ' + (e.message || e)); }
+                          }} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 whitespace-nowrap">포털 링크 만들기</button>
+                        </div>
+                      );
+                      const url = portalUrl(selectedHosp.token);
+                      return (
                       <div className="px-5 py-4 space-y-3">
                         <div className="flex items-start gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs text-blue-600 font-semibold mb-1">포털 URL</div>
+                            <div className="text-xs text-blue-600 font-semibold mb-1">포털 링크</div>
                             <div className="bg-white border border-blue-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 break-all">
-                              {window.location.origin}/hospital.html?token={selectedHosp.token}
+                              {url}
                             </div>
                           </div>
                         </div>
@@ -9220,13 +9254,13 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                           <div>
                             <div className="text-xs text-blue-600 font-semibold mb-1">접속 코드</div>
                             <div className="bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 tracking-widest inline-block">
-                              {selectedHosp.access_pin}
+                              {biz ? fmtBizNo(biz) : legacyPin}
                             </div>
+                            <div className="text-[11px] text-blue-500 mt-1">{biz ? '병원 사업자등록번호' : '예전 접속 코드 — 사업자등록번호를 넣으면 그걸로 바뀝니다'}</div>
                           </div>
                           <div className="flex flex-col gap-2 ml-auto">
                             <button
                               onClick={() => {
-                                const url = `${window.location.origin}/hospital.html?token=${selectedHosp.token}`;
                                 navigator.clipboard.writeText(url).then(() => {
                                   setLinkCopied(true);
                                   setTimeout(() => setLinkCopied(false), 2000);
@@ -9239,7 +9273,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                             </button>
                             <button
                               onClick={() => {
-                                const text = `DWmedi 병원 포털 접속 안내\n\nURL: ${window.location.origin}/hospital.html?token=${selectedHosp.token}\n접속 코드: ${selectedHosp.access_pin}`;
+                                const text = `대원메디칼 병원 포털 안내\n\n링크: ${url}\n접속 코드: ${biz ? '병원 사업자등록번호 10자리' : legacyPin}`;
                                 navigator.clipboard.writeText(text);
                               }}
                               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg font-medium hover:bg-blue-100 transition-colors whitespace-nowrap"
@@ -9250,7 +9284,8 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                           </div>
                         </div>
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </div>
               )}
@@ -9559,16 +9594,17 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
               </div>
               <div className="border-t border-slate-100 pt-3">
                 <label className="block text-xs font-semibold text-blue-700 mb-1">
-                  접속 코드 (PIN)
-                  <span className="ml-1 text-slate-400 font-normal">— 병원 포털 로그인에 사용됩니다</span>
+                  사업자등록번호
+                  <span className="ml-1 text-slate-400 font-normal">— 병원 포털 접속 코드로 씁니다</span>
                 </label>
                 <input
-                  value={newHosp.access_pin}
-                  onChange={e => setNewHosp(p => ({...p, access_pin: e.target.value}))}
-                  placeholder="예: 1234, ABCD (병원에 알려줄 코드)"
+                  value={newHosp.business_reg_no}
+                  onChange={e => setNewHosp(p => ({...p, business_reg_no: e.target.value}))}
+                  placeholder="000-00-00000"
+                  inputMode="numeric"
                   className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 tracking-widest"
                 />
-                <div className="text-xs text-slate-400 mt-1">설정 후 URL과 함께 병원에 전달하세요</div>
+                <div className="text-xs text-slate-400 mt-1">넣고 저장하면 포털 링크가 생깁니다. 병원은 이 번호로 들어옵니다.</div>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex gap-2 justify-end">

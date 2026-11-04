@@ -3,7 +3,9 @@
 const { useState, useEffect, useMemo, useCallback } = React;
 
 const API = '/api/portal';
-const token = new URLSearchParams(window.location.search).get('token') || '';
+// 짧은 링크 /h/<8자리> 또는 예전 링크 ?token=<UUID>
+const pathCode = (window.location.pathname.match(/^\/h\/([0-9a-fA-F]{8})\/?$/) || [])[1];
+const token = pathCode || new URLSearchParams(window.location.search).get('token') || '';
 const PIN_KEY = 'dwportal:' + token;
 
 async function call(action, payload = {}) {
@@ -71,15 +73,18 @@ function Gate({ children }) {
   );
 }
 
-function PinScreen({ onLogin, error, busy }) {
+function PinScreen({ onLogin, error, busy, kind }) {
   const [pin, setPin] = useState('');
+  const biz = kind !== 'pin';
   return (
     <Gate>
       <form className="card" style={{ padding: 28 }} onSubmit={(e) => { e.preventDefault(); if (pin.trim()) onLogin(pin.trim()); }}>
-        <div style={{ fontSize: 15, fontWeight: 600 }}>접속 코드 입력</div>
-        <div className="muted" style={{ marginTop: 4, marginBottom: 18 }}>담당 영업사원에게 받은 접속 코드를 입력해 주세요.</div>
-        <input className="input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="접속 코드" autoFocus
-          inputMode="numeric" autoComplete="one-time-code" style={{ textAlign: 'center', letterSpacing: 3, fontSize: 16 }} />
+        <div style={{ fontSize: 15, fontWeight: 600 }}>{biz ? '사업자등록번호 입력' : '접속 코드 입력'}</div>
+        <div className="muted" style={{ marginTop: 4, marginBottom: 18 }}>
+          {biz ? '병원 사업자등록번호 10자리를 입력해 주세요.' : '담당 영업사원에게 받은 접속 코드를 입력해 주세요.'}
+        </div>
+        <input className="input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={biz ? '000-00-00000' : '접속 코드'} autoFocus
+          inputMode="numeric" autoComplete="off" maxLength={biz ? 12 : 20} style={{ textAlign: 'center', letterSpacing: 3, fontSize: 16 }} />
         {error && <div className="alert-danger" style={{ marginTop: 12 }}>{error}</div>}
         <button className="btn-primary" type="submit" disabled={busy || !pin.trim()} style={{ width: '100%', marginTop: 14, padding: 13 }}>
           {busy ? '확인 중…' : '입장하기'}
@@ -507,6 +512,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState('home');
   const [sel, setSel] = useState(null);
+  const [kind, setKind] = useState('bizno'); // 'bizno' | 'pin'
 
   const login = useCallback(async (p, silent = false) => {
     setBusy(true); setErr('');
@@ -516,7 +522,7 @@ function App() {
     } catch (e) {
       storage.clear();
       setPhase('pin');
-      if (!silent) setErr(e.status === 401 ? '접속 코드가 올바르지 않습니다. 다시 확인해 주세요.' : e.message);
+      if (!silent) setErr(e.status === 401 ? '번호가 맞지 않습니다. 다시 확인해 주세요.' : e.message);
     }
     setBusy(false);
   }, []);
@@ -526,9 +532,12 @@ function App() {
 
   useEffect(() => {
     if (!token) { setPhase('invalid'); return; }
-    const saved = storage.get();
-    if (saved) { login(saved, true); return; }
-    call('check').then((r) => setPhase(r.ok ? 'pin' : 'invalid')).catch(() => setPhase('down'));
+    call('check').then((r) => {
+      if (!r.ok) { setPhase('invalid'); return; }
+      setKind(r.login || 'bizno');
+      const saved = storage.get();
+      if (saved) login(saved, true); else setPhase('pin');
+    }).catch(() => setPhase('down'));
   }, [login]);
 
   const go = (p, key = null) => { setPage(p); setSel(key); window.scrollTo(0, 0); };
@@ -546,7 +555,7 @@ function App() {
       <div className="muted" style={{ marginTop: 6 }}>잠시 후 새로고침해 주세요.</div>
     </div></Gate>
   );
-  if (phase === 'pin') return <PinScreen onLogin={login} error={err} busy={busy} />;
+  if (phase === 'pin') return <PinScreen onLogin={login} error={err} busy={busy} kind={kind} />;
 
   return (
     <div>
