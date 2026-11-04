@@ -17,7 +17,9 @@ const H = {
   'Content-Type': 'application/json; charset=utf-8',
   Prefer: 'return=representation',
 };
-const q = p => fetch(B + encodeURI(p), { headers: { apikey: K, Authorization: 'Bearer ' + K } }).then(r => r.json());
+// 호출부에서 값을 encodeURIComponent로 한 번 인코딩해서 넘김 — 여기서 encodeURI를 또 하면 한글이 이중 인코딩돼
+// 기존 장비를 못 찾고 매번 신규 등록됨 (2026-11-04 발견). 품목명에 '&'가 있을 수 있어 encodeURI 하나로 대체도 불가.
+const q = p => fetch(B + p, { headers: { apikey: K, Authorization: 'Bearer ' + K } }).then(r => r.json());
 const ins = async (t, r) => {
   const x = await fetch(B + t, { method: 'POST', headers: H, body: JSON.stringify(r) });
   if (!x.ok) throw new Error(`${t} ${x.status}: ${await x.text()}`);
@@ -88,7 +90,8 @@ export async function createPoItems(poId, clobeItems, options = {}) {
     if (itemName) {
       const existing = await q(
         'equipment?select=id&item_name=eq.' + encodeURIComponent(itemName) +
-        (modelName ? '&model_name=eq.' + encodeURIComponent(modelName) : '&model_name=is.null') +
+        // 모델 없음 = null 또는 '' (범용 배송비 E739처럼 ''로 저장된 장비가 있어서 둘 다 찾아야 중복 등록 안 됨)
+        (modelName ? '&model_name=eq.' + encodeURIComponent(modelName) : '&or=(model_name.is.null,model_name.eq.)') +
         '&limit=1'
       );
       if (Array.isArray(existing) && existing.length) {
