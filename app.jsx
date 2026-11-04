@@ -19404,11 +19404,12 @@ function AIChatPane({ owner, fullscreen = false }) {
             {messages.length === 0 && (
               <div className="text-slate-400 text-center mt-10">
                 <div className="text-3xl mb-2">💬</div>
-                <div>견적서 작성을 도와드려요</div>
+                <div>견적서 작성·발주 등록을 도와드려요</div>
                 <div className="text-xs mt-3 text-slate-400 space-y-1">
                   <div>예:</div>
                   <div>"서울아산샘유외과에 BS330 2대 견적"</div>
                   <div>"원텍 CO2 레이저 가격 알려줘"</div>
+                  <div>카톡 주문 대화를 그대로 붙여넣으면 → 발주 초안</div>
                 </div>
               </div>
             )}

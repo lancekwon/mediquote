@@ -30,6 +30,45 @@ async function sb(path, opts = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+const PO_OWNERS = ['최', '권', '성'];
+const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
+const todayKST = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const dayGap = (a, b) => Math.abs((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000);
+const won = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
+
+// 이름 비교용 검색어 — 법인 표기·괄호·공백을 뺀 핵심 이름 + 괄호 안 이름 + 영문 이름.
+// "오릭스(ORYX)" → ["오릭스", "ORYX"]. 정확한 이름만 찾다가 기존 거래처를 못 보고 중복 등록한 적이 있어서 (2026-11-04)
+const CORP_RE = /주식회사|유한회사|\(주\)|㈜|（주）|\(유\)/g;
+function nameTerms(name, { hospital = false } = {}) {
+  const raw = String(name || '');
+  const terms = new Set();
+  let core = raw.replace(CORP_RE, '').replace(/[(（][^)）]*[)）]/g, '').replace(/\s+/g, '');
+  if (hospital) core = core.replace(/(요양병원|한의원|치과의원|의원|병원|클리닉)$/, '');
+  if (core.length >= 2) terms.add(core);
+  for (const m of raw.matchAll(/[(（]([^)）]+)[)）]/g)) {
+    const t = m[1].replace(CORP_RE, '').trim();
+    if (t.length >= 2) terms.add(t);
+  }
+  for (const m of raw.matchAll(/[A-Za-z][A-Za-z0-9&.\-]{2,}/g)) terms.add(m[0]);
+  return [...terms];
+}
+async function searchByName(table, cols, term, select, limit = 10) {
+  const found = new Map();
+  for (const col of cols) {
+    const rows = await sb(`${table}?${col}=ilike.${encodeURIComponent('%' + term + '%')}&select=${select}&limit=${limit}`);
+    rows.forEach((r) => found.set(r.id, r));
+  }
+  return [...found.values()];
+}
+async function similarNames(table, cols, name, select, opts) {
+  const found = new Map();
+  for (const term of nameTerms(name, opts)) {
+    (await searchByName(table, cols, term, select)).forEach((r) => found.set(r.id, r));
+  }
+  return [...found.values()].slice(0, 15);
+}
+const regNo = (s) => String(s || '').replace(/\D/g, '');
+
 const TOOLS = [
   {
     name: 'search_equipment',
@@ -45,7 +84,7 @@ const TOOLS = [
   },
   {
     name: 'search_hospitals',
-    description: '병원(hospitals) 검색. 병원명으로.',
+    description: '병원(hospitals) 검색. 병원명 일부로 검색 — 법인 표기·괄호·"의원/병원"을 뺀 핵심 단어(예: "에제르", "샘유")로 찾을 것.',
     input_schema: {
       type: 'object',
       properties: {
@@ -57,7 +96,7 @@ const TOOLS = [
   },
   {
     name: 'search_manufacturers',
-    description: '제조사·거래처(manufacturers) 검색.',
+    description: '제조사·거래처(manufacturers) 검색. 이름과 별칭(aliases)을 같이 찾음. 핵심 단어로 검색하고, 영문 이름이 있으면 영문으로도 따로 검색할 것.',
     input_schema: {
       type: 'object',
       properties: {
@@ -118,37 +157,54 @@ const TOOLS = [
   {
     name: 'create_purchase_order',
     description:
-      '실제 발주(PO) 생성 — purchase_orders 테이블에 INSERT. **반드시 사용자 승인 받고 호출.** status는 항상 "진행중" (사용자가 수동으로 "납품완료" 체크). 매입가(unit_price)는 비움 (추후 매입세금계산서 들어오면 입력).',
+      '발주(PO) 1건 생성 (병원 1 + 거래처 1). **미리보기를 보여주고 사용자가 승인한 뒤에만 호출.** 서버가 status "진행중", 매입가 비움, 매출합계 계산을 처리함. ' +
+      '같은 병원·거래처·장비로 발주일 60일 안에 만든 발주가 있으면 만들지 않고 possible_duplicates를 돌려줌 → 사용자에게 보여주고, 그래도 새로 만들라고 하면 allow_duplicate: true로 다시 호출.',
     input_schema: {
       type: 'object',
       properties: {
         manufacturer_id: { type: 'string', description: '거래처 UUID (search_manufacturers 결과의 id)' },
         hospital_id: { type: 'string', description: '병원 UUID (search_hospitals 결과의 id)' },
+        owner: { type: 'string', enum: PO_OWNERS, description: '우리 회사 발주 담당자 성씨. 병원·거래처 사람 이름이 아님. 모르면 호출 전에 사용자에게 물어볼 것.' },
+        ordered_at: { type: 'string', description: '발주일 YYYY-MM-DD — 카톡에서 주문이 확정된 메시지의 날짜. 알 수 없으면 생략(오늘로 저장).' },
         items: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
-              equipment_id: { type: 'string', description: 'equipment UUID (search_equipment 결과의 id)' },
+              equipment_id: { type: 'string', description: 'equipment UUID — search_equipment 또는 register_equipment 결과의 id. 필수.' },
               item_name: { type: 'string' },
               model_name: { type: 'string' },
               quantity: { type: 'number', default: 1 },
-              sale_price: { type: 'number', description: '매출가 (단가, VAT 포함)' },
+              sale_price: { type: 'number', description: '매출 단가 (VAT 포함). 대화나 사용자가 말한 값만. 모르면 생략.' },
             },
-            required: ['item_name', 'quantity'],
+            required: ['equipment_id', 'item_name', 'quantity'],
           },
         },
         delivery_date: { type: 'string', description: '납품예정일 (YYYY-MM-DD, 선택)' },
-        notes: { type: 'string', description: 'PO 메모' },
-        owner: { type: 'string', enum: ['최', '권', '성'], description: '발주 담당자 (요청자의 성씨). 메시지에 "최윤철", "권OO", "성OO" 같은 이름 있으면 성씨만 추출. 명확하지 않으면 생략.' },
+        notes: { type: 'string', description: 'PO 메모. 카톡에 거래처 매입가가 나오면 "카톡 매입가 1,980,000원"처럼 여기에만 적기.' },
+        allow_duplicate: { type: 'boolean', description: 'possible_duplicates를 사용자에게 보여줬고 그래도 새로 만들라고 했을 때만 true.' },
       },
-      required: ['manufacturer_id', 'hospital_id', 'items'],
+      required: ['manufacturer_id', 'hospital_id', 'owner', 'items'],
+    },
+  },
+  {
+    name: 'register_equipment',
+    description:
+      '장비 신규 등록 (E코드 자동). search_equipment로 못 찾은 품목만. **발주 미리보기에서 "신규 장비 등록"으로 보여주고 승인받은 뒤 호출.** 같은 품목명+모델명이 이미 있으면 새로 만들지 않고 기존 장비를 돌려줌.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        item_name: { type: 'string', description: '품목명 (예: 소형고압증기멸균기)' },
+        model_name: { type: 'string', description: '모델명 (없으면 생략)' },
+        manufacturer_id: { type: 'string', description: '이 장비를 사는 거래처 UUID' },
+      },
+      required: ['item_name', 'manufacturer_id'],
     },
   },
   {
     name: 'register_hospital',
     description:
-      '신규 병원 등록. **사용자 승인 받고 호출.** hospital_code 자동 부여 (H???).',
+      '신규 병원 등록. **사용자 승인 받고 호출.** hospital_code 자동 부여 (H???). 비슷한 이름의 병원이 있으면 만들지 않고 similar를 돌려줌 → 같은 곳인지 사용자에게 묻고, 다른 곳이라고 하면 confirm_new: true로 다시 호출.',
     input_schema: {
       type: 'object',
       properties: {
@@ -157,6 +213,7 @@ const TOOLS = [
         contact_name: { type: 'string' },
         contact_phone: { type: 'string' },
         business_reg_no: { type: 'string', description: '사업자번호 (10자리 숫자, 하이픈 제외)' },
+        confirm_new: { type: 'boolean', description: 'similar를 사용자에게 보여줬고 다른 곳이라고 확인했을 때만 true' },
       },
       required: ['name'],
     },
@@ -164,14 +221,16 @@ const TOOLS = [
   {
     name: 'register_manufacturer',
     description:
-      '신규 거래처 등록. **사용자 승인 받고 호출.** vendor_code 자동 부여 (V???).',
+      '신규 거래처 등록. **사용자 승인 받고 호출.** vendor_code 자동 부여 (V???). 이름·별칭이 비슷한 거래처나 같은 사업자번호가 있으면 만들지 않고 similar를 돌려줌 → 같은 곳인지 사용자에게 묻고, 다른 곳이라고 하면 confirm_new: true로 다시 호출.',
     input_schema: {
       type: 'object',
       properties: {
         name: { type: 'string' },
         category: { type: 'string', description: '거래처 / 일반업체 / 운영비 중 하나' },
         business_reg_no: { type: 'string' },
+        aliases: { type: 'string', description: '다른 이름들 쉼표로 (영문명, 대표자명 등)' },
         notes: { type: 'string' },
+        confirm_new: { type: 'boolean', description: 'similar를 사용자에게 보여줬고 다른 곳이라고 확인했을 때만 true' },
       },
       required: ['name'],
     },
@@ -203,10 +262,10 @@ async function runTool(name, input, { sessionId, owner }) {
       let url;
       if (codeMatch) {
         url = `equipment?equip_code=eq.${encodeURIComponent(input.query.trim().toUpperCase())}`
-          + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,price`;
+          + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,vendor,price`;
       } else {
         url = `equipment?or=(item_name.ilike.${q},model_name.ilike.${q},manufacturer.ilike.${q},equip_code.ilike.${q})`
-          + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,price`
+          + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,vendor,price`
           + `&limit=${input.limit || 20}`;
       }
       const rows = await sb(url);
@@ -220,10 +279,8 @@ async function runTool(name, input, { sessionId, owner }) {
       return { count: rows.length, rows };
     }
     case 'search_manufacturers': {
-      const q = esc(`%${input.query}%`);
-      const rows = await sb(
-        `manufacturers?name=ilike.${q}&select=id,name,vendor_code,business_reg_no,category&limit=${input.limit || 10}`
-      );
+      const rows = (await searchByName('manufacturers', ['name', 'aliases'], input.query,
+        'id,name,aliases,vendor_code,business_reg_no,category', input.limit || 10)).slice(0, input.limit || 10);
       return { count: rows.length, rows };
     }
     case 'get_recent_quotes': {
@@ -261,59 +318,161 @@ async function runTool(name, input, { sessionId, owner }) {
       return { draft_id: row.id, subtotal, vat, total_amount: total, global_discount: input.global_discount || null };
     }
     case 'create_purchase_order': {
-      // 다음 PO 번호
-      const year = new Date().getFullYear();
-      const lastList = await sb(`purchase_orders?select=po_no&po_no=like.PO-${year}-*&order=po_no.desc&limit=1`);
-      const lastN = lastList.length ? parseInt(lastList[0].po_no.replace(`PO-${year}-`, ''), 10) : 0;
+      // 앱 규칙: total_amount = 품목 매입합계(매입가는 계산서 올 때 확정이라 지금은 0), sale_amount = 품목 매출합계.
+      // 예전 버전은 매출합계를 total_amount에 넣어서 할 일 탭·매칭 화면이 매출을 매입으로 읽었음.
+      const items = Array.isArray(input.items) ? input.items : [];
+      if (!items.length) return { error: '품목이 없습니다.' };
+      if (!isUuid(input.hospital_id) || !isUuid(input.manufacturer_id)) return { error: 'hospital_id / manufacturer_id는 검색 결과의 UUID여야 합니다.' };
+      if (!PO_OWNERS.includes(input.owner)) return { error: '담당(owner)은 최/권/성 중 하나여야 합니다. 사용자에게 물어보고 다시 호출하세요.' };
+      const noEq = items.filter((it) => !isUuid(it.equipment_id));
+      if (noEq.length) {
+        return { error: `장비에 연결 안 된 품목: ${noEq.map((it) => it.item_name).join(', ')} — search_equipment로 찾거나, 사용자 승인 후 register_equipment로 등록한 다음 다시 호출하세요.` };
+      }
+      const orderedAt = /^\d{4}-\d{2}-\d{2}$/.test(input.ordered_at || '') ? input.ordered_at : todayKST();
+
+      const [mfr] = await sb(`manufacturers?id=eq.${input.manufacturer_id}&select=id,name`);
+      const [hosp] = await sb(`hospitals?id=eq.${input.hospital_id}&select=id,name`);
+      if (!mfr) return { error: '해당 manufacturer_id의 거래처가 없습니다.' };
+      if (!hosp) return { error: '해당 hospital_id의 병원이 없습니다.' };
+      const eqIds = [...new Set(items.map((it) => it.equipment_id))];
+      const eqs = await sb(`equipment?id=in.(${eqIds.join(',')})&select=id,item_name,model_name`);
+      if (eqs.length !== eqIds.length) return { error: '없는 equipment_id가 있습니다. search_equipment 결과의 id를 쓰세요.' };
+      const eqById = new Map(eqs.map((e) => [e.id, e]));
+
+      // 같은 카톡을 두 번 붙여넣거나, "업데이트"(세금계산서)로 이미 만든 발주를 또 만드는 걸 막음
+      if (!input.allow_duplicate) {
+        const open = await sb(
+          `purchase_orders?select=po_no,status,ordered_at,created_at,owner,purchase_order_items(equipment_id,item_name,model_name,quantity,sale_price)` +
+          `&hospital_id=eq.${hosp.id}&manufacturer_id=eq.${mfr.id}&status=neq.${encodeURIComponent('취소')}&order=po_no.desc&limit=50`
+        );
+        const dups = open.filter((p) => {
+          const d = String(p.ordered_at || p.created_at || '').slice(0, 10);
+          return d && dayGap(d, orderedAt) <= 60 && (p.purchase_order_items || []).some((it) => eqIds.includes(it.equipment_id));
+        });
+        if (dups.length) {
+          return {
+            created: false,
+            possible_duplicates: dups.map((p) => ({
+              po_no: p.po_no, status: p.status, owner: p.owner,
+              ordered_at: String(p.ordered_at || p.created_at || '').slice(0, 10),
+              items: (p.purchase_order_items || []).map((it) => `${it.item_name} ${it.model_name || ''} x${it.quantity} 매출가 ${it.sale_price ? won(it.sale_price) : '미정'}`.replace(/\s+/g, ' ')),
+            })),
+            message: '같은 병원·거래처·장비 발주가 이미 있어 만들지 않았습니다. 사용자에게 보여주고, 그래도 새로 만들라고 하면 allow_duplicate: true로 다시 호출하세요.',
+          };
+        }
+      }
+
+      const rows = items.map((it) => {
+        const eq = eqById.get(it.equipment_id);
+        const sp = Math.round(Number(it.sale_price) || 0);
+        return {
+          equipment_id: it.equipment_id,
+          item_name: it.item_name || eq.item_name,
+          model_name: it.model_name ?? eq.model_name ?? '',
+          manufacturer: mfr.name,
+          quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+          unit_price: null,   // 매입가는 매입 세금계산서가 오면 "업데이트"에서 확정
+          amount: null,
+          sale_price: sp > 0 ? sp : null,
+          ordered: false,
+          delivered: false,
+        };
+      });
+      const priced = rows.filter((r) => r.sale_price);
+      const saleAmount = priced.length ? priced.reduce((s, r) => s + r.sale_price * r.quantity, 0) : null;
+
+      // 발주번호 — 앱의 dbGeneratePoNo와 같은 규칙 (올해 원본(revision=0) 중 최대 번호 + 1, 리비전 -R 접미사 무시)
+      const year = todayKST().slice(0, 4);
+      const lastList = await sb(`purchase_orders?select=po_no&po_no=like.PO-${year}-*&revision=eq.0&order=po_no.desc&limit=1`);
+      const lastN = parseInt(lastList[0]?.po_no.match(/PO-\d+-(\d+)/)?.[1] || '0', 10);
       const poNo = `PO-${year}-${String(lastN + 1).padStart(3, '0')}`;
-
-      // 거래처/병원 name 조회
-      const [mfr] = await sb(`manufacturers?id=eq.${input.manufacturer_id}&select=name,vendor_code`);
-      const [hosp] = await sb(`hospitals?id=eq.${input.hospital_id}&select=name,hospital_code`);
-
-      const total = (input.items || []).reduce((s, i) => s + ((i.sale_price || 0) * (i.quantity || 1)), 0);
-      const today = new Date().toISOString().slice(0, 10);
 
       const [po] = await sb('purchase_orders', {
         method: 'POST',
         body: JSON.stringify({
           po_no: poNo,
-          manufacturer_id: input.manufacturer_id,
-          manufacturer_name: mfr?.name || null,
-          hospital_id: input.hospital_id,
-          hospital_name: hosp?.name || null,
-          total_amount: total,
+          hospital_id: hosp.id,
+          hospital_name: hosp.name,
+          manufacturer_id: mfr.id,
+          manufacturer_name: mfr.name,
+          vendor_name: mfr.name,
+          contract_id: null,
+          source: 'ai_chat',
           status: '진행중',
-          created_at: today,
+          is_active: true,
+          revision: 0,
+          ordered_at: orderedAt,
+          total_amount: 0,
+          sale_amount: saleAmount,
           delivery_date: input.delivery_date || null,
           notes: input.notes || null,
-          owner: input.owner || null,
+          owner: input.owner,
+          updated_at: new Date().toISOString(),
         }),
       });
-      for (const it of input.items) {
+      try {
         await sb('purchase_order_items', {
           method: 'POST',
-          body: JSON.stringify({
-            po_id: po.id,
-            equipment_id: it.equipment_id || null,
-            item_name: it.item_name,
-            model_name: it.model_name || '',
-            quantity: it.quantity || 1,
-            sale_price: it.sale_price || null,
-            unit_price: null,
-          }),
+          body: JSON.stringify(rows.map((r) => ({ ...r, po_id: po.id }))),
         });
+      } catch (e) {
+        // 품목 저장이 실패하면 빈 발주가 남지 않게 지움
+        await sb(`purchase_orders?id=eq.${po.id}`, { method: 'DELETE' }).catch(() => {});
+        throw e;
       }
       return {
+        created: true,
         po_no: poNo,
         po_id: po.id,
-        manufacturer: mfr?.name,
-        hospital: hosp?.name,
-        total_amount: total,
-        item_count: input.items.length,
+        hospital: hosp.name,
+        manufacturer: mfr.name,
+        ordered_at: orderedAt,
+        owner: input.owner,
+        item_count: rows.length,
+        sale_amount: saleAmount,
+        sale_price_missing: rows.filter((r) => !r.sale_price).map((r) => r.item_name),
       };
     }
+    case 'register_equipment': {
+      if (!isUuid(input.manufacturer_id)) return { error: 'manufacturer_id는 거래처 UUID여야 합니다.' };
+      const itemName = String(input.item_name || '').trim();
+      const modelName = String(input.model_name || '').trim();
+      if (!itemName) return { error: 'item_name이 필요합니다.' };
+      // createPoItems와 같은 기준: 품목명+모델명 완전 일치면 기존 장비 (모델 없음 = null 또는 '')
+      const existing = await sb(
+        `equipment?select=id,equip_code,item_name,model_name&item_name=eq.${esc(itemName)}` +
+        (modelName ? `&model_name=eq.${esc(modelName)}` : '&or=(model_name.is.null,model_name.eq.)') + '&limit=1'
+      );
+      if (existing.length) return { created: false, existing: true, equipment_id: existing[0].id, equip_code: existing[0].equip_code };
+      const [mfr] = await sb(`manufacturers?id=eq.${input.manufacturer_id}&select=id,name`);
+      if (!mfr) return { error: '해당 manufacturer_id의 거래처가 없습니다.' };
+      const lastE = await sb('equipment?select=equip_code&equip_code=like.E*&order=equip_code.desc&limit=1');
+      const n = parseInt((lastE[0]?.equip_code || 'E000').replace(/\D/g, ''), 10) || 0;
+      const code = 'E' + String(n + 1).padStart(3, '0');
+      const [row] = await sb('equipment', {
+        method: 'POST',
+        body: JSON.stringify({
+          equip_code: code,
+          item_name: itemName,
+          model_name: modelName || null,
+          category: '미분류',
+          cat_id: '미분류',
+          cat_name: '미분류',
+          manufacturer: mfr.name,
+          vendor: mfr.name,
+          vendor_id: mfr.id,
+          memo: '',
+        }),
+      });
+      return { created: true, equipment_id: row.id, equip_code: code };
+    }
     case 'register_hospital': {
+      if (!input.confirm_new) {
+        const similar = await similarNames('hospitals', ['name'], input.name, 'id,name,hospital_code,business_reg_no', { hospital: true });
+        const brn = regNo(input.business_reg_no);
+        if (brn.length === 10) (await sb(`hospitals?business_reg_no=eq.${brn}&select=id,name,hospital_code,business_reg_no`)).forEach((r) => { if (!similar.some((s) => s.id === r.id)) similar.push(r); });
+        if (similar.length) return { created: false, similar, message: '비슷한 병원이 이미 있습니다. 같은 곳인지 사용자에게 묻고, 다른 곳이면 confirm_new: true로 다시 호출하세요.' };
+      }
       const lastList = await sb(`hospitals?select=hospital_code&hospital_code=like.H*&order=hospital_code.desc&limit=1`);
       const lastN = lastList.length ? parseInt((lastList[0].hospital_code || 'H000').slice(1), 10) : 0;
       const code = 'H' + String(lastN + 1).padStart(3, '0');
@@ -325,11 +484,17 @@ async function runTool(name, input, { sessionId, owner }) {
       return { hospital_code: code, hospital_id: row.id, name: row.name };
     }
     case 'register_manufacturer': {
+      if (!input.confirm_new) {
+        const similar = await similarNames('manufacturers', ['name', 'aliases'], input.name, 'id,name,aliases,vendor_code,business_reg_no');
+        const brn = regNo(input.business_reg_no);
+        if (brn.length === 10) (await sb(`manufacturers?business_reg_no=eq.${brn}&select=id,name,aliases,vendor_code,business_reg_no`)).forEach((r) => { if (!similar.some((s) => s.id === r.id)) similar.push(r); });
+        if (similar.length) return { created: false, similar, message: '이름·별칭이 비슷하거나 사업자번호가 같은 거래처가 이미 있습니다. 같은 곳인지 사용자에게 묻고, 다른 곳이면 confirm_new: true로 다시 호출하세요.' };
+      }
       const lastList = await sb(`manufacturers?select=vendor_code&order=vendor_code.desc&limit=1`);
       const lastN = lastList.length ? parseInt(lastList[0].vendor_code.slice(1), 10) : 0;
       const code = 'V' + String(lastN + 1).padStart(3, '0');
       const payload = { vendor_code: code, name: input.name, category: input.category || '일반업체' };
-      ['business_reg_no', 'notes'].forEach(k => { if (input[k]) payload[k] = input[k]; });
+      ['business_reg_no', 'aliases', 'notes'].forEach(k => { if (input[k]) payload[k] = input[k]; });
       const [row] = await sb('manufacturers', { method: 'POST', body: JSON.stringify(payload) });
       return { vendor_code: code, manufacturer_id: row.id, name: row.name };
     }
@@ -351,7 +516,7 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 사용자는 영업 딜러이고, 담당 병원·의원에 의료장비 견적서를 작성해야 합니다.
 
 **하드 규칙:**
-1. 기존 데이터(장비·병원·제조사·발주·세금계산서·수금)는 **읽기만**. 수정/삭제 절대 금지.
+1. 기존 데이터(장비·병원·제조사·발주·세금계산서·수금)는 **수정·삭제 절대 금지** (예외: update_hospital_info로 빈 칸 보강). 새로 만드는 건 도구로만, 사용자 승인 후에만.
 2. 견적은 반드시 \`save_quote_draft\` 로 **draft 상태**로만 저장. 기존 quotes 테이블은 안 건드립니다.
 3. 가격은 \`search_equipment\` 의 price 를 기준. 가격이 0 or 없으면 사용자에게 물어보세요.
 4. 병원이 DB에 없을 수 있으니 \`search_hospitals\` 로 먼저 확인 → 없으면 \`hospital_name\` 만 넣어 draft.
@@ -365,35 +530,40 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 - 서버가 자동으로 공급가(÷1.1)·VAT(나머지)·총액 계산해 저장합니다.
 - Claude는 그냥 unit_price에 search_equipment 결과의 price 그대로 넣으면 됩니다.
 
-**발주(PO) 생성 플로우 (카톡 대화 등 자연어로 발주 요청 받으면):**
+**발주(PO) 만들기 — 카톡 대화를 그대로 붙여넣는 경우가 많음**
+사용자는 주문을 카톡으로 주고받고 발주는 따로 입력하지 않습니다. 대신 그 대화를 복사해서 붙여넣습니다.
+- PC 카톡 복사: "[이름] [오후 3:12] 메시지", 날짜 줄 "--------------- 2026년 11월 4일 화요일 ---------------"
+- 모바일 내보내기: "2026년 11월 4일 오후 3:12, 이름 : 메시지"
+대화가 견적·문의뿐이고 주문 확정이 없으면 발주를 만들지 말고 그렇다고 말하세요.
 
-1. 메시지에서 **병원·거래처·품목·수량·매출가·담당자정보** 추출
-2. search_hospitals / search_manufacturers / search_equipment 로 각각 DB 매칭
-3. 매칭 안 되는 거는 **반드시 사용자에게 묻기**:
-   - 신규 병원? → "병원 신규 등록할까요? [주소/담당자/전화 알려주세요]"
-   - 신규 거래처? → "거래처 신규 등록할까요? [사업자번호 아시면]"
-4. 매칭 된 병원인데 주소/담당자/전화 비어있고 사용자가 알려줬으면 update_hospital_info 로 보강 (사용자 확인 후)
-5. 모든 정보 확인되면 **"PO 생성해도 될까요? 사용자 승인"** 받기
-6. 승인되면 create_purchase_order 호출
+1. 대화에서 뽑을 것
+   - 병원(납품처), 거래처(우리가 물건을 사는 곳), 품목·모델·수량
+   - 매출가: 병원에 받는 단가(VAT 포함). 대화나 사용자가 말한 값만 — 추정 금지.
+   - 발주일(ordered_at): 주문이 확정된 메시지의 날짜. 알 수 없으면 생략(오늘로 저장).
+   - 담당(owner): 우리 회사 담당자 성씨 — 최/권/성 셋 중 하나 (권우혁=권, 성현기=성). 병원 원장·직원이나 거래처 사람 이름이 아님. 확실하지 않으면 미리보기에서 묻기.
+   - 거래처 매입가가 대화에 나오면 notes에 "카톡 매입가 1,980,000원"처럼만 적기.
+2. DB 매칭
+   - 병원·거래처는 핵심 단어로 검색 (법인 표기·괄호·"의원/병원" 빼고). 영문 이름이 있으면 영문으로도 따로 검색. 후보가 여럿이면 사용자에게 고르게.
+   - 품목은 search_equipment로 모델명 → 품목명 순서로 검색. 못 찾으면 미리보기에 "신규 장비 등록"으로 표시. 모든 품목은 장비(equipment_id)에 연결돼야 함.
+   - 매칭된 병원의 주소/담당자/전화가 비어 있고 사용자가 알려줬으면 update_hospital_info로 보강 (사용자 확인 후).
+3. 미리보기 — 어떤 쓰기 도구든 부르기 전에 반드시 보여주고 승인받기. 병원+거래처 조합마다 발주 1건:
+   📦 발주 1 — 서울아산샘유외과 / 에이치씨케이
+   · N322 회색 × 1 — 매출가 1,700,000원
+   · 발주일 2026-11-03 · 담당 성
+   · 신규 등록: 장비 "N322 회색" (있을 때만)
+   매출가를 모르는 품목은 "매출가 미정"으로 적고 "알면 알려주세요, 없으면 비워두고 만들어요"라고 한 번만 묻기.
+   마지막 줄: "이대로 만들까요?"
+4. 사용자가 승인하면 필요한 register_* → create_purchase_order 순서로 호출.
+   - create_purchase_order가 possible_duplicates를 돌려주면 그 발주를 보여주고 물어보기. 그래도 새로 만들라고 하면 allow_duplicate: true로 다시 호출.
+   - register_hospital / register_manufacturer가 similar를 돌려주면 같은 곳인지 묻기. 같은 곳이면 그 id를 쓰고, 다른 곳이면 confirm_new: true로 다시 호출.
+5. 완료 후: 만든 발주번호를 알려주고, 매출가가 빈 품목이 있으면 "병원별 이익 탭의 💰 매출가 없음에서 채우면 돼요"라고 안내.
 
 **PO 하드 룰 (사용자 명시 요청):**
-- **status는 항상 "진행중"** (서버 기본값, 변경 금지 — 사용자가 수동으로 "납품완료" 체크)
-- **매입가(unit_price)는 비움** (매입세금계산서 들어오면 수동 입력)
-- **매출가(sale_price)는 사용자가 명시한 값 그대로** (추정 금지)
-- 매출가 모르면 사용자에게 "매출가 얼마에요?" 묻기
+- status는 항상 "진행중" (서버가 처리)
+- 매입가(unit_price)는 비움 — 매입 세금계산서가 오면 "업데이트"에서 확정
+- 매출가(sale_price)는 대화나 사용자가 명시한 값 그대로. 모르면 비움.
 
-**발주 담당자(owner) 추론:**
-- PO_OWNERS = \`['최', '권', '성']\` 3명만 가능.
-- 카톡 대화나 메시지에서 **발주 요청자의 성씨**를 추출:
-  - "최윤철", "최OO" → \`owner: '최'\`
-  - "권OO" → \`owner: '권'\`
-  - "성현기", "성OO" → \`owner: '성'\`
-- 메시지에서 명확하지 않으면 owner 생략 (null)
-- 요청자와 다른 사람 (예: "연승은 발주완료") 이름은 무시 — 발주 요청자가 담당자
-
-**신규 등록 (hospital/manufacturer) 전 반드시:**
-- 사용자에게 "신규 등록할까요?" 확인
-- 알려준 정보 (주소/담당자/전화/사업자번호) 다 담아서 등록
+**신규 등록 (병원·거래처·장비)은 미리보기에 적어서 승인받은 것만.** 알려준 정보(주소/담당자/전화/사업자번호)는 다 담아서 등록.
 
 **매우 중요 — 저장 정책:**
 - 사용자가 견적 요청하면 **매번 \`save_quote_draft\` 호출**해서 저장하세요.
@@ -420,8 +590,11 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 → save_quote_draft({hospital_id, items:[{equipment_id, name, qty:2, unit_price}]})
 → "✅ draft 저장 완료: 총 X원 (VAT 포함 Y원)"
 
-사용자가 애매하게 요청하면 (예: 품목·수량만 주고 병원 안 밝힘) 되묻지 말고
+견적 요청이 애매하면 (예: 품목·수량만 주고 병원 안 밝힘) 되묻지 말고
 가장 자연스러운 가정을 하면서 search 결과를 보여주세요.`;
+
+// 로컬 테스트용 (쓰기 막은 fetch로 도구 동작 확인). 핸들러는 default export
+export { runTool, nameTerms };
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -493,10 +666,12 @@ export default async function handler(req, res) {
       body: JSON.stringify({ session_id: sessionId, role: 'user', content: message }),
     });
 
-    // 4. Claude agent loop (max 10 turns)
+    // 4. Claude agent loop — 카톡 → 발주는 병원·거래처·장비 검색과 등록이 여러 번 필요해서 16턴까지
     let draftId = null;
     let finalText = '';
-    for (let turn = 0; turn < 10; turn++) {
+    let finished = false;
+    const system = `${SYSTEM}\n\n오늘 날짜(한국 시간): ${todayKST()}`;
+    for (let turn = 0; turn < 16; turn++) {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -506,8 +681,8 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({
           model: MODEL,
-          max_tokens: 4096,
-          system: SYSTEM,
+          max_tokens: 16000, // 긴 카톡 대화를 정리하다 4096에서 잘리지 않게
+          system,
           tools: TOOLS,
           messages,
         }),
@@ -542,6 +717,7 @@ export default async function handler(req, res) {
 
       if (data.stop_reason !== 'tool_use') {
         finalText = text;
+        finished = true;
         break;
       }
 
@@ -570,6 +746,9 @@ export default async function handler(req, res) {
         });
       }
     }
+
+    if (!finished) finalText = '처리 단계가 너무 길어 중간에 멈췄어요. 지금까지 한 내용을 확인하고 "이어서 해줘"라고 보내주세요.';
+    else if (!finalText) finalText = '응답이 비어 있어요. 다시 보내주세요.';
 
     // 5. 세션 last_message_at 갱신
     await sb(`chat_sessions?id=eq.${sessionId}`, {
