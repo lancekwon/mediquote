@@ -25,11 +25,19 @@ function codeTokens(...texts) {
  * @param {string} name  품목명 (세금계산서 품목명 / 카톡에서 뽑은 이름)
  * @param {string} model 모델·규격 (없으면 '')
  * @param {Array<{id, equip_code, item_name, model_name, image_url?}>} equipment 장비 목록 전체
+ * @param {Array<{equipment_id, item_name, model_name}>} [aliases] 예전 발주 품목 (이름 → 연결된 장비). 사람이 한 번 고른 연결을 기억하는 용도
+ *   예) 계산서 품목 "윌트리적외선조사기(벽걸이)"를 E713 "적외선치료기 / VITA Wall"로 합친 뒤엔 같은 이름이 오면 E713으로 자동 연결
  * @returns {{ strong: object|null, candidates: object[] }}
  */
-export function matchEquipment(name, model, equipment) {
+export function matchEquipment(name, model, equipment, aliases = []) {
   const n = normName(name), m = normName(model);
   const strong = [];
+  // 예전 발주에서 같은 품목명(+같은 모델)을 이미 어떤 장비로 연결했으면 그 장비
+  if (n && aliases.length) {
+    const byId = new Map(equipment.map((e) => [e.id, e]));
+    const hit = aliases.find((a) => a.equipment_id && normName(a.item_name) === n && normName(a.model_name) === m && byId.has(a.equipment_id));
+    if (hit) return { strong: byId.get(hit.equipment_id), candidates: [] };
+  }
   const scored = new Map();
   const add = (e, s) => scored.set(e.id, { e, s: Math.max(s, scored.get(e.id)?.s || 0) });
   const codes = codeTokens(name, model);

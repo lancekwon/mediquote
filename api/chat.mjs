@@ -443,8 +443,20 @@ async function runTool(name, input, { sessionId, owner }) {
       const modelName = String(input.model_name || '').trim();
       if (!itemName) return { error: 'item_name이 필요합니다.' };
       // 중복 장비 방지 — Clobe 업데이트(createPoItems)와 같은 기준 (scripts/equipment_match.mjs)
-      const all = await sb('equipment?select=id,equip_code,item_name,model_name,image_url&limit=5000');
-      const { strong, candidates } = matchEquipment(itemName, modelName, all);
+      // Supabase는 한 번에 최대 1,000줄 → 끝까지 나눠 읽기
+      const fetchAll = async (path) => {
+        const out = [];
+        for (let offset = 0; ; offset += 1000) {
+          const rows = await sb(`${path}&limit=1000&offset=${offset}`);
+          out.push(...rows);
+          if (rows.length < 1000) return out;
+        }
+      };
+      const [all, aliases] = await Promise.all([
+        fetchAll('equipment?select=id,equip_code,item_name,model_name,image_url&order=equip_code'),
+        fetchAll('purchase_order_items?select=equipment_id,item_name,model_name&equipment_id=not.is.null&order=created_at.desc'),
+      ]);
+      const { strong, candidates } = matchEquipment(itemName, modelName, all, aliases);
       if (strong) return { created: false, existing: true, equipment_id: strong.id, equip_code: strong.equip_code, item_name: strong.item_name, model_name: strong.model_name };
       if (candidates.length && !input.confirm_new) {
         return {

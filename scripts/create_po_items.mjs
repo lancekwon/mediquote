@@ -49,21 +49,34 @@ export function clobeItemPurchase(it) {
 }
 
 const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
-const loadEquipment = async () => {
-  const rows = await q('equipment?select=id,equip_code,item_name,model_name,image_url&limit=5000');
-  if (!Array.isArray(rows)) throw new Error('장비 목록 조회 실패: ' + JSON.stringify(rows));
-  return rows;
+// Supabase는 한 번에 최대 1,000줄 → 끝까지 나눠 읽기 (장비가 1,000개를 넘으면 일부를 못 보고 중복을 만들 수 있어서)
+async function fetchAll(path) {
+  const out = [];
+  for (let offset = 0; ; offset += 1000) {
+    const rows = await q(`${path}${path.includes('?') ? '&' : '?'}limit=1000&offset=${offset}`);
+    if (!Array.isArray(rows)) throw new Error('조회 실패: ' + JSON.stringify(rows));
+    out.push(...rows);
+    if (rows.length < 1000) return out;
+  }
+}
+// 장비 목록 + 예전 발주 품목(이름 → 장비, 사람이 고른 연결을 기억)
+const loadCatalog = async () => {
+  const [equipment, aliases] = await Promise.all([
+    fetchAll('equipment?select=id,equip_code,item_name,model_name,image_url&order=equip_code'),
+    fetchAll('purchase_order_items?select=equipment_id,item_name,model_name&equipment_id=not.is.null&order=created_at.desc'),
+  ]);
+  return { equipment, aliases };
 };
 
 /**
  * 품목마다 기존 장비 연결 결과 (미리보기용, 아무것도 쓰지 않음).
  * equipment: 자동으로 붙을 기존 장비 (없으면 null) / candidates: 비슷한 기존 장비 (사용자가 골라야 함)
  */
-export async function findEquipmentCandidates(clobeItems, equipment = null) {
-  const list = equipment || await loadEquipment();
+export async function findEquipmentCandidates(clobeItems, catalog = null) {
+  const { equipment, aliases } = catalog || await loadCatalog();
   return (clobeItems || []).map((it, index) => {
     const name = String(it.name || '').trim(), model = String(it.standards || '').trim();
-    const { strong, candidates } = matchEquipment(name, model, list);
+    const { strong, candidates } = matchEquipment(name, model, equipment, aliases);
     return { index, name, model, equipment: strong, candidates: strong ? [] : candidates };
   });
 }
@@ -72,8 +85,8 @@ export async function findEquipmentCandidates(clobeItems, equipment = null) {
  * 저장 전 확인: 품목마다 쓸 장비 id 결정. 비슷한 기존 장비가 있는데 equipmentIds로 정하지 않은 품목이 있으면 에러 (아무것도 안 씀).
  * @returns {Promise<Array<string|'new'>>} index별 기존 장비 id 또는 'new'(새로 등록)
  */
-export async function resolvePoEquipment(clobeItems, { equipmentIds = {}, equipment = null } = {}) {
-  const report = await findEquipmentCandidates(clobeItems, equipment);
+export async function resolvePoEquipment(clobeItems, { equipmentIds = {}, catalog = null } = {}) {
+  const report = await findEquipmentCandidates(clobeItems, catalog);
   const undecided = [];
   const ids = report.map((r) => {
     const pick = equipmentIds[r.index];
