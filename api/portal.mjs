@@ -16,8 +16,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://nbgubiywavozgigiwkpr.s
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 
 const COMPANY = { name: '대원메디칼', phone: '02-2202-0615' };
-// 발주 담당(owner) → 화면에 보여줄 담당 영업. 나중에 병원별로 달라질 수 있음
-const OWNER_NAMES = { 최: '최윤철', 권: '권우혁', 성: '성현기' };
+// 포털 담당 — 지금은 모든 병원 최윤철 (사용자 지정 2026-11-04). 병원별로 달라지면 병원 정보에 담당 칸을 만들어 거기서 읽을 것
+const PORTAL_REP = { name: '최윤철', phone: '010-9471-0522' };
 // 장비가 아닌 줄 (할인·운송·선입금 등)은 보유 장비·재주문에서 뺌
 const NOT_EQUIPMENT_RE = /할인|discount|배송|운송|운임|택배|용달|퀵|설치비|선입금|계약금|잔금|중도금/i;
 // 재주문 목록에서 위로 올릴 소모품처럼 보이는 이름
@@ -196,10 +196,9 @@ async function loadBundle(h) {
     invoices: invoices.map((t) => ({ date: t.issue_date, summary: String(t.memo || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '') || '세금계산서 발행' })),
   };
 
-  const latestOwner = pos.find((p) => p.owner)?.owner || null;
   return {
     hospital: { name: h.name, address: h.address || null, contact: h.contact_name || null, code: h.hospital_code || null },
-    rep: latestOwner && OWNER_NAMES[latestOwner] ? { name: OWNER_NAMES[latestOwner] } : null,
+    rep: PORTAL_REP,
     company: COMPANY,
     today: todayKST(),
     equipment,

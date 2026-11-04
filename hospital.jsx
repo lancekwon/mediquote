@@ -78,7 +78,7 @@ function Gate({ children }) {
   return (
     <div className="gate">
       <div style={{ width: '100%', maxWidth: 360 }}>
-        <div className="gate-brand"><span className="brand-mark">DW</span>대원메디칼 병원 포털</div>
+        <div className="gate-brand">대원메디칼 병원 포털</div>
         {children}
       </div>
     </div>
@@ -120,14 +120,12 @@ function TopHeader({ page, onNav, data }) {
     <header className="topbar">
       <div className="topbar-in">
         <div className="brand" onClick={() => onNav('home')}>
-          <span className="brand-mark">DW</span>
-          <span className="brand-name">대원메디칼</span>
-          <span className="brand-sep" />
           <span className="brand-hosp">{data.hospital.name}</span>
         </div>
         <div className="contact">
-          {data.rep && <span className="rep">담당 <b>{data.rep.name}</b></span>}
-          <a className="icon-btn" href={'tel:' + data.company.phone.replace(/-/g, '')} title={`${data.company.name} 대표번호 ${data.company.phone}`}>
+          {data.rep && <span className="rep">담당 <b>{data.rep.name}</b>{data.rep.phone && <span className="rep-phone">{data.rep.phone}</span>}</span>}
+          <a className="icon-btn" href={'tel:' + (data.rep?.phone || data.company.phone).replace(/-/g, '')}
+            title={data.rep?.phone ? `담당 ${data.rep.name} ${data.rep.phone}` : `${data.company.name} 대표번호 ${data.company.phone}`}>
             <Ti n="phone" s={16} />
           </a>
         </div>
@@ -592,7 +590,7 @@ function App() {
       </main>
       <footer className="footer">
         {data.company.name} · 대표번호 <a href={'tel:' + data.company.phone.replace(/-/g, '')}>{data.company.phone}</a>
-        {data.rep && <> · 담당 {data.rep.name}</>}
+        {data.rep && <> · 담당 {data.rep.name}{data.rep.phone && <> <a href={'tel:' + data.rep.phone.replace(/-/g, '')}>{data.rep.phone}</a></>}</>}
       </footer>
     </div>
   );

@@ -38,13 +38,11 @@
     .topbar { background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
     .topbar-in { max-width: 1040px; margin: 0 auto; padding: 0 28px; height: 56px; display: flex; align-items: center; gap: 16px; }
     .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; min-width: 0; }
-    .brand-mark { width: 26px; height: 26px; border-radius: 6px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; letter-spacing: 0; }
-    .brand-name { font-size: 15px; font-weight: 700; white-space: nowrap; }
-    .brand-sep { width: 1px; height: 12px; background: var(--line); flex-shrink: 0; }
-    .brand-hosp { font-size: 14px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-hosp { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .contact { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
     .rep { font-size: 13px; color: var(--text2); white-space: nowrap; }
     .rep b { color: var(--text); font-weight: 600; }
+    .rep-phone { margin-left: 8px; color: var(--text2); }
     .icon-btn { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; color: var(--text2); }
     .icon-btn:hover { background: var(--bg2); }
     .menu { max-width: 1040px; margin: 0 auto; padding: 0 20px; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
@@ -162,8 +160,8 @@
 
     @media (max-width: 640px) {
       .topbar-in { padding: 0 16px; height: 52px; }
-      .brand-name, .brand-sep, .rep { display: none; }
-      .brand-hosp { font-size: 14px; font-weight: 600; color: var(--text); }
+      .rep { display: none; }
+      .brand-hosp { font-size: 15px; }
       .menu { padding: 0 8px; }
       .nav-tab { margin: 0 4px; }
       .page { padding: 20px 16px 40px; }
