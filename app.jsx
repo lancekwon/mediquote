@@ -15093,19 +15093,87 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
    매입매출 리포트 탭 (Phase 3) — 이미 로드된 데이터로 집계만 (추가 Egress 0)
    ============================================================ */
 /* 발주 품목 상세 팝업 (매출/매입 셀 클릭 시) */
-function PoDetailModal({ hospName, items, onClose }) {
+// 매출가가 0원인 게 정상인 품목 (병원별 이익의 "매출가 없음" 집계에서 제외)
+const NO_SALE_ITEM_RE = /배송비|운송|운임|샘플|할인/;
+
+// 품목 라벨 요약 — "품목 모델 x2, 품목 … 외 N"
+function itemSummary(items, max = 3) {
+  const labels = items.map(it => [it.item_name, it.model_name].filter(Boolean).join(' ') + (it.quantity > 1 ? ` x${it.quantity}` : ''));
+  return { short: labels.slice(0, max).join(', ') + (labels.length > max ? ` 외 ${labels.length - max}` : ''), full: labels.join('\n') };
+}
+
+// 품목 상세 팝업의 매출가 셀 — 클릭 → 입력 → Enter/포커스 아웃 저장 (발주 탭 EditablePrice와 같은 조작)
+function SalePriceCell({ item, onSave }) {
+  const cur = Number(item.sale_price) || 0;
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const doneRef = React.useRef(false); // Enter 후 blur로 한 번 더 저장되는 것 방지
+  const start = () => { doneRef.current = false; setVal(cur ? cur.toLocaleString() : ''); setEditing(true); };
+  const commit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    setEditing(false);
+    const n = Number(String(val).replace(/[^0-9]/g, '')) || 0;
+    if (n !== cur) onSave(item, n);
+  };
+  if (editing) {
+    return (
+      <input type="text" autoFocus value={val}
+        onChange={e => { const d = e.target.value.replace(/[^0-9]/g, ''); setVal(d ? Number(d).toLocaleString() : ''); }}
+        onFocus={e => e.target.select()}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { doneRef.current = true; setEditing(false); }
+        }}
+        className="w-24 border border-blue-400 rounded px-1.5 py-0.5 text-xs font-mono text-right tnum text-emerald-700 focus:outline-none" />
+    );
+  }
+  return (
+    <button type="button" onClick={start} title="클릭하여 매출가 입력·수정"
+      className="font-mono text-emerald-700 hover:bg-blue-50 rounded px-1.5 py-0.5 w-full text-right">
+      {cur ? cur.toLocaleString('ko-KR') : <span className="text-amber-600 font-sans">입력</span>}
+    </button>
+  );
+}
+
+// onSaved를 넘기면 매출가를 바로 수정할 수 있음 (닫을 때 변경이 있었으면 onSaved 호출 → 부모 집계 새로고침)
+function PoDetailModal({ hospName, items, onClose, onSaved, title }) {
   const fmt = n => (n || 0).toLocaleString('ko-KR');
+  const [rows, setRows] = useState(items);
+  const changedRef = React.useRef(false);
+  const handleClose = () => { if (changedRef.current && onSaved) onSaved(); onClose(); };
+
+  // 매출가 저장 + 그 발주의 매출합계(sale_amount)도 갱신 — 발주 탭과 같은 동작이라 활동 탭·리포트 숫자가 안 어긋남.
+  // 팝업엔 일부 품목만 있을 수 있어서 합계는 DB에서 그 발주 품목 전체로 다시 계산
+  const saveSale = async (item, price) => {
+    if (!item.id || !item.po_id) { alert('품목 ID를 못 불러와서 저장할 수 없어. 새로고침 후 다시 해줘.'); return; }
+    const prev = item.sale_price;
+    setRows(rs => rs.map(r => r.id === item.id ? { ...r, sale_price: price } : r));
+    try {
+      await dbUpdatePoItem(item.id, { sale_price: price });
+      const { data, error } = await sb.from('purchase_order_items').select('sale_price, quantity').eq('po_id', item.po_id);
+      if (error) throw error;
+      const sale_amount = (data || []).reduce((s, x) => s + (Number(x.sale_price) || 0) * (Number(x.quantity) || 0), 0);
+      await dbUpdatePurchaseOrder(item.po_id, { sale_amount });
+      changedRef.current = true;
+    } catch (e) {
+      alert('매출가 저장 실패: ' + (e.message || e));
+      setRows(rs => rs.map(r => r.id === item.id ? { ...r, sale_price: prev } : r));
+    }
+  };
+
   // 발주(po_no)별 그룹
   const byPo = new Map();
-  items.forEach(it => {
+  rows.forEach(it => {
     const k = it.po_no || '(발주번호 없음)';
     if (!byPo.has(k)) byPo.set(k, []);
     byPo.get(k).push(it);
   });
-  const totalSale = items.reduce((s, it) => s + it.sale_price * it.quantity, 0);
-  const totalPur = items.reduce((s, it) => s + it.unit_price * it.quantity, 0);
+  const totalSale = rows.reduce((s, it) => s + it.sale_price * it.quantity, 0);
+  const totalPur = rows.reduce((s, it) => s + it.unit_price * it.quantity, 0);
   return (
-    <ModalShell title={`발주 품목 상세 — ${hospName}`} subtitle={`발주 ${byPo.size}건 · 아이템 ${items.length}개`} onClose={onClose} wide z={70}>
+    <ModalShell title={`${title || '발주 품목 상세'} — ${hospName}`} subtitle={`발주 ${byPo.size}건 · 아이템 ${rows.length}개${onSaved ? ' · 매출가를 눌러 바로 입력' : ''}`} onClose={handleClose} wide z={70}>
       <div className="border border-slate-200 rounded overflow-hidden max-h-[60vh] overflow-y-auto">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-500 sticky top-0">
@@ -15134,7 +15202,9 @@ function PoDetailModal({ hospName, items, onClose }) {
                   </td>
                   <td className="px-2 py-1.5 text-center text-slate-700">{it.quantity}</td>
                   <td className="px-2 py-1.5 text-right font-mono text-slate-600">{it.unit_price ? fmt(it.unit_price) : <span className="text-rose-500">미입력</span>}</td>
-                  <td className="px-2 py-1.5 text-right font-mono text-emerald-700">{fmt(it.sale_price)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono text-emerald-700">
+                    {onSaved ? <SalePriceCell item={it} onSave={saveSale} /> : fmt(it.sale_price)}
+                  </td>
                   <td className="px-2 py-1.5 text-right font-mono text-blue-700">{fmt(saleSum)}</td>
                   <td className="px-2 py-1.5 text-right font-mono text-rose-700">{fmt(purSum)}</td>
                   <td className={`px-2 py-1.5 text-right font-mono font-semibold ${profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(profit)}</td>
@@ -15153,7 +15223,7 @@ function PoDetailModal({ hospName, items, onClose }) {
         </table>
       </div>
       <div className="flex justify-end pt-3 mt-3 border-t border-slate-100">
-        <button onClick={onClose} className="px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 text-white rounded">닫기</button>
+        <button onClick={handleClose} className="px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 text-white rounded">닫기</button>
       </div>
     </ModalShell>
   );
@@ -16475,6 +16545,7 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
           hospName={detailModal.hospName}
           items={detailModal.items}
           onClose={() => setDetailModal(null)}
+          onSaved={() => setReloadKey(k => k + 1)}
         />
       )}
       {missingModal && (
@@ -16905,7 +16976,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         id: p.hospital_id,
         name: hospName(p.hospital_id),
         sale: 0, purchase: 0,
-        items: [], missingItems: [],
+        items: [], missingItems: [], saleMissingItems: [],
         vendors: new Map(),
         poList: [],
         owners: new Set(),
@@ -16918,7 +16989,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       const vg = v.vendors.get(vKey) || {
         id: p.manufacturer_id || null,
         name: p.manufacturer_name || '(거래처 미배정)',
-        sale: 0, purchase: 0, poCount: 0,
+        sale: 0, purchase: 0, poCount: 0, items: [], saleMissing: 0,
       };
       vg.poCount += 1;
       (p.purchase_order_items || []).forEach(it => {
@@ -16929,8 +17000,12 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         v.purchase += up * qty;
         vg.sale += sp * qty;
         vg.purchase += up * qty;
-        v.items.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp, unit_price: up });
+        const row = { id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp, unit_price: up };
+        v.items.push(row);
+        vg.items.push(row);
         if (qty > 0 && !up) v.missingItems.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp });
+        // 매출가 없음 — 배송비·샘플·운임·할인처럼 0원이 정상인 품목은 제외
+        if (qty > 0 && !sp && !NO_SALE_ITEM_RE.test(it.item_name || '')) { v.saleMissingItems.push(row); vg.saleMissing += 1; }
       });
       // 폴백: purchase_order_items가 없거나 전부 0이면 PO 자체의 total_amount/sale_amount 사용
       const itemCount = (p.purchase_order_items || []).length;
@@ -17117,18 +17192,24 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                         {h.missingPrice && (
                           <button type="button" onClick={() => setMissingModal({ hospName: h.name, items: h.missingItems })}
                             className="text-[10px] text-rose-600 font-semibold hover:bg-rose-50 rounded px-1 py-0.5" title="클릭하여 매입가 입력">
-                            ⚠ 미입력 {h.missingItems.length}
+                            ⚠ 매입가 미입력 {h.missingItems.length}
+                          </button>
+                        )}
+                        {h.saleMissingItems.length > 0 && (
+                          <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.saleMissingItems, title: '매출가 입력' })}
+                            className="text-[10px] text-amber-700 font-semibold hover:bg-amber-50 rounded px-1 py-0.5" title="클릭하여 매출가 입력 (배송비·샘플 제외)">
+                            💰 매출가 없음 {h.saleMissingItems.length}
                           </button>
                         )}
                       </div>
                     </td>
                     <td className="px-2 py-2 text-right">
                       <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.items })}
-                        className="font-mono text-blue-700 hover:underline">{fmt(h.sale)}</button>
+                        className="font-mono text-blue-700 hover:underline" title="품목 상세 · 매출가 입력">{fmt(h.sale)}</button>
                     </td>
                     <td className="px-2 py-2 text-right">
                       <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.items })}
-                        className="font-mono text-rose-700 hover:underline">{fmt(h.purchase)}</button>
+                        className="font-mono text-rose-700 hover:underline" title="품목 상세 · 매출가 입력">{fmt(h.purchase)}</button>
                     </td>
                     <td className="px-2 py-2 text-right font-mono text-amber-700 text-[11px]">
                       {h.discount > 0 ? `-${fmt(h.discount)}` : <span className="text-slate-300">—</span>}
@@ -17138,16 +17219,31 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                   </tr>
                   {isExp && (
                     <>
-                      {h.vendorList.map((v, vi) => (
-                        <tr key={`${h.id}-v${vi}`} className="border-t border-slate-50 bg-slate-50/50 text-[11px]">
-                          <td className="px-2 py-1 pl-8 text-slate-600">└ {v.name}</td>
-                          <td className="px-2 py-1 text-right font-mono text-blue-700">{fmt(v.sale)}</td>
-                          <td className="px-2 py-1 text-right font-mono text-rose-700">{fmt(v.purchase)}</td>
-                          <td className="px-2 py-1 text-right text-slate-300">—</td>
-                          <td className={`px-2 py-1 text-right font-mono ${v.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(v.profit)}</td>
-                          <td className="px-2 py-1 text-right text-slate-500">{v.poCount}</td>
-                        </tr>
-                      ))}
+                      {h.vendorList.map((v, vi) => {
+                        const sum = itemSummary(v.items);
+                        return (
+                          <tr key={`${h.id}-v${vi}`} className="border-t border-slate-50 bg-slate-50/50 text-[11px]">
+                            <td className="px-2 py-1 pl-8 text-slate-600">
+                              <div className="flex items-baseline gap-2 min-w-0">
+                                <span className="shrink-0">└ {v.name}</span>
+                                {v.items.length > 0 && (
+                                  <button type="button" onClick={() => setDetailModal({ hospName: `${h.name} · ${v.name}`, items: v.items })}
+                                    className="text-[10px] text-slate-400 hover:text-blue-600 hover:underline truncate text-left max-w-[360px]"
+                                    title={`${sum.full}\n\n클릭: 품목 상세 · 매출가 입력`}>
+                                    {sum.short}
+                                  </button>
+                                )}
+                                {v.saleMissing > 0 && <span className="shrink-0 text-[10px] text-amber-700">매출가 없음 {v.saleMissing}</span>}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1 text-right font-mono text-blue-700">{fmt(v.sale)}</td>
+                            <td className="px-2 py-1 text-right font-mono text-rose-700">{fmt(v.purchase)}</td>
+                            <td className="px-2 py-1 text-right text-slate-300">—</td>
+                            <td className={`px-2 py-1 text-right font-mono ${v.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{fmt(v.profit)}</td>
+                            <td className="px-2 py-1 text-right text-slate-500">{v.poCount}</td>
+                          </tr>
+                        );
+                      })}
                       {h.poList.length > 0 && (
                         <tr className="border-t border-slate-50 bg-slate-50/30 text-[10px]">
                           <td colSpan={6} className="px-2 py-1 pl-8 text-slate-500">
@@ -17186,7 +17282,8 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       <div className="text-[10px] text-slate-500">※ 발주 등록일 기준 · 취소 제외 (준비중·발주완료·납품완료 모두 포함) · 매입가 0원 발주는 이익이 매출과 같게 표시됨 · 할인은 병원관리 저장된 것만 반영</div>
 
       {detailModal && (
-        <PoDetailModal hospName={detailModal.hospName} items={detailModal.items} onClose={() => setDetailModal(null)} />
+        <PoDetailModal hospName={detailModal.hospName} items={detailModal.items} title={detailModal.title}
+          onClose={() => setDetailModal(null)} onSaved={() => setReloadKey(k => k + 1)} />
       )}
       {missingModal && (
         <MissingPriceModal hospName={missingModal.hospName} items={missingModal.items}
