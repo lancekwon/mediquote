@@ -78,7 +78,7 @@ function Gate({ children }) {
   return (
     <div className="gate">
       <div style={{ width: '100%', maxWidth: 360 }}>
-        <div className="gate-brand">대원메디칼 병원 포털</div>
+        <div className="gate-brand">의료기기 정보 시스템</div>
         {children}
       </div>
     </div>

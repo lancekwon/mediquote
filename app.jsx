@@ -9274,7 +9274,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                             </button>
                             <button
                               onClick={() => {
-                                const text = `대원메디칼 병원 포털 안내\n\n링크: ${url}\n접속 코드: ${biz ? '병원 사업자등록번호 10자리' : legacyPin}`;
+                                const text = `의료기기 정보 시스템 접속 안내\n\n링크: ${url}\n접속 코드: ${biz ? '병원 사업자등록번호 10자리' : legacyPin}`;
                                 navigator.clipboard.writeText(text);
                               }}
                               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg font-medium hover:bg-blue-100 transition-colors whitespace-nowrap"
