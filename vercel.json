@@ -2,6 +2,14 @@
   "version": 2,
   "buildCommand": "",
   "outputDirectory": ".",
+  "redirects": [
+    {
+      "source": "/((?!h/|api/|hospital\\.html|hospital\\.js|img/).*)",
+      "has": [{ "type": "host", "value": "my.dwmedi.kr" }],
+      "destination": "https://dwmedi.kr",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/h/:code", "destination": "/hospital.html" },
     { "source": "/hospital", "destination": "/hospital.html" },

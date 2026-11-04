@@ -384,8 +384,9 @@ async function dbDeleteDynItem(id) {
 }
 
 /* ---------- 병원 포털 링크 ---------- */
-// 짧은 링크 /h/<토큰 앞 8자리> (api/portal.mjs가 앞 8자리로 병원을 찾음). 포털용 도메인을 연결하면 PORTAL_ORIGIN만 바꾸면 됨
-const PORTAL_ORIGIN = window.location.origin;
+// 짧은 링크 /h/<토큰 앞 8자리> (api/portal.mjs가 앞 8자리로 병원을 찾음). 포털 전용 도메인 my.dwmedi.kr
+// (호스트코코아 DNS CNAME my → Vercel, 2026-11-04). vercel.json이 my.dwmedi.kr의 포털 외 주소는 dwmedi.kr로 보냄
+const PORTAL_ORIGIN = 'https://my.dwmedi.kr';
 const portalUrl = (token) => `${PORTAL_ORIGIN}/h/${String(token || '').slice(0, 8)}`;
 const portalBizNo = (h) => { const d = String(h?.business_reg_no || '').replace(/\D/g, ''); return d.length === 10 ? d : null; };
 const fmtBizNo = (d) => d ? `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}` : '';
