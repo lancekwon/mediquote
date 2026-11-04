@@ -7,6 +7,9 @@
 --    (purchase_orders.total_amount에 일부 매출합계가 섞여 있어 신뢰 불가)
 -- 3) PO confirmed = 매입 세금계산서가 연결됐는지 (false면 매입단가는 예상값/미입력)
 -- 4) 매칭 큐 추천 PO: 납품완료 포함, 금액 정확 일치 우선 → 날짜 가까운 순
+-- 5) PO items jsonb에 품목 id 포함 (리포트의 "매입가 입력" 모달이 품목 id로 저장함)
+-- 6) hospital_name / vendor_name 컬럼 추가 (리포트 거래처 줄에 병원명이 찍히던 문제)
+-- 7) 매칭 큐: 기존 "발주 없음" 체크(tax_invoices.no_po)도 제외 — no_po가 원래 컬럼, no_po_needed는 호환용
 
 -- ============================================================
 -- v_activity_feed
@@ -59,7 +62,9 @@ select
   null::numeric                                                as sale_amount,
   null::numeric                                                as margin,
   coalesce(t.confirmed, false)::boolean                        as confirmed,
-  null::date                                                   as report_month
+  null::date                                                   as report_month,
+  null::text                                                   as hospital_name,
+  null::text                                                   as vendor_name
 from tax_invoices t
 
 union all
@@ -93,7 +98,8 @@ select
   null::text, null::text, null::uuid, null::text, null::text,
   null::text, null::numeric, null::numeric,
   true::boolean,
-  null::date
+  null::date,
+  null::text, null::text
 from cash_balance_log c
 
 union all
@@ -130,7 +136,9 @@ select
   (coalesce(p.sale_amount, s.sale_sum, 0)
    - (case when s.item_count > 0 then s.purchase_sum else coalesce(p.total_amount, 0) end))::numeric,
   (exists (select 1 from tax_invoices t2 where t2.po_id = p.id and t2.kind = 'purchase'))::boolean,
-  p.report_month::date
+  p.report_month::date,
+  p.hospital_name::text,
+  coalesce(p.manufacturer_name, p.vendor_name)::text
 from purchase_orders p
 cross join lateral (
   select
@@ -138,6 +146,7 @@ cross join lateral (
     coalesce(sum(coalesce(poi.unit_price, 0) * coalesce(poi.quantity, 0)), 0) as purchase_sum,
     sum(coalesce(poi.sale_price, 0) * coalesce(poi.quantity, 0)) as sale_sum,
     jsonb_agg(jsonb_build_object(
+      'id', poi.id,
       'equipment_id', poi.equipment_id,
       'item_name', poi.item_name,
       'model_name', poi.model_name,
@@ -179,7 +188,8 @@ select
   null::text, null::text, null::uuid, null::text, null::text,
   null::text, null::numeric, null::numeric,
   coalesce(pt.confirmed, false)::boolean,
-  null::date
+  null::date,
+  null::text, null::text
 from payable_transactions pt
 
 union all
@@ -211,7 +221,8 @@ select
   null::text, null::text, null::uuid, null::text, null::text,
   null::text, null::numeric, null::numeric,
   true::boolean,
-  null::date
+  null::date,
+  null::text, null::text
 from receivable_transactions rt
 ;
 
@@ -273,6 +284,7 @@ left join manufacturers m on m.id = t.manufacturer_id
 where t.kind = 'purchase'
   and t.po_id is null
   and t.manufacturer_id is not null
+  and not coalesce(t.no_po, false)
   and not coalesce(t.no_po_needed, false)
   and not coalesce(m.default_no_po, false);
 

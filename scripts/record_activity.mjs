@@ -7,7 +7,7 @@
 //   const { results, needRebalance } = await recordActivityBatch([...]);
 //   if (needRebalance) await rebuildBalanceAfter();
 
-import { createPoItems } from './create_po_items.mjs';
+import { createPoItems, clobeItemPurchase } from './create_po_items.mjs';
 
 const K = process.env.SB_KEY || 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 const B = (process.env.SB_URL || 'https://nbgubiywavozgigiwkpr.supabase.co') + '/rest/v1/';
@@ -227,13 +227,11 @@ async function recordPoCreate(o) {
   }
 
   // total_amount는 품목 매입합계 기준으로 통일 (매입/매출 혼재 방지)
-  // 품목이 있으면 sum(unit_price*quantity), 없으면 o.amount로 fallback
+  // o.items는 Clobe TI 품목 형식 → createPoItems가 넣을 단가와 같은 계산(clobeItemPurchase)으로 합산
+  // 품목이 없으면 o.amount로 fallback
   const purchaseSum = Array.isArray(o.items) && o.items.length
-    ? o.items.reduce((s, it) => s + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0), 0)
+    ? o.items.reduce((s, it) => { const { qty, unitPrice } = clobeItemPurchase(it); return s + qty * unitPrice; }, 0)
     : Math.abs(o.amount || 0);
-  const saleSum = Array.isArray(o.items) && o.items.length
-    ? o.items.reduce((s, it) => s + (Number(it.sale_price) || 0) * (Number(it.quantity) || 0), 0)
-    : 0;
   const row = {
     po_no: poNo,
     status: '진행중',
@@ -243,7 +241,7 @@ async function recordPoCreate(o) {
     manufacturer_id: o.manufacturerId || null,
     manufacturer_name: (o.party?.kind === 'manufacturer' ? o.party.name : null) || o.vendorName || null,
     total_amount: purchaseSum,
-    sale_amount: o.saleAmount != null ? o.saleAmount : (saleSum || null),
+    sale_amount: o.saleAmount != null ? o.saleAmount : null,
     owner: o.owner || null,
     is_active: true,
     source: o.source || 'clobe_sync',

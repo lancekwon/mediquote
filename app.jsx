@@ -15172,9 +15172,13 @@ function MissingPriceModal({ hospName, items, onClose, onSaved }) {
     setSaving(true);
     try {
       const targets = items.filter(it => parse(vals[it.id]) > 0);
-      await Promise.all(targets.map(it =>
-        sb.from('purchase_order_items').update({ unit_price: parse(vals[it.id]) }).eq('id', it.id)
+      if (targets.some(it => !it.id)) throw new Error('품목 ID를 못 불러와서 저장할 수 없음 (피드 뷰 업데이트 필요)');
+      // 실제로 바뀐 행이 있는지까지 확인 — id가 틀리면 에러 없이 0건 수정되기 때문
+      const results = await Promise.all(targets.map(it =>
+        sb.from('purchase_order_items').update({ unit_price: parse(vals[it.id]) }).eq('id', it.id).select('id')
       ));
+      const failed = results.filter(r => r.error || !r.data || r.data.length === 0);
+      if (failed.length) throw new Error(`${failed.length}건 저장 안 됨` + (failed[0].error ? ' — ' + failed[0].error.message : ''));
       onSaved && onSaved(targets.length);
     } catch (e) {
       alert('저장 실패: ' + (e.message || e));
@@ -15653,7 +15657,8 @@ function UnmatchedPurchaseQueueModal({ list, onClose, onMatched }) {
   });
 
   const skipThis = (ti) => withSaving(ti.id, async () => {
-    await req('PATCH', 'tax_invoices?id=eq.' + ti.id, { no_po_needed: true });
+    // no_po = 기존 "발주 없음" 체크와 같은 컬럼 → 원장 미매칭 뱃지·카운터에서도 같이 빠짐
+    await req('PATCH', 'tax_invoices?id=eq.' + ti.id, { no_po: true });
     markDone(ti.id, 'skipped', '이 건만 매칭 불필요');
   });
   const skipVendor = (ti) => {
@@ -15995,16 +16000,16 @@ function WeeklyReport({ hospitals = [], onOpenHospital, onWeekChange }) {
             po_no: p.po_no,
             created_at: p.happened_at,
             hospital_id: p.hospital_id,
-            hospital_name: p.party_name,
+            hospital_name: p.hospital_name || null,
             manufacturer_id: p.manufacturer_id,
-            manufacturer_name: p.party_name,  // 매입처 이름은 piggyback
+            manufacturer_name: p.vendor_name || null,  // party_name은 병원 PO면 병원명이라 쓰면 안 됨
             status: p.po_status,
             owner: p.owner,
             total_amount: Math.abs(Number(p.amount) || 0),  // PO는 amount 음수로 저장
             sale_amount: p.sale_amount,
-            // items jsonb → purchase_order_items 포맷으로 변환
+            // items jsonb → purchase_order_items 포맷으로 변환 (id = 품목 id, 매입가 입력 모달이 이걸로 저장)
             purchase_order_items: (p.items || []).map(it => ({
-              id: it.equipment_id,
+              id: it.id,
               item_name: it.item_name,
               model_name: it.model_name,
               quantity: it.quantity,
@@ -16818,15 +16823,15 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           created_at: p.happened_at,
           report_month: p.report_month,
           hospital_id: p.hospital_id,
-          hospital_name: p.party_name,
+          hospital_name: p.hospital_name || null,
           manufacturer_id: p.manufacturer_id,
-          manufacturer_name: p.party_name,
+          manufacturer_name: p.vendor_name || null,
           status: p.po_status,
           owner: p.owner,
           total_amount: Math.abs(Number(p.amount) || 0),
           sale_amount: p.sale_amount,
           purchase_order_items: (p.items || []).map(it => ({
-            id: it.equipment_id,
+            id: it.id,
             item_name: it.item_name,
             model_name: it.model_name,
             quantity: it.quantity,

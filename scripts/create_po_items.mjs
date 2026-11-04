@@ -26,6 +26,17 @@ const ins = async (t, r) => {
 };
 
 /**
+ * Clobe TI 품목 1개의 수량·매입단가(VAT 포함). createPoItems와 PO 매입합계 계산이 같은 값을 쓰도록 공용.
+ * @param {{quantity?:number, supplyValue?:number, taxAmount?:number}} it
+ * @returns {{qty:number, unitPrice:number}}
+ */
+export function clobeItemPurchase(it) {
+  const qty = Number(it.quantity) || 1;
+  const itemTotal = (Number(it.supplyValue) || 0) + (Number(it.taxAmount) || 0);
+  return { qty, unitPrice: qty > 0 ? Math.round(itemTotal / qty) : 0 };
+}
+
+/**
  * Clobe TI items[]를 받아 purchase_order_items를 생성.
  * equipment에 매칭되면 재사용, 없으면 신규 등록 (E코드 증번).
  *
@@ -61,11 +72,8 @@ export async function createPoItems(poId, clobeItems, options = {}) {
   for (const it of clobeItems) {
     const itemName = String(it.name || '').trim();
     const modelName = String(it.standards || '').trim();
-    const qty = Number(it.quantity) || 1;
+    const { qty, unitPrice } = clobeItemPurchase(it); // VAT 포함
     const itemSupply = Number(it.supplyValue) || 0;
-    const itemTax = Number(it.taxAmount) || 0;
-    const itemTotal = itemSupply + itemTax; // VAT 포함
-    const unitPrice = qty > 0 ? Math.round(itemTotal / qty) : 0;
 
     // 매출가 안분
     let salePrice = null;
