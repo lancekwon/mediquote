@@ -1,5 +1,6 @@
 // 병원 포털 (hospital.html) — 빌드: npx esbuild hospital.jsx --outfile=hospital.js --loader:.jsx=jsx --minify
-// 데이터는 /api/portal 에서만 받음 (토큰+접속코드 확인, 금액 없음). 이 파일에는 DB 키가 없음.
+// 데이터는 /api/portal 에서만 받음 (링크 코드+사업자번호 확인, 금액 없음). 이 파일에는 DB 키가 없음.
+// 디자인: 사용자가 준 관리 콘솔 레퍼런스(2026-11-04) 기준 — Pretendard 한 가지, 22px 제목, 회색 머리줄 표, 촘촘한 행
 const { useState, useEffect, useMemo, useCallback } = React;
 
 const API = '/api/portal';
@@ -23,7 +24,7 @@ const storage = {
 
 const Ti = ({ n, s = 16, c, style }) => <i className={'ti ti-' + n} style={{ fontSize: s, color: c, ...style }} aria-hidden="true" />;
 const fmtDate = (d) => (d ? String(d).slice(0, 10).replace(/-/g, '.') : '—');
-const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 
 const CAT_ICON = {
   '영상진단장비': 'scan', '물리치료/재활장비': 'activity-heartbeat', '멸균/소독장비': 'flask', '수술실/병원가구': 'armchair',
@@ -33,40 +34,51 @@ const CAT_ICON = {
 };
 const catIcon = (c) => CAT_ICON[c] || 'box';
 
+const TONE = {
+  green: { bg: '#e9f8f1', text: '#0a8a55' },
+  blue: { bg: '#e8f3ff', text: '#1b64da' },
+  orange: { bg: '#fff3e5', text: '#c46200' },
+  gray: { bg: '#f2f4f6', text: '#6b7684' },
+};
 const STATE = {
-  delivered: { label: '납품 완료', bg: '#e8f4ed', text: '#1d6e3b', dot: '#2a8a4f' },
-  ordered: { label: '주문 접수', bg: '#e6effb', text: '#0952b2', dot: '#0952b2' },
-  service: { label: '점검·수리 접수', bg: '#fbf3e0', text: '#8a5a0c', dot: '#b07911' },
+  delivered: { label: '납품 완료', ...TONE.green },
+  ordered: { label: '주문 접수', ...TONE.blue },
+  service: { label: '점검·수리 접수', ...TONE.orange },
 };
 const eqState = (e) => (e.openService ? STATE.service : STATE[e.state] || STATE.delivered);
-const SVC_STATE = {
-  '접수': { bg: '#fbf3e0', text: '#8a5a0c' }, '처리중': { bg: '#e6effb', text: '#0952b2' }, '완료': { bg: '#e8f4ed', text: '#1d6e3b' },
-  '대기': { bg: '#fbf3e0', text: '#8a5a0c' }, '보류': { bg: '#f0f2f5', text: '#6a6f77' },
-};
-const Badge = ({ st, children }) => (
-  <span className="badge" style={{ background: st.bg, color: st.text }}>{children}</span>
-);
+const SVC_TONE = { '접수': TONE.orange, '처리중': TONE.blue, '완료': TONE.green, '대기': TONE.orange, '보류': TONE.gray };
+const Badge = ({ tone, children }) => <span className="badge" style={{ background: tone.bg, color: tone.text }}>{children}</span>;
 
-function Thumb({ e, size = 56 }) {
+function Thumb({ e, size = 40 }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="thumb" style={{ width: size, height: size }}>
       {e.image && !broken
         ? <img src={e.image} alt={e.name} loading="lazy" onError={() => setBroken(true)} />
-        : <Ti n={catIcon(e.category)} s={Math.round(size * 0.42)} c="#9aa0a8" />}
+        : <Ti n={catIcon(e.category)} s={Math.round(size * 0.45)} c="#b0b8c1" />}
     </div>
   );
 }
+
+const PageHead = ({ title, desc, right }) => (
+  <div className="page-head">
+    <div style={{ minWidth: 0 }}>
+      <h1 className="title">{title}</h1>
+      {desc && <p className="desc">{desc}</p>}
+    </div>
+    {right}
+  </div>
+);
+const SecHead = ({ title, right }) => (
+  <div className="sec-head"><h2 className="sec-title">{title}</h2>{right}</div>
+);
 
 /* ── 접속 화면 ───────────────────────────────── */
 function Gate({ children }) {
   return (
     <div className="gate">
-      <div style={{ width: '100%', maxWidth: 380 }}>
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div className="cap">Daewon Medical</div>
-          <div className="serif" style={{ fontSize: 26, fontWeight: 600, marginTop: 8 }}>병원 포털</div>
-        </div>
+      <div style={{ width: '100%', maxWidth: 360 }}>
+        <div className="gate-brand"><span className="brand-mark">DW</span>대원메디칼 병원 포털</div>
         {children}
       </div>
     </div>
@@ -78,15 +90,15 @@ function PinScreen({ onLogin, error, busy, kind }) {
   const biz = kind !== 'pin';
   return (
     <Gate>
-      <form className="card" style={{ padding: 28 }} onSubmit={(e) => { e.preventDefault(); if (pin.trim()) onLogin(pin.trim()); }}>
-        <div style={{ fontSize: 15, fontWeight: 600 }}>{biz ? '사업자등록번호 입력' : '접속 코드 입력'}</div>
-        <div className="muted" style={{ marginTop: 4, marginBottom: 18 }}>
+      <form className="box" style={{ padding: 24 }} onSubmit={(e) => { e.preventDefault(); if (pin.trim()) onLogin(pin.trim()); }}>
+        <div className="sec-title">{biz ? '사업자등록번호 입력' : '접속 코드 입력'}</div>
+        <p className="desc" style={{ marginTop: 4, marginBottom: 16 }}>
           {biz ? '병원 사업자등록번호 10자리를 입력해 주세요.' : '담당 영업사원에게 받은 접속 코드를 입력해 주세요.'}
-        </div>
+        </p>
         <input className="input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={biz ? '000-00-00000' : '접속 코드'} autoFocus
-          inputMode="numeric" autoComplete="off" maxLength={biz ? 12 : 20} style={{ textAlign: 'center', letterSpacing: 3, fontSize: 16 }} />
-        {error && <div className="alert-danger" style={{ marginTop: 12 }}>{error}</div>}
-        <button className="btn-primary" type="submit" disabled={busy || !pin.trim()} style={{ width: '100%', marginTop: 14, padding: 13 }}>
+          inputMode="numeric" autoComplete="off" maxLength={biz ? 12 : 20} style={{ textAlign: 'center', letterSpacing: 2, fontSize: 15 }} />
+        {error && <div className="alert danger" style={{ marginTop: 10 }}>{error}</div>}
+        <button className="btn primary block" type="submit" disabled={busy || !pin.trim()} style={{ marginTop: 12 }}>
           {busy ? '확인 중…' : '입장하기'}
         </button>
       </form>
@@ -96,45 +108,36 @@ function PinScreen({ onLogin, error, busy, kind }) {
 
 /* ── 헤더 ───────────────────────────────── */
 const MENU = [
-  { key: 'home', label: '홈' },
-  { key: 'equipment', label: '장비' },
-  { key: 'service', label: '점검·수리' },
-  { key: 'reorder', label: '재주문' },
-  { key: 'docs', label: '문서함' },
+  { key: 'home', label: '홈', icon: 'home' },
+  { key: 'equipment', label: '내 장비', icon: 'box' },
+  { key: 'service', label: '점검·수리', icon: 'tool' },
+  { key: 'reorder', label: '재주문', icon: 'shopping-cart' },
+  { key: 'docs', label: '문서함', icon: 'file-text' },
 ];
 function TopHeader({ page, onNav, data }) {
   const navKey = page === 'detail' ? 'equipment' : page;
   return (
-    <div className="topbar">
+    <header className="topbar">
       <div className="topbar-in">
         <div className="brand" onClick={() => onNav('home')}>
-          <div className="brand-mark">DW</div>
-          <div style={{ minWidth: 0 }}>
-            <div className="brand-hosp">{data.hospital.name}</div>
-            <div className="cap" style={{ fontSize: 9, letterSpacing: 1.5 }}>Daewon Medical</div>
-          </div>
+          <span className="brand-mark">DW</span>
+          <span className="brand-name">대원메디칼</span>
+          <span className="brand-sep" />
+          <span className="brand-hosp">{data.hospital.name}</span>
         </div>
         <div className="contact">
-          {data.rep && (
-            <div className="rep">
-              <div className="rep-avatar">{data.rep.name.slice(0, 1)}</div>
-              <div>
-                <div className="cap" style={{ fontSize: 9, letterSpacing: 1 }}>Sales</div>
-                <div style={{ fontSize: 12, fontWeight: 500, lineHeight: 1.3 }}>{data.rep.name}</div>
-              </div>
-            </div>
-          )}
+          {data.rep && <span className="rep">담당 <b>{data.rep.name}</b></span>}
           <a className="icon-btn" href={'tel:' + data.company.phone.replace(/-/g, '')} title={`${data.company.name} 대표번호 ${data.company.phone}`}>
-            <Ti n="phone" s={15} />
+            <Ti n="phone" s={16} />
           </a>
         </div>
       </div>
-      <div className="menu">
+      <nav className="menu">
         {MENU.map((m) => (
-          <span key={m.key} className={'nav-tab' + (navKey === m.key ? ' active' : '')} onClick={() => onNav(m.key)}>{m.label}</span>
+          <button key={m.key} className={'nav-tab' + (navKey === m.key ? ' active' : '')} onClick={() => onNav(m.key)}>{m.label}</button>
         ))}
-      </div>
-    </div>
+      </nav>
+    </header>
   );
 }
 
@@ -151,69 +154,70 @@ function Home({ data, go }) {
   const greet = /원장/.test(contact) ? `${contact}님` : '원장님';
   const openSvc = data.services.filter((s) => s.status !== '완료');
   const quick = data.reorder.filter((r) => r.consumable).slice(0, 6);
+  const ordered = data.equipment.filter((e) => e.state === 'ordered').length;
+  const stats = [
+    { label: '내 장비', value: `${data.equipment.length}종`, go: 'equipment' },
+    { label: '주문 접수 중', value: `${ordered}종`, go: 'equipment' },
+    { label: '점검·수리 진행', value: `${openSvc.length}건`, go: 'service' },
+  ];
   return (
     <div className="page">
-      <div style={{ marginBottom: 26 }}>
-        <div className="cap">{fmtDate(data.today)} · {DOW[d.getDay()]}</div>
-        <div className="serif h1" style={{ marginTop: 8 }}>{greet}, 안녕하세요.</div>
-        <div className="muted" style={{ marginTop: 4 }}>{data.hospital.name} · 대원메디칼과 함께한 장비 {data.equipment.length}종</div>
+      <PageHead title={`${greet}, 안녕하세요`} desc={`${fmtDate(data.today)} (${DOW[d.getDay()]}) · ${data.hospital.name}`} />
+
+      <div className="stats">
+        {stats.map((s) => (
+          <button key={s.label} className="stat" onClick={() => go(s.go)}>
+            <span className="stat-label">{s.label}</span>
+            <span className="stat-value">{s.value}</span>
+          </button>
+        ))}
       </div>
 
       <div className="banner">
         {BANNERS.map((b, i) => <img key={i} src={b.img} alt={b.alt} style={{ display: i === bi ? 'block' : 'none' }} />)}
-        <div className="dots">
-          {BANNERS.map((_, i) => <span key={i} onClick={() => setBi(i)} className={'dot' + (i === bi ? ' on' : '')} />)}
-        </div>
+        <div className="dots">{BANNERS.map((_, i) => <span key={i} onClick={() => setBi(i)} className={'dot' + (i === bi ? ' on' : '')} />)}</div>
       </div>
 
       {openSvc.length > 0 && (
-        <div className="notice" onClick={() => go('service')}>
-          <Ti n="tool" s={15} /> 점검·수리 {openSvc.length}건 진행 중 — {openSvc[0].equipment || '장비'} {openSvc[0].status}
-        </div>
+        <button className="notice" onClick={() => go('service')}>
+          <Ti n="tool" s={15} /> 점검·수리 {openSvc.length}건 진행 중 — {openSvc[0].equipment || '장비'} ({openSvc[0].status})
+          <Ti n="chevron-right" s={15} style={{ marginLeft: 'auto' }} />
+        </button>
       )}
 
-      <div className="sec-head">
-        <div className="cap">My equipment</div>
-        {data.equipment.length > 0 && <span className="link" onClick={() => go('equipment')}>{data.equipment.length}종 전체 보기</span>}
-      </div>
+      <SecHead title="최근 장비" right={data.equipment.length > 0 && <button className="link" onClick={() => go('equipment')}>전체 보기</button>} />
       {data.equipment.length === 0 ? (
-        <div className="card empty">아직 등록된 장비가 없습니다.</div>
+        <div className="box empty">아직 등록된 장비가 없습니다.</div>
       ) : (
-        <div className="grid3" style={{ marginBottom: 28 }}>
+        <div className="grid3">
           {data.equipment.slice(0, 3).map((e) => {
             const s = eqState(e);
             return (
-              <div key={e.key} className="card eq-card" onClick={() => go('detail', e.key)}>
-                <div className="eq-img">{e.image ? <img src={e.image} alt={e.name} loading="lazy" /> : <Ti n={catIcon(e.category)} s={40} c="#c4c8ce" />}</div>
+              <button key={e.key} className="box eq-card" onClick={() => go('detail', e.key)}>
+                <div className="eq-img">{e.image ? <img src={e.image} alt={e.name} loading="lazy" /> : <Ti n={catIcon(e.category)} s={34} c="#c9cfd6" />}</div>
                 <div className="eq-name">{e.name}</div>
-                <div className="sub" style={{ margin: '3px 0 10px' }}>{[e.model, e.category].filter(Boolean).join(' · ') || '—'}</div>
-                <div className="state" style={{ color: s.text }}><span className="sdot" style={{ background: s.dot }} />{s.label}</div>
-              </div>
+                <div className="t3" style={{ margin: '2px 0 8px' }}>{[e.model, e.category].filter(Boolean).join(' · ') || '—'}</div>
+                <Badge tone={s}>{s.label}</Badge>
+              </button>
             );
           })}
         </div>
       )}
 
       {quick.length > 0 && (
-        <div className="card" style={{ padding: '20px 22px', marginBottom: 28 }}>
-          <div className="sec-head" style={{ marginBottom: 12 }}>
-            <div>
-              <div className="cap" style={{ marginBottom: 4 }}>Reorder</div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>자주 쓰는 소모품 다시 주문</div>
-            </div>
-            <span className="sub">이전 주문 기준</span>
-          </div>
+        <>
+          <SecHead title="자주 쓰는 소모품 다시 주문" right={<span className="t3">이전 주문 기준</span>} />
           <div className="chips">
-            {quick.map((r) => <span key={r.key} className="chip" onClick={() => go('reorder', r.key)}>{r.name}</span>)}
-            <span className="chip chip-on" onClick={() => go('reorder')}>재주문 하기</span>
+            {quick.map((r) => <button key={r.key} className="chip" onClick={() => go('reorder', r.key)}>{r.name}</button>)}
+            <button className="btn primary sm" onClick={() => go('reorder')}>재주문 하기</button>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
 }
 
-/* ── 장비 목록 ───────────────────────────────── */
+/* ── 장비 목록 (표) ───────────────────────────────── */
 function EquipmentList({ data, go }) {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('전체');
@@ -229,32 +233,42 @@ function EquipmentList({ data, go }) {
   });
   return (
     <div className="page">
-      <div className="sec-head" style={{ marginBottom: 8 }}>
-        <div className="cap">My equipment</div>
-        <div className="sub">총 {data.equipment.length}종</div>
+      <PageHead title="내 장비" desc="대원메디칼에서 주문·납품받은 장비입니다." />
+      <div className="toolbar">
+        <div className="search"><Ti n="search" s={16} c="#8b95a1" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="장비 · 모델 · 분류 검색" /></div>
       </div>
-      <div className="serif h2" style={{ marginBottom: 22 }}>대원메디칼과 함께한 장비입니다.</div>
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="장비 · 모델 · 분류 검색" style={{ marginBottom: 12 }} />
-      <div className="chips" style={{ marginBottom: 18 }}>
+      <div className="chips" style={{ marginBottom: 16 }}>
         {cats.map(([c, n]) => (
-          <span key={c} className={'chip' + (cat === c ? ' chip-on' : '')} onClick={() => setCat(c)}>{c} <span style={{ opacity: 0.7, marginLeft: 3 }}>{n}</span></span>
+          <button key={c} className={'chip' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c} <span className="chip-n">{n}</span></button>
         ))}
       </div>
-      <div className="card" style={{ padding: '4px 18px' }}>
-        {list.length === 0 && <div className="empty" style={{ border: 0 }}>검색 결과가 없습니다.</div>}
+      <div className="table">
+        <div className="tr th eq-cols">
+          <div>장비</div><div className="hide-sm">분류</div><div className="hide-sm num">수량</div><div className="hide-sm">최근</div><div className="center">상태</div>
+        </div>
+        {list.length === 0 && <div className="empty">검색 결과가 없습니다.</div>}
         {list.map((e) => {
           const s = eqState(e);
           return (
-            <div key={e.key} className="row" onClick={() => go('detail', e.key)}>
-              <Thumb e={e} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="row-title">{e.name}</div>
-                <div className="sub" style={{ marginTop: 4 }}>{[e.model, e.category, `${e.qty}개`, fmtDate(e.lastDate)].filter(Boolean).join(' · ')}</div>
+            <button key={e.key} className="tr eq-cols clickable" onClick={() => go('detail', e.key)}>
+              <div className="cell-main">
+                <Thumb e={e} />
+                <div style={{ minWidth: 0 }}>
+                  <div className="t1 ellipsis">{e.name}</div>
+                  <div className="t3 ellipsis">
+                    <span className="hide-sm">{e.model || '—'}</span>
+                    <span className="show-sm">{[e.model, `${e.qty}개`, fmtDate(e.lastDate)].filter(Boolean).join(' · ')}</span>
+                  </div>
+                </div>
               </div>
-              <Badge st={s}>{s.label}</Badge>
-            </div>
+              <div className="hide-sm t2 ellipsis">{e.category || '—'}</div>
+              <div className="hide-sm t2 num">{e.qty}개</div>
+              <div className="hide-sm t2">{fmtDate(e.lastDate)}</div>
+              <div className="center"><Badge tone={s}>{s.label}</Badge></div>
+            </button>
           );
         })}
+        <div className="tfoot">총 {list.length}종</div>
       </div>
     </div>
   );
@@ -263,57 +277,46 @@ function EquipmentList({ data, go }) {
 /* ── 장비 상세 ───────────────────────────────── */
 function EquipmentDetail({ data, id, go }) {
   const e = data.equipment.find((x) => x.key === id);
-  if (!e) return <div className="page"><span className="link" onClick={() => go('equipment')}>← 장비 목록</span></div>;
+  if (!e) return <div className="page"><button className="link" onClick={() => go('equipment')}>← 내 장비</button></div>;
   const s = eqState(e);
-  const meta = [
+  const rows = [
+    ['상태', <Badge tone={s}>{s.label}</Badge>],
+    ['모델', e.model || '—'],
+    ['분류', e.category || '—'],
+    ...(e.maker ? [['제조사', e.maker]] : []),
     ['수량', `${e.qty}개`],
     [e.state === 'ordered' ? '주문일' : '처음 도입', fmtDate(e.firstDate)],
     ...(e.lastDate !== e.firstDate ? [['최근 주문·납품', fmtDate(e.lastDate)]] : []),
     ['구매 횟수', `${e.purchases}회`],
-    ...(e.maker ? [['제조사', e.maker]] : []),
   ];
   return (
     <div className="page">
-      <div className="link" style={{ marginBottom: 18, color: '#6a6f77' }} onClick={() => go('equipment')}>← 내 장비{e.category ? ` · ${e.category}` : ''}</div>
-      <div style={{ marginBottom: 22 }}>
-        <div className="cap">{[e.maker, e.category].filter(Boolean).join(' · ') || 'Equipment'}</div>
-        <div className="serif h1" style={{ marginTop: 8, lineHeight: 1.25 }}>{e.name}</div>
-        {e.model && <div className="muted" style={{ marginTop: 8 }}>{e.model}</div>}
-      </div>
-      <div className="grid2" style={{ marginBottom: 18 }}>
-        <div className={'card detail-img' + (e.image ? '' : ' noimg')}>
-          {e.image ? <img src={e.image} alt={e.name} /> : <Ti n={catIcon(e.category)} s={72} c="#c4c8ce" />}
+      <button className="back" onClick={() => go('equipment')}><Ti n="chevron-left" s={16} /> 내 장비</button>
+      <PageHead title={e.name} right={
+        <div className="head-actions">
+          <button className="btn secondary" onClick={() => go('reorder', e.key)}>다시 주문</button>
+          <button className="btn primary" onClick={() => go('service', e.key)}>점검·수리 신청</button>
         </div>
-        <div className="card" style={{ padding: '18px 20px' }}>
-          <div className="cap" style={{ marginBottom: 6 }}>Status</div>
-          <div className="state" style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}><span className="sdot" style={{ background: s.dot, width: 7, height: 7 }} />{s.label}</div>
-          {meta.map(([l, v], i) => (
-            <div key={l} className="meta-row" style={{ borderBottom: i === meta.length - 1 ? 0 : undefined }}>
-              <span style={{ color: '#8a8f97' }}>{l}</span><span style={{ fontWeight: 500, textAlign: 'right' }}>{v}</span>
-            </div>
+      } />
+      <div className="detail">
+        <div className={'box detail-img' + (e.image ? '' : ' noimg')}>
+          {e.image ? <img src={e.image} alt={e.name} /> : <Ti n={catIcon(e.category)} s={56} c="#c9cfd6" />}
+        </div>
+        <div className="kv">
+          {rows.map(([l, v]) => (
+            <div key={l} className="kv-row"><div className="kv-label">{l}</div><div className="kv-value">{v}</div></div>
           ))}
         </div>
       </div>
-      <div className="grid2 tight" style={{ marginBottom: 30 }}>
-        <button className="btn-primary" onClick={() => go('service', e.key)}>점검·수리 신청</button>
-        <button className="btn-secondary" onClick={() => go('reorder', e.key)}>같은 품목 다시 주문</button>
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <div className="cap">History</div>
-        <div className="serif h3" style={{ marginTop: 4 }}>이력</div>
-      </div>
-      <div className="card" style={{ padding: '20px 22px' }}>
+
+      <SecHead title="이력" />
+      <div className="table">
+        <div className="tr th hist-cols"><div>날짜</div><div>내용</div><div className="hide-sm">상세</div></div>
         {e.timeline.map((t, i) => (
-          <div key={i} style={{ display: 'flex', gap: 16 }}>
-            <div style={{ width: 12, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ width: 9, height: 9, borderRadius: '50%', marginTop: 5, background: /점검/.test(t.title) ? '#b07911' : /주문 접수/.test(t.title) ? '#0952b2' : '#2a8a4f' }} />
-              {i < e.timeline.length - 1 && <div style={{ width: 1, flex: 1, background: '#ececef', marginTop: 5 }} />}
-            </div>
-            <div style={{ flex: 1, paddingBottom: i === e.timeline.length - 1 ? 0 : 18 }}>
-              <div className="cap" style={{ fontSize: 10, letterSpacing: 1.5 }}>{fmtDate(t.date)}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{t.title}</div>
-              {t.detail && <div className="muted" style={{ marginTop: 3 }}>{t.detail}</div>}
-            </div>
+          <div key={i} className="tr hist-cols">
+            <div className="t2">{fmtDate(t.date)}</div>
+            <div className="t1">{t.title}<div className="t3 show-sm">{t.detail}</div></div>
+            <div className="t2 hide-sm ellipsis">{t.detail || '—'}</div>
           </div>
         ))}
       </div>
@@ -344,36 +347,42 @@ function Service({ data, preset, reload, pin }) {
   };
   return (
     <div className="page">
-      <div className="cap">Service</div>
-      <div className="serif h2" style={{ marginTop: 8, marginBottom: 6 }}>점검·수리 신청</div>
-      <div className="muted" style={{ marginBottom: 22 }}>장비 이상이나 정기 점검이 필요하면 남겨 주세요. 담당자가 확인 후 연락드립니다.</div>
-      <div className="card" style={{ padding: 22, marginBottom: 28 }}>
-        <label className="label">장비</label>
-        <select className="input" value={eqKey} onChange={(e) => setEqKey(e.target.value)}>
-          <option value="">직접 입력 / 목록에 없음</option>
-          {data.equipment.map((e) => <option key={e.key} value={e.key}>{e.name}{e.model ? ` (${e.model})` : ''}</option>)}
-        </select>
-        {!eqKey && <input className="input" style={{ marginTop: 8 }} value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="장비 이름" />}
-        <label className="label" style={{ marginTop: 16 }}>증상 · 요청 내용 *</label>
-        <textarea className="input" rows={4} value={issue} onChange={(e) => setIssue(e.target.value)} placeholder="어떤 문제가 있는지 적어 주세요. (예: 전원이 켜지지 않음, 정기 점검 요청)" />
-        <label className="label" style={{ marginTop: 16 }}>연락받을 분 · 연락처 (선택)</label>
-        <input className="input" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="예: 김간호사 010-0000-0000" />
-        {msg?.err && <div className="alert-danger" style={{ marginTop: 14 }}>{msg.err}</div>}
-        {msg?.ok && <div className="alert-ok" style={{ marginTop: 14 }}>{msg.ok}</div>}
-        <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy} onClick={submit}>{busy ? '접수 중…' : '신청하기'}</button>
+      <PageHead title="점검·수리 신청" desc="장비 이상이나 정기 점검이 필요하면 남겨 주세요. 담당자가 확인 후 연락드립니다." />
+      <div className="form box">
+        <div className="field">
+          <label className="label">장비</label>
+          <select className="input" value={eqKey} onChange={(e) => setEqKey(e.target.value)}>
+            <option value="">직접 입력 / 목록에 없음</option>
+            {data.equipment.map((e) => <option key={e.key} value={e.key}>{e.name}{e.model ? ` (${e.model})` : ''}</option>)}
+          </select>
+          {!eqKey && <input className="input" style={{ marginTop: 8 }} value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="장비 이름" />}
+        </div>
+        <div className="field">
+          <label className="label">증상 · 요청 내용 <span className="req">*</span></label>
+          <textarea className="input" rows={4} value={issue} onChange={(e) => setIssue(e.target.value)} placeholder="예: 전원이 켜지지 않음, 정기 점검 요청" />
+        </div>
+        <div className="field">
+          <label className="label">연락받을 분 · 연락처 <span className="t3">(선택)</span></label>
+          <input className="input" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="예: 김간호사 010-0000-0000" />
+        </div>
+        {msg?.err && <div className="alert danger">{msg.err}</div>}
+        {msg?.ok && <div className="alert ok">{msg.ok}</div>}
+        <div className="form-actions"><button className="btn primary" disabled={busy} onClick={submit}>{busy ? '접수 중…' : '신청하기'}</button></div>
       </div>
 
-      <div className="sec-head"><div className="cap">My requests</div><span className="sub">{data.services.length}건</span></div>
-      <div className="card" style={{ padding: '4px 18px' }}>
-        {data.services.length === 0 && <div className="empty" style={{ border: 0 }}>신청 내역이 없습니다.</div>}
+      <SecHead title="신청 내역" right={<span className="t3">{data.services.length}건</span>} />
+      <div className="table">
+        <div className="tr th svc-cols"><div>접수일</div><div>장비 · 내용</div><div className="hide-sm">담당 엔지니어</div><div className="center">상태</div></div>
+        {data.services.length === 0 && <div className="empty">신청 내역이 없습니다.</div>}
         {data.services.map((s) => (
-          <div key={s.id} className="row" style={{ cursor: 'default' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="row-title">{s.equipment || '장비 미지정'}{s.model ? <span className="sub" style={{ marginLeft: 6 }}>{s.model}</span> : null}</div>
-              <div className="sub" style={{ marginTop: 4 }}>{fmtDate(s.date)} · {s.issue}</div>
-              {s.engineer && <div className="sub" style={{ marginTop: 2 }}>담당 엔지니어 {s.engineer}</div>}
+          <div key={s.id} className="tr svc-cols">
+            <div className="t2">{fmtDate(s.date)}</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="t1 ellipsis">{s.equipment || '장비 미지정'}{s.model ? <span className="t3"> {s.model}</span> : null}</div>
+              <div className="t3 ellipsis">{s.issue}</div>
             </div>
-            <Badge st={SVC_STATE[s.status] || SVC_STATE['보류']}>{s.status}</Badge>
+            <div className="t2 hide-sm">{s.engineer || '배정 전'}</div>
+            <div className="center"><Badge tone={SVC_TONE[s.status] || TONE.gray}>{s.status}</Badge></div>
           </div>
         ))}
       </div>
@@ -392,6 +401,7 @@ function Reorder({ data, preset, reload, pin }) {
   const [msg, setMsg] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const picked = data.reorder.filter((r) => (qty[r.key] || 0) > 0);
+  const count = picked.length + (extra.trim() ? 1 : 0);
   const list = showAll || preset ? data.reorder : data.reorder.slice(0, 12);
   const setQ = (k, v) => setQty((p) => ({ ...p, [k]: Math.max(0, Math.min(999, v)) }));
   const submit = async () => {
@@ -409,56 +419,70 @@ function Reorder({ data, preset, reload, pin }) {
   };
   return (
     <div className="page">
-      <div className="cap">Reorder</div>
-      <div className="serif h2" style={{ marginTop: 8, marginBottom: 6 }}>다시 주문하기</div>
-      <div className="muted" style={{ marginBottom: 22 }}>전에 받으신 품목입니다. 수량을 정해 요청하시면 담당자가 확인 후 연락드립니다.</div>
-      <div className="card" style={{ padding: '4px 18px', marginBottom: 12 }}>
-        {data.reorder.length === 0 && <div className="empty" style={{ border: 0 }}>이전 주문 품목이 없습니다. 아래에 직접 적어 주세요.</div>}
+      <PageHead title="다시 주문하기" desc="전에 받으신 품목입니다. 수량을 정해 요청하시면 담당자가 확인 후 연락드립니다." />
+      <div className="table">
+        <div className="tr th ro-cols"><div>품목</div><div className="hide-sm">최근 주문</div><div className="center">수량</div></div>
+        {data.reorder.length === 0 && <div className="empty">이전 주문 품목이 없습니다. 아래에 직접 적어 주세요.</div>}
         {list.map((r) => (
-          <div key={r.key} className="row" style={{ cursor: 'default' }}>
-            <Thumb e={r} size={44} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="row-title">{r.name}{r.consumable && <span className="tag">소모품</span>}</div>
-              <div className="sub" style={{ marginTop: 3 }}>{[r.model, `최근 ${fmtDate(r.lastDate)}`].filter(Boolean).join(' · ')}</div>
+          <div key={r.key} className={'tr ro-cols' + ((qty[r.key] || 0) > 0 ? ' picked' : '')}>
+            <div className="cell-main">
+              <Thumb e={r} size={36} />
+              <div style={{ minWidth: 0 }}>
+                <div className="t1 ellipsis">{r.name}{r.consumable && <span className="tag">소모품</span>}</div>
+                <div className="t3 ellipsis">
+                  <span className="hide-sm">{r.model || '—'}</span>
+                  <span className="show-sm">{[r.model, `최근 ${fmtDate(r.lastDate)}`].filter(Boolean).join(' · ')}</span>
+                </div>
+              </div>
             </div>
-            <div className="stepper">
-              <button onClick={() => setQ(r.key, (qty[r.key] || 0) - 1)} aria-label="빼기">−</button>
-              <span>{qty[r.key] || 0}</span>
-              <button onClick={() => setQ(r.key, (qty[r.key] || 0) + 1)} aria-label="더하기">+</button>
+            <div className="t2 hide-sm">{fmtDate(r.lastDate)}</div>
+            <div className="center">
+              <div className="stepper">
+                <button onClick={() => setQ(r.key, (qty[r.key] || 0) - 1)} aria-label="빼기">−</button>
+                <span>{qty[r.key] || 0}</span>
+                <button onClick={() => setQ(r.key, (qty[r.key] || 0) + 1)} aria-label="더하기">+</button>
+              </div>
             </div>
           </div>
         ))}
+        {!showAll && !preset && data.reorder.length > 12 && (
+          <button className="tfoot more" onClick={() => setShowAll(true)}>{data.reorder.length - 12}개 더 보기</button>
+        )}
       </div>
-      {!showAll && !preset && data.reorder.length > 12 && (
-        <div style={{ textAlign: 'center', marginBottom: 18 }}><span className="link" onClick={() => setShowAll(true)}>{data.reorder.length - 12}개 더 보기</span></div>
-      )}
-      <div className="card" style={{ padding: 22, marginTop: 12 }}>
-        <label className="label">목록에 없는 품목 (선택)</label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input" style={{ flex: 1 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="품목 · 모델" />
-          <input className="input" style={{ width: 80, textAlign: 'center' }} type="number" min={1} value={extraQty} onChange={(e) => setExtraQty(parseInt(e.target.value, 10) || 1)} />
+
+      <div className="form box" style={{ marginTop: 16 }}>
+        <div className="field">
+          <label className="label">목록에 없는 품목 <span className="t3">(선택)</span></label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input" style={{ flex: 1 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="품목 · 모델" />
+            <input className="input" style={{ width: 76, textAlign: 'center' }} type="number" min={1} value={extraQty} onChange={(e) => setExtraQty(parseInt(e.target.value, 10) || 1)} />
+          </div>
         </div>
-        <label className="label" style={{ marginTop: 16 }}>요청 사항 (선택)</label>
-        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 다음 주 화요일까지 필요" />
-        <label className="label" style={{ marginTop: 16 }}>연락받을 분 · 연락처 (선택)</label>
-        <input className="input" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="예: 김간호사 010-0000-0000" />
-        {msg?.err && <div className="alert-danger" style={{ marginTop: 14 }}>{msg.err}</div>}
-        {msg?.ok && <div className="alert-ok" style={{ marginTop: 14 }}>{msg.ok}</div>}
-        <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy} onClick={submit}>
-          {busy ? '요청 중…' : `주문 요청${picked.length + (extra.trim() ? 1 : 0) ? ` (${picked.length + (extra.trim() ? 1 : 0)}개 품목)` : ''}`}
-        </button>
+        <div className="field">
+          <label className="label">요청 사항 <span className="t3">(선택)</span></label>
+          <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 다음 주 화요일까지 필요" />
+        </div>
+        <div className="field">
+          <label className="label">연락받을 분 · 연락처 <span className="t3">(선택)</span></label>
+          <input className="input" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="예: 김간호사 010-0000-0000" />
+        </div>
+        {msg?.err && <div className="alert danger">{msg.err}</div>}
+        {msg?.ok && <div className="alert ok">{msg.ok}</div>}
+        <div className="form-actions">
+          <button className="btn primary" disabled={busy} onClick={submit}>{busy ? '요청 중…' : `주문 요청${count ? ` (${count}개 품목)` : ''}`}</button>
+        </div>
       </div>
+
       {data.myOrders.length > 0 && (
         <>
-          <div className="sec-head" style={{ marginTop: 28 }}><div className="cap">My orders</div><span className="sub">{data.myOrders.length}건</span></div>
-          <div className="card" style={{ padding: '4px 18px' }}>
+          <SecHead title="요청 내역" right={<span className="t3">{data.myOrders.length}건</span>} />
+          <div className="table">
+            <div className="tr th ord-cols"><div>요청일</div><div>품목</div><div className="center">상태</div></div>
             {data.myOrders.map((o) => (
-              <div key={o.id} className="row" style={{ cursor: 'default' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="row-title">{o.item}{o.quantity ? <span className="sub" style={{ marginLeft: 6 }}>×{o.quantity}</span> : null}</div>
-                  <div className="sub" style={{ marginTop: 3 }}>{fmtDate(o.date)} 요청</div>
-                </div>
-                <Badge st={SVC_STATE[o.status] || SVC_STATE['보류']}>{o.status === '대기' ? '확인 중' : o.status}</Badge>
+              <div key={o.id} className="tr ord-cols">
+                <div className="t2">{fmtDate(o.date)}</div>
+                <div className="t1 ellipsis">{o.item}{o.quantity ? <span className="t3"> ×{o.quantity}</span> : null}</div>
+                <div className="center"><Badge tone={SVC_TONE[o.status] || TONE.gray}>{o.status === '대기' ? '확인 중' : o.status}</Badge></div>
               </div>
             ))}
           </div>
@@ -471,33 +495,31 @@ function Reorder({ data, preset, reload, pin }) {
 /* ── 문서함 ───────────────────────────────── */
 function Docs({ data }) {
   const SECTIONS = [
-    { key: 'orders', cap: 'Orders', title: '주문 내역', icon: 'shopping-cart', rows: data.documents.orders.map((d) => ({ date: d.date, title: d.summary, sub: `${d.count}개 품목` })) },
-    { key: 'deliveries', cap: 'Deliveries', title: '납품 내역 (거래명세서)', icon: 'truck-delivery', rows: data.documents.deliveries.map((d) => ({ date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, `${d.count}개 품목`].filter(Boolean).join(' · ') })) },
-    { key: 'invoices', cap: 'Tax invoices', title: '세금계산서 발행', icon: 'receipt', rows: data.documents.invoices.map((d) => ({ date: d.date, title: d.summary })) },
+    { key: 'orders', title: '주문 내역', rows: data.documents.orders.map((d) => ({ date: d.date, title: d.summary, sub: `${d.count}개 품목` })) },
+    { key: 'deliveries', title: '납품 내역', rows: data.documents.deliveries.map((d) => ({ date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, `${d.count}개 품목`].filter(Boolean).join(' · ') })) },
+    { key: 'invoices', title: '세금계산서 발행', rows: data.documents.invoices.map((d) => ({ date: d.date, title: d.summary, sub: '' })) },
   ];
   const [tab, setTab] = useState(SECTIONS.find((s) => s.rows.length)?.key || 'orders');
   const sec = SECTIONS.find((s) => s.key === tab);
   return (
     <div className="page">
-      <div className="cap">Documents</div>
-      <div className="serif h2" style={{ marginTop: 8, marginBottom: 6 }}>문서함</div>
-      <div className="muted" style={{ marginBottom: 20 }}>주문·납품·세금계산서 기록입니다. 금액과 서류 원본은 담당 영업사원에게 요청해 주세요.</div>
-      <div className="chips" style={{ marginBottom: 16 }}>
+      <PageHead title="문서함" desc="주문·납품·세금계산서 기록입니다. 금액과 서류 원본은 담당 영업사원에게 요청해 주세요." />
+      <div className="seg">
         {SECTIONS.map((s) => (
-          <span key={s.key} className={'chip' + (tab === s.key ? ' chip-on' : '')} onClick={() => setTab(s.key)}>{s.title} <span style={{ opacity: 0.7, marginLeft: 3 }}>{s.rows.length}</span></span>
+          <button key={s.key} className={tab === s.key ? 'on' : ''} onClick={() => setTab(s.key)}>{s.title} <span className="chip-n">{s.rows.length}</span></button>
         ))}
       </div>
-      <div className="card" style={{ padding: '4px 18px' }}>
-        {sec.rows.length === 0 && <div className="empty" style={{ border: 0 }}>기록이 없습니다.</div>}
+      <div className="table">
+        <div className="tr th doc-cols"><div>날짜</div><div>내용</div><div className="hide-sm">비고</div></div>
+        {sec.rows.length === 0 && <div className="empty">기록이 없습니다.</div>}
         {sec.rows.map((r, i) => (
-          <div key={i} className="row" style={{ cursor: 'default' }}>
-            <div className="thumb" style={{ width: 40, height: 40 }}><Ti n={sec.icon} s={18} c="#9aa0a8" /></div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="row-title" style={{ whiteSpace: 'normal' }}>{r.title}</div>
-              <div className="sub" style={{ marginTop: 3 }}>{[fmtDate(r.date), r.sub].filter(Boolean).join(' · ')}</div>
-            </div>
+          <div key={i} className="tr doc-cols">
+            <div className="t2">{fmtDate(r.date)}</div>
+            <div className="t1 wrap">{r.title}{r.sub && <div className="t3 show-sm">{r.sub}</div>}</div>
+            <div className="t2 hide-sm">{r.sub || '—'}</div>
           </div>
         ))}
+        <div className="tfoot">총 {sec.rows.length}건</div>
       </div>
     </div>
   );
@@ -542,34 +564,36 @@ function App() {
 
   const go = (p, key = null) => { setPage(p); setSel(key); window.scrollTo(0, 0); };
 
-  if (phase === 'loading') return <Gate><div className="muted" style={{ textAlign: 'center' }}>불러오는 중…</div></Gate>;
+  if (phase === 'loading') return <Gate><p className="desc" style={{ textAlign: 'center' }}>불러오는 중…</p></Gate>;
   if (phase === 'invalid') return (
-    <Gate><div className="card" style={{ padding: 28, textAlign: 'center' }}>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>유효하지 않은 링크입니다</div>
-      <div className="muted" style={{ marginTop: 6 }}>담당 영업사원에게 링크를 다시 요청해 주세요.</div>
+    <Gate><div className="box" style={{ padding: 24, textAlign: 'center' }}>
+      <div className="sec-title">유효하지 않은 링크입니다</div>
+      <p className="desc" style={{ marginTop: 6 }}>담당 영업사원에게 링크를 다시 요청해 주세요.</p>
     </div></Gate>
   );
   if (phase === 'down') return (
-    <Gate><div className="card" style={{ padding: 28, textAlign: 'center' }}>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>잠시 연결이 원활하지 않습니다</div>
-      <div className="muted" style={{ marginTop: 6 }}>잠시 후 새로고침해 주세요.</div>
+    <Gate><div className="box" style={{ padding: 24, textAlign: 'center' }}>
+      <div className="sec-title">잠시 연결이 원활하지 않습니다</div>
+      <p className="desc" style={{ marginTop: 6 }}>잠시 후 새로고침해 주세요.</p>
     </div></Gate>
   );
   if (phase === 'pin') return <PinScreen onLogin={login} error={err} busy={busy} kind={kind} />;
 
   return (
-    <div>
+    <div className="app">
       <TopHeader page={page} onNav={(p) => go(p)} data={data} />
-      {page === 'home' && <Home data={data} go={go} />}
-      {page === 'equipment' && <EquipmentList data={data} go={go} />}
-      {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} />}
-      {page === 'service' && <Service key={'svc' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
-      {page === 'reorder' && <Reorder key={'ro' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
-      {page === 'docs' && <Docs data={data} />}
-      <div className="footer">
+      <main>
+        {page === 'home' && <Home data={data} go={go} />}
+        {page === 'equipment' && <EquipmentList data={data} go={go} />}
+        {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} />}
+        {page === 'service' && <Service key={'svc' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
+        {page === 'reorder' && <Reorder key={'ro' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
+        {page === 'docs' && <Docs data={data} />}
+      </main>
+      <footer className="footer">
         {data.company.name} · 대표번호 <a href={'tel:' + data.company.phone.replace(/-/g, '')}>{data.company.phone}</a>
         {data.rep && <> · 담당 {data.rep.name}</>}
-      </div>
+      </footer>
     </div>
   );
 }
