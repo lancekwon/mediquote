@@ -8932,13 +8932,16 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
     if (!newHosp.name.trim()) { alert('병원명을 입력해주세요.'); return; }
     setSavingHosp(true);
     try {
+      // 포털 링크 토큰 — 4월(H086)에 한 번 일괄 생성된 뒤로 새 병원엔 토큰이 없어서, 접속코드를 넣어도 포털 링크가 안 생겼음
+      const row = { ...newHosp };
+      if ((row.access_pin || '').trim() && !editingHosp?.token) row.token = crypto.randomUUID();
       if (editingHosp) {
-        await dbUpdateHospital(editingHosp.id, newHosp);
-        setHospitals(p => p.map(h => h.id === editingHosp.id ? { ...h, ...newHosp } : h));
-        if (selectedHosp?.id === editingHosp.id) setSelectedHosp(p => ({ ...p, ...newHosp }));
+        await dbUpdateHospital(editingHosp.id, row);
+        setHospitals(p => p.map(h => h.id === editingHosp.id ? { ...h, ...row } : h));
+        if (selectedHosp?.id === editingHosp.id) setSelectedHosp(p => ({ ...p, ...row }));
       } else {
-        const id = await dbSaveHospital(newHosp);
-        setHospitals(p => [{ id, ...newHosp, created_at: new Date().toISOString() }, ...p]);
+        const id = await dbSaveHospital(row);
+        setHospitals(p => [{ id, ...row, created_at: new Date().toISOString() }, ...p]);
       }
       setShowNewHospForm(false); setEditingHosp(null);
     } catch(e) { console.error(e); alert('저장 중 오류가 발생했습니다.'); }
