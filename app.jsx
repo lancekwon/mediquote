@@ -15121,7 +15121,7 @@ function TransactionEntryTab({ balances, cashCurrent, hospitals = [], contracts 
    ============================================================ */
 /* 발주 품목 상세 팝업 (매출/매입 셀 클릭 시) */
 // 매출가가 0원인 게 정상인 품목 (병원별 이익의 "매출가 없음" 집계에서 제외)
-const NO_SALE_ITEM_RE = /배송비|운송|운임|샘플|할인/;
+const NO_SALE_ITEM_RE = /배송비|운송|운임|샘플|할인|서비스/; // "서비스" = 무상 제공 품목 (예: "Mobile Utility (서비스)")
 
 // 품목 라벨 요약 — "품목 모델 x2, 품목 … 외 N"
 function itemSummary(items, max = 3) {
