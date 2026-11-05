@@ -187,8 +187,8 @@ function Home({ data, go }) {
       {data.equipment.length === 0 ? (
         <div className="box empty">아직 등록된 장비가 없습니다.</div>
       ) : (
-        <div className="grid3">
-          {data.equipment.slice(0, 3).map((e) => {
+        <div className="grid-recent">
+          {data.equipment.slice(0, 5).map((e) => {
             const s = eqState(e);
             return (
               <button key={e.key} className="box eq-card" onClick={() => go('detail', e.key)}>
@@ -215,25 +215,115 @@ function Home({ data, go }) {
   );
 }
 
+/* ── 설치 위치 ───────────────────────────────── */
+const NO_LOC = '위치 미입력';
+// 장비 1종을 위치별 줄로 나눔: [{location, qty}], 위치 안 정한 수량은 "위치 미입력" 줄
+const locationRows = (e) => {
+  const rows = (e.locations || []).map((l) => ({ location: l.location, qty: l.qty }));
+  const left = e.qty - rows.reduce((s, r) => s + r.qty, 0);
+  if (left > 0) rows.push({ location: '', qty: left });
+  return rows;
+};
+const locationSummary = (e) => {
+  const locs = e.locations || [];
+  if (!locs.length) return '';
+  return locs.map((l) => (e.qty > 1 ? `${l.location} ${l.qty}` : l.location)).join(' · ');
+};
+
+function LocationEditor({ e, data, pin, reload }) {
+  const init = () => (e.locations && e.locations.length ? e.locations.map((l) => ({ ...l })) : [{ location: '', qty: e.qty }]);
+  const [rows, setRows] = useState(init);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const saved = JSON.stringify(e.locations || []);
+  useEffect(() => { setMsg(null); }, [e.key]);
+  useEffect(() => { setRows(init()); }, [e.key, saved]); // 저장 후 서버가 정리한 값(공백·중복 합침)으로 다시 맞춤
+  const used = rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+  const left = e.qty - used;
+  const known = useMemo(() => [...new Set(data.equipment.flatMap((x) => (x.locations || []).map((l) => l.location)))].sort(), [data.equipment]);
+  const set = (i, patch) => setRows((p) => p.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const save = async () => {
+    if (left < 0) { setMsg({ err: `수량 합계가 보유 수량(${e.qty}개)보다 많습니다.` }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      await call('location', { pin, key: e.key, allocations: rows.map((r) => ({ location: r.location.trim(), qty: Number(r.qty) || 0 })) });
+      setMsg({ ok: '저장했습니다.' });
+      reload();
+    } catch (err) { setMsg({ err: err.message }); }
+    setBusy(false);
+  };
+  return (
+    <div className="box form">
+      <datalist id="dw-locations">{known.map((l) => <option key={l} value={l} />)}</datalist>
+      {rows.map((r, i) => (
+        <div key={i} className="loc-row">
+          <input className="input" list="dw-locations" value={r.location} maxLength={40}
+            onChange={(ev) => set(i, { location: ev.target.value })} placeholder="예: 1층 물리치료실" />
+          {e.qty > 1 && (
+            <div className="stepper">
+              <button onClick={() => set(i, { qty: Math.max(1, (Number(r.qty) || 1) - 1) })} aria-label="빼기">−</button>
+              <span>{r.qty}</span>
+              <button onClick={() => set(i, { qty: (Number(r.qty) || 0) + 1 })} disabled={left <= 0} aria-label="더하기">+</button>
+            </div>
+          )}
+          {rows.length > 1 && <button className="icon-btn" onClick={() => setRows((p) => p.filter((_, j) => j !== i))} title="이 위치 빼기"><Ti n="x" s={14} /></button>}
+        </div>
+      ))}
+      <div className="loc-foot">
+        {e.qty > 1 && left > 0 && <span className="t3">위치 안 정한 수량 {left}개</span>}
+        {left < 0 && <span className="req" style={{ fontSize: 12 }}>보유 수량({e.qty}개)보다 {-left}개 많아요</span>}
+        {e.qty > 1 && rows.length < e.qty && (
+          <button className="link" onClick={() => setRows((p) => {
+            if (left > 0) return [...p, { location: '', qty: left }];
+            // 남는 수량이 없으면 가장 많이 놓인 위치에서 1개를 떼어 새 위치로
+            let big = -1;
+            p.forEach((r, j) => { if ((Number(r.qty) || 0) > 1 && (big < 0 || r.qty > p[big].qty)) big = j; });
+            if (big < 0) return p;
+            return [...p.map((r, j) => (j === big ? { ...r, qty: r.qty - 1 } : r)), { location: '', qty: 1 }];
+          })}>+ 위치 추가</button>
+        )}
+      </div>
+      {msg?.err && <div className="alert danger">{msg.err}</div>}
+      {msg?.ok && <div className="alert ok">{msg.ok}</div>}
+      <div className="form-actions"><button className="btn primary" disabled={busy} onClick={save}>{busy ? '저장 중…' : '위치 저장'}</button></div>
+    </div>
+  );
+}
+
 /* ── 장비 목록 (표) ───────────────────────────────── */
 function EquipmentList({ data, go }) {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('전체');
+  const [loc, setLoc] = useState('전체');
   const cats = useMemo(() => {
     const m = new Map();
     data.equipment.forEach((e) => { const c = e.category || '기타'; m.set(c, (m.get(c) || 0) + 1); });
     return [['전체', data.equipment.length], ...[...m.entries()].sort((a, b) => b[1] - a[1])];
   }, [data.equipment]);
-  const list = data.equipment.filter((e) => {
+  // 위치가 나뉜 장비는 위치마다 한 줄 (같은 장비라도 이 방에 2대, 저 방에 1대)
+  const allRows = useMemo(() => data.equipment.flatMap((e) => locationRows(e).map((r, i) => ({ e, ...r, rowKey: `${e.key}#${i}` }))), [data.equipment]);
+  const locOptions = useMemo(() => {
+    const s = new Set(allRows.map((r) => r.location || NO_LOC));
+    return [...s].sort((a, b) => (a === NO_LOC) - (b === NO_LOC) || a.localeCompare(b));
+  }, [allRows]);
+  const anyLocation = allRows.some((r) => r.location);
+  const list = allRows.filter(({ e, location }) => {
     if (cat !== '전체' && (e.category || '기타') !== cat) return false;
+    if (loc !== '전체' && (location || NO_LOC) !== loc) return false;
     const s = q.trim().toLowerCase();
-    return !s || `${e.name} ${e.model} ${e.category || ''} ${e.maker || ''}`.toLowerCase().includes(s);
+    return !s || `${e.name} ${e.model} ${e.category || ''} ${e.maker || ''} ${location}`.toLowerCase().includes(s);
   });
   return (
     <div className="page">
       <PageHead title="내 장비" desc="대원메디칼에서 주문·납품받은 장비입니다." />
       <div className="toolbar">
-        <div className="search"><Ti n="search" s={16} c="#8b95a1" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="장비 · 모델 · 분류 검색" /></div>
+        <div className="search"><Ti n="search" s={16} c="#8b95a1" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="장비 · 모델 · 분류 · 위치 검색" /></div>
+        {anyLocation && (
+          <select className="input loc-select" value={loc} onChange={(ev) => setLoc(ev.target.value)} aria-label="설치 위치">
+            <option value="전체">위치 전체</option>
+            {locOptions.map((l) => <option key={l} value={l}>{l}</option>)}
+          </select>
+        )}
       </div>
       <div className="chips" style={{ marginBottom: 16 }}>
         {cats.map(([c, n]) => (
@@ -242,38 +332,39 @@ function EquipmentList({ data, go }) {
       </div>
       <div className="table">
         <div className="tr th eq-cols">
-          <div>장비</div><div className="hide-sm">분류</div><div className="hide-sm num">수량</div><div className="hide-sm">최근</div><div className="center">상태</div>
+          <div>장비</div><div className="hide-sm">설치 위치</div><div className="hide-sm">분류</div><div className="hide-sm num">수량</div><div className="hide-sm">최근</div><div className="center">상태</div>
         </div>
         {list.length === 0 && <div className="empty">검색 결과가 없습니다.</div>}
-        {list.map((e) => {
+        {list.map(({ e, location, qty, rowKey }) => {
           const s = eqState(e);
           return (
-            <button key={e.key} className="tr eq-cols clickable" onClick={() => go('detail', e.key)}>
+            <button key={rowKey} className="tr eq-cols clickable" onClick={() => go('detail', e.key)}>
               <div className="cell-main">
                 <Thumb e={e} />
                 <div style={{ minWidth: 0 }}>
                   <div className="t1 ellipsis">{e.name}</div>
                   <div className="t3 ellipsis">
                     <span className="hide-sm">{e.model || '—'}</span>
-                    <span className="show-sm">{[e.model, `${e.qty}개`, fmtDate(e.lastDate)].filter(Boolean).join(' · ')}</span>
+                    <span className="show-sm">{[location, e.model, `${qty}개`, fmtDate(e.lastDate)].filter(Boolean).join(' · ')}</span>
                   </div>
                 </div>
               </div>
+              <div className="hide-sm ellipsis">{location ? <span className="t1">{location}</span> : <span className="t3">미입력</span>}</div>
               <div className="hide-sm t2 ellipsis">{e.category || '—'}</div>
-              <div className="hide-sm t2 num">{e.qty}개</div>
+              <div className="hide-sm t2 num">{qty}개</div>
               <div className="hide-sm t2">{fmtDate(e.lastDate)}</div>
               <div className="center"><Badge tone={s}>{s.label}</Badge></div>
             </button>
           );
         })}
-        <div className="tfoot">총 {list.length}종</div>
+        <div className="tfoot">총 {new Set(list.map((r) => r.e.key)).size}종{list.length > new Set(list.map((r) => r.e.key)).size && ` · 위치별 ${list.length}줄`}</div>
       </div>
     </div>
   );
 }
 
 /* ── 장비 상세 ───────────────────────────────── */
-function EquipmentDetail({ data, id, go }) {
+function EquipmentDetail({ data, id, go, pin, reload }) {
   const e = data.equipment.find((x) => x.key === id);
   if (!e) return <div className="page"><button className="link" onClick={() => go('equipment')}>← 내 장비</button></div>;
   const s = eqState(e);
@@ -283,6 +374,7 @@ function EquipmentDetail({ data, id, go }) {
     ['분류', e.category || '—'],
     ...(e.maker ? [['제조사', e.maker]] : []),
     ['수량', `${e.qty}개`],
+    ['설치 위치', locationSummary(e) || <span className="t3">미입력</span>],
     [e.state === 'ordered' ? '주문일' : '처음 도입', fmtDate(e.firstDate)],
     ...(e.lastDate !== e.firstDate ? [['최근 주문·납품', fmtDate(e.lastDate)]] : []),
     ['구매 횟수', `${e.purchases}회`],
@@ -306,6 +398,9 @@ function EquipmentDetail({ data, id, go }) {
           ))}
         </div>
       </div>
+
+      <SecHead title="설치 위치" right={<span className="t3">{e.qty > 1 ? '여러 곳에 나눠 두었으면 위치를 추가해 수량을 나눠 주세요' : '장비가 놓인 곳을 적어 주세요'}</span>} />
+      <LocationEditor e={e} data={data} pin={pin} reload={reload} />
 
       <SecHead title="이력" />
       <div className="table">
@@ -583,7 +678,7 @@ function App() {
       <main>
         {page === 'home' && <Home data={data} go={go} />}
         {page === 'equipment' && <EquipmentList data={data} go={go} />}
-        {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} />}
+        {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} pin={pin} reload={reload} />}
         {page === 'service' && <Service key={'svc' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
         {page === 'reorder' && <Reorder key={'ro' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
         {page === 'docs' && <Docs data={data} />}

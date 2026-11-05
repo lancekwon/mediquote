@@ -11,6 +11,7 @@
 //   load    { token, pin }                    → 병원 화면 데이터 전체
 //   service { token, pin, equipment_name, model_name, issue, notes }      → A/S·점검 신청 (service_requests)
 //   order   { token, pin, items:[{name, model, quantity}], note, contact } → 재주문 요청 (order_requests, 관리자 "발주 요청")
+//   location { token, pin, key, allocations:[{location, qty}] }          → 장비 설치 위치 저장 (hospital_equipment_locations, SQL 43)
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://nbgubiywavozgigiwkpr.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
@@ -74,8 +75,28 @@ async function auth(token, pin) {
   return h;
 }
 
+// 위치 배분 정리: 빈 위치·0대 제거, 같은 위치는 합침, 장비 수량 넘으면 넘는 만큼 자름
+function cleanAllocations(rows, maxQty) {
+  const merged = new Map();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const location = clip(r?.location, 40).replace(/\s+/g, ' ');
+    const qty = Math.max(0, Math.round(Number(r?.qty) || 0));
+    if (!location || !qty) continue;
+    merged.set(location, (merged.get(location) || 0) + qty);
+  }
+  const out = [];
+  let left = maxQty;
+  for (const [location, qty] of merged) {
+    if (left <= 0) break;
+    const q = Math.min(qty, left);
+    out.push({ location, qty: q });
+    left -= q;
+  }
+  return out.slice(0, 30);
+}
+
 async function loadBundle(h) {
-  const [deliveries, pos, invoices, services, orders] = await Promise.all([
+  const [deliveries, pos, invoices, services, orders, locRows] = await Promise.all([
     sb(`deliveries?hospital_id=eq.${h.id}&select=id,delivered_date,doc_no,delivery_items(item_name,model_name,spec,quantity)&order=delivered_date.desc`),
     sb(`purchase_orders?hospital_id=eq.${h.id}&status=neq.${enc('취소')}` +
       `&select=id,po_no,ordered_at,created_at,status,tracking_delivered,tracking_delivered_at,owner,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
@@ -83,7 +104,9 @@ async function loadBundle(h) {
     sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=issue_date,memo&order=issue_date.desc`),
     sb(`service_requests?hospital_id=eq.${h.id}&select=id,equipment_name,model_name,issue,status,requested_at,engineer,created_at&order=created_at.desc`),
     sb(`order_requests?site=eq.${enc(h.name)}&requester=eq.${enc('병원 포털')}&select=id,model_name,quantity,status,created_at&order=created_at.desc&limit=100`),
+    sb(`hospital_equipment_locations?hospital_id=eq.${h.id}&select=equip_key,allocations`),
   ]);
+  const locByKey = new Map(locRows.map((r) => [r.equip_key, r.allocations]));
 
   // 장비 마스터 — 발주 품목은 equipment_id로, 납품 품목은 모델명으로 연결 (사진·분류)
   const eqIds = [...new Set(pos.flatMap((p) => p.purchase_order_items.map((i) => i.equipment_id)).filter(isUuid))];
@@ -176,6 +199,8 @@ async function loadBundle(h) {
       // 납품 기록도, 납품 체크도 없이 주문만 있으면 "주문 접수" (발주를 나중에 입력하는 경우가 많아 단정하지 않음)
       state: dels.length === 0 && pending.length === ownOrders.length && ownOrders.length > 0 ? 'ordered' : 'delivered',
       openService: svc.some((s) => openSvc.includes(s)),
+      // 설치 위치 (병원이 입력) — 위치별 수량. 합이 수량보다 적으면 나머지는 "위치 미입력"
+      locations: cleanAllocations(locByKey.get(g.key), qty),
       timeline,
     };
   }).sort((a, b) => String(b.lastDate).localeCompare(String(a.lastDate)) || a.name.localeCompare(b.name));
@@ -261,6 +286,29 @@ export default async function handler(req, res) {
         }),
       });
       res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'location') {
+      // 이 병원 장비인지 확인하고 수량 안에서만 저장
+      const key = clip(body.key, 200);
+      const bundle = await loadBundle(h);
+      const eq = bundle.equipment.find((e) => e.key === key);
+      if (!eq) { res.status(404).json({ error: '장비를 찾을 수 없습니다.' }); return; }
+      const raw = Array.isArray(body.allocations) ? body.allocations : [];
+      const asked = raw.reduce((s, r) => s + Math.max(0, Math.round(Number(r?.qty) || 0)), 0);
+      if (asked > eq.qty) { res.status(400).json({ error: `수량 합계가 보유 수량(${eq.qty}개)보다 많습니다.` }); return; }
+      const allocations = cleanAllocations(raw, eq.qty);
+      if (allocations.length) {
+        await sb('hospital_equipment_locations?on_conflict=hospital_id,equip_key', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify({ hospital_id: h.id, equip_key: key, allocations, updated_at: new Date().toISOString(), updated_by: 'portal' }),
+        });
+      } else {
+        await sb(`hospital_equipment_locations?hospital_id=eq.${h.id}&equip_key=eq.${enc(key)}`, { method: 'DELETE' });
+      }
+      res.status(200).json({ ok: true, locations: allocations });
       return;
     }
 

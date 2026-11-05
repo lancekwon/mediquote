@@ -112,7 +112,7 @@
     .dots { position: absolute; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; }
     .dot { width: 7px; height: 7px; border-radius: 99px; background: rgba(255,255,255,0.9); box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: pointer; transition: all .25s; }
     .dot.on { width: 18px; background: var(--blue); }
-    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .grid-recent { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
     .eq-card { padding: 14px; text-align: left; display: block; width: 100%; }
     .eq-card:hover { border-color: #c9cfd6; }
     .eq-img { height: 88px; background: var(--bg2); border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 8px; margin-bottom: 10px; }
@@ -125,7 +125,7 @@
     .tr.th { background: var(--bg2); border-top: 0; min-height: 40px; padding: 9px 16px; font-size: 12px; font-weight: 600; color: var(--label); }
     .tr.clickable:hover { background: var(--bg2); }
     .tr.picked { background: #f5f9ff; }
-    .eq-cols { grid-template-columns: minmax(0, 1fr) 150px 64px 96px 112px; }
+    .eq-cols { grid-template-columns: minmax(0, 1fr) 150px 130px 56px 96px 112px; }
     .hist-cols { grid-template-columns: 104px 170px minmax(0, 1fr); }
     .svc-cols { grid-template-columns: 96px minmax(0, 1fr) 120px 96px; }
     .ro-cols { grid-template-columns: minmax(0, 1fr) 110px 120px; }
@@ -142,6 +142,15 @@
     .stepper button { width: 30px; height: 30px; font-size: 15px; color: var(--text2); text-align: center; }
     .stepper button:hover { background: var(--bg2); }
     .stepper span { min-width: 28px; text-align: center; font-size: 13px; font-weight: 600; }
+    .stepper button:disabled { color: var(--line); cursor: default; background: none; }
+    .toolbar { display: flex; gap: 8px; align-items: center; }
+    .toolbar .search { flex: 1; min-width: 0; }
+    .loc-select { width: auto; min-width: 150px; max-width: 220px; }
+    .loc-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .loc-row:first-child { margin-top: 0; }
+    .loc-row .input { flex: 1; min-width: 0; max-width: 420px; }
+    .loc-row .icon-btn { flex-shrink: 0; background: #fff; }
+    .loc-foot { display: flex; align-items: center; gap: 12px; margin-top: 10px; min-height: 20px; font-size: 13px; }
 
     /* 장비 상세 */
     .detail { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -173,8 +182,11 @@
       .stat { padding: 12px; }
       .stat-label { font-size: 12px; }
       .stat-value { font-size: 17px; }
-      .grid3 { grid-template-columns: 1fr 1fr; gap: 8px; }
-      .grid3 > :nth-child(3) { display: none; }
+      /* 폰: 5개를 옆으로 밀어서 봄 (2.4개쯤 보여서 더 있다는 게 티 나게) */
+      .grid-recent { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 16px; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
+      .grid-recent::-webkit-scrollbar { display: none; }
+      .grid-recent > .eq-card { flex: 0 0 40%; scroll-snap-align: start; }
+      .loc-select { flex: 0 0 auto; min-width: 0; max-width: 40%; }
       .eq-img { height: 72px; }
       .hide-sm { display: none !important; }
       span.show-sm { display: inline; }
