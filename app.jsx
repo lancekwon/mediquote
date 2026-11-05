@@ -16856,15 +16856,13 @@ function MoveMonthModal({ hosp, currentYm, currentRangeFrom, currentRangeTo, onC
       // 조건: (report_month=currentRangeFrom) OR (report_month IS NULL AND created_at 이 이 월)
       const targetDate = isRestore ? null : `${targetYm}-01`;
 
-      // 1) purchase_orders — report_month가 이번 달인 것들 + 없고 created_at 이번 달인 것들
-      const [poByRm, poByCa] = await Promise.all([
-        sb.from('purchase_orders').select('id').eq('hospital_id', hosp.id).eq('report_month', currentRangeFrom).then(r => (r.data||[]).map(x => x.id)),
-        sb.from('purchase_orders').select('id').eq('hospital_id', hosp.id).is('report_month', null)
-          .gte('created_at', currentRangeFrom + 'T00:00:00').lte('created_at', currentRangeTo + 'T23:59:59').then(r => (r.data||[]).map(x => x.id)),
-      ]);
-      const poIds = [...poByRm, ...poByCa];
+      // 1) purchase_orders — 화면에 이 달로 보이는 발주 그대로 (hosp.poList).
+      //    예전엔 created_at으로 다시 찾았는데, 화면은 발주일(ordered_at, 없으면 created_at) 기준이라
+      //    "발주일 10월·등록일 11월"인 발주(사후 생성)가 안 옮겨졌음 (2026-11-05 삼성에제르 PO-241)
+      const poIds = (hosp.poList || []).map(p => p.id).filter(Boolean);
       if (poIds.length > 0) {
-        await sb.from('purchase_orders').update({ report_month: targetDate }).in('id', poIds);
+        const { error } = await sb.from('purchase_orders').update({ report_month: targetDate }).in('id', poIds);
+        if (error) throw error;
       }
 
       // 2) deliveries — 동일 로직
@@ -16875,8 +16873,10 @@ function MoveMonthModal({ hosp, currentYm, currentRangeFrom, currentRangeTo, onC
       ]);
       const dlIds = [...dlByRm, ...dlByDd];
       if (dlIds.length > 0) {
-        await sb.from('deliveries').update({ report_month: targetDate }).in('id', dlIds);
+        const { error } = await sb.from('deliveries').update({ report_month: targetDate }).in('id', dlIds);
+        if (error) throw error;
       }
+      if (poIds.length === 0 && dlIds.length === 0) { alert('옮길 발주·납품이 없습니다.'); return; }
 
       onSaved && onSaved();
     } catch (e) {
