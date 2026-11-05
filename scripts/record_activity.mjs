@@ -47,6 +47,8 @@ function subtractDays(dateStr, n) {
  * @param {string} [opts.entryType]
  * @param {string} [opts.counterparty] - 통장 counterparty 원문
  * @param {string} [opts.poId] - TI → PO 매칭
+ * @param {string[]} [opts.salePoIds] - ti_sale: 이 매출 계산서에 들어간 발주들 → 그 발주의 계산서 미연결 품목 전부에 sale_ti_id (SQL 45 — 병원별 이익 월 = 계산서 발행월)
+ * @param {string[]} [opts.saleItemIds] - ti_sale: 발주 일부 품목만 들어간 경우 품목 id로 직접 (예: 케이씨엘 전납 계산서 = 에제르 전납용 품목만)
  * @param {string} [opts.poNo] - PO 생성 시 번호 지정 (안 주면 자동 증번)
  * @param {string} [opts.hospitalId]
  * @param {string} [opts.manufacturerId]
@@ -141,12 +143,30 @@ async function recordTiSale(o) {
     manufacturer_id: o.manufacturerId || (o.party?.kind === 'manufacturer' ? o.party.id : null),
     hospital_id: o.hospitalId || (o.party?.kind === 'hospital' ? o.party.id : null),
     po_id: o.poId || null,
-    no_po: !o.poId,
+    no_po: !o.poId && !o.salePoIds?.length && !o.saleItemIds?.length,
     confirmed: true,
     clobe_ti_id: o.clobeTiId || null,
   };
   const inserted = await ins('tax_invoices', row);
-  return { id: inserted.id, source_table: 'tax_invoices', created: true };
+  const linkedItems = await linkSaleTiItems(inserted.id, o);
+  return { id: inserted.id, source_table: 'tax_invoices', created: true, linkedItems };
+}
+
+/**
+ * 매출 계산서 → 발주 품목 연결 (purchase_order_items.sale_ti_id). 이미 다른 계산서에 연결된 품목은 건드리지 않음.
+ * 병원별 이익에서 그 품목의 월 = 이 계산서 발행월 (📅 이동한 달이 있으면 그게 먼저). 이미 저장된 계산서에도 쓸 수 있음.
+ * @returns {Promise<number>} 연결된 품목 수
+ */
+export async function linkSaleTiItems(tiId, { salePoIds = [], saleItemIds = [] } = {}) {
+  let n = 0;
+  const patch = async filter => {
+    const r = await fetch(`${B}purchase_order_items?${filter}&sale_ti_id=is.null`, { method: 'PATCH', headers: H, body: JSON.stringify({ sale_ti_id: tiId }) });
+    if (!r.ok) throw new Error(`매출 계산서 품목 연결 실패 ${r.status}: ${await r.text()}`);
+    n += (await r.json()).length;
+  };
+  if (salePoIds.length) await patch(`po_id=in.(${salePoIds.join(',')})`);
+  if (saleItemIds.length) await patch(`id=in.(${saleItemIds.join(',')})`);
+  return n;
 }
 
 // ============================================================

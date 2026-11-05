@@ -15243,6 +15243,10 @@ function PoDetailModal({ hospName, items, onClose, onSaved, title }) {
                   <td className="px-2 py-1.5">
                     <div className="text-slate-800">{it.item_name || '-'}</div>
                     {it.model_name && <div className="text-[10px] text-slate-500">{it.model_name}</div>}
+                    {/* 병원별 이익에서 연 경우만 — 매출 세금계산서 연결 상태 (SQL 45) */}
+                    {'sale_ti_date' in it && (it.sale_ti_date
+                      ? <div className="text-[10px] text-emerald-700">🧾 계산서 {String(it.sale_ti_date).slice(5, 10).replace('-', '/')}</div>
+                      : (it.sale_price * it.quantity > 0 && <div className="text-[10px] text-slate-400">🧾 계산서 전</div>))}
                   </td>
                   <td className="px-2 py-1.5 text-center text-slate-700">{it.quantity}</td>
                   <td className="px-2 py-1.5 text-right font-mono text-slate-600">{it.unit_price ? fmt(it.unit_price) : <span className="text-rose-500">미입력</span>}</td>
@@ -16407,13 +16411,12 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
     setLoadError(null);
     (async () => {
       try {
-        // Phase 2: v_activity_feed 기반 PO 피드 + deliveries (할인은 별도)
+        // v_activity_feed PO 줄 + deliveries (할인은 별도)
+        // 월 기준 (SQL 45, 품목마다): 📅 이동한 달 → 매출 세금계산서 발행월 → 발주일 → 등록일
+        //   profit_months = 그 발주 품목들이 걸친 월 목록 → 이 달이 들어 있는 발주만 불러오고, 품목은 아래에서 이 달 것만 합산
         const feedBase = SUPABASE_URL + '/rest/v1/v_activity_feed?select=*&kind=eq.po_create&hospital_id=not.is.null';
-        const [poReportFeed, poOrigFeed, dlReport, dlOrig] = await Promise.all([
-          // report_month가 이 월인 PO
-          fetchView(feedBase + '&report_month=eq.' + rangeFrom + '&limit=1000'),
-          // report_month null + happened_at이 이 월인 PO
-          fetchView(feedBase + '&report_month=is.null&happened_at=gte.' + rangeFrom + 'T00:00:00&happened_at=lte.' + rangeTo + 'T23:59:59&limit=1000'),
+        const [poFeed, dlReport, dlOrig] = await Promise.all([
+          fetchView(feedBase + '&profit_months=cs.' + encodeURIComponent('{' + ym + '}') + '&limit=1000'),
           sb.from('deliveries')
             .select('id, hospital_id, delivered_date, report_month, discount_total, notes')
             .eq('report_month', rangeFrom)
@@ -16443,6 +16446,8 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           deal_type: p.deal_type || 'normal',
           commission: Number(p.commission) || 0,
           commission_confirmed: p.deal_type === 'commission' && !!p.confirmed,
+          // 발주 자체의 월 (품목 없는 발주 폴백용) = 이동한 달 → 발주일 → 등록일
+          base_month: p.report_month ? String(p.report_month).slice(0, 7) : String(p.happened_at || '').slice(0, 7),
           purchase_order_items: (p.items || []).map(it => ({
             id: it.id,
             item_name: it.item_name,
@@ -16450,12 +16455,14 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
             quantity: it.quantity,
             unit_price: it.unit_price,
             sale_price: it.sale_price,
+            sale_ti_id: it.sale_ti_id || null,
+            sale_ti_date: it.sale_ti_date || null,
+            profit_month: it.profit_month || null,
           })),
         });
-        const poReport = (Array.isArray(poReportFeed) ? poReportFeed : []).filter(p => p.po_status !== '취소').map(toPo);
-        const poOrig = (Array.isArray(poOrigFeed) ? poOrigFeed : []).filter(p => p.po_status !== '취소').map(toPo);
+        const poList = (Array.isArray(poFeed) ? poFeed : []).filter(p => p.po_status !== '취소').map(toPo);
         if (!cancelled) {
-          setPos([...poReport, ...poOrig]);
+          setPos(poList);
           setDels([...dlReport, ...dlOrig]);
         }
       } catch (e) {
@@ -16486,6 +16493,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         name: hospName(p.hospital_id),
         sale: 0, purchase: 0, commission: 0, commissionPending: 0,
         items: [], missingItems: [], saleMissingItems: [],
+        unbilled: 0, unbilledItems: [],
         vendors: new Map(),
         poList: [],
         owners: new Set(),
@@ -16513,7 +16521,8 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         m.set(p.hospital_id, v);
         return;
       }
-      (p.purchase_order_items || []).forEach(it => {
+      // 이 달 품목만 (한 발주의 품목이 계산서에 따라 다른 달로 나뉠 수 있음 — SQL 45)
+      (p.purchase_order_items || []).filter(it => !it.profit_month || it.profit_month === ym).forEach(it => {
         const qty = Number(it.quantity) || 0;
         const sp = Number(it.sale_price) || 0;
         const up = Number(it.unit_price) || 0;
@@ -16521,18 +16530,20 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         v.purchase += up * qty;
         vg.sale += sp * qty;
         vg.purchase += up * qty;
-        const row = { id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp, unit_price: up };
+        const row = { id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp, unit_price: up, sale_ti_date: it.sale_ti_date };
         v.items.push(row);
         vg.items.push(row);
+        // 계산서 전 — 매출 세금계산서가 아직 연결 안 된 품목 (계산서 연결되면 그 발행월로 옮겨감)
+        if (!it.sale_ti_id && sp * qty > 0) { v.unbilled += sp * qty; v.unbilledItems.push(row); }
         if (qty > 0 && !up) v.missingItems.push({ id: it.id, po_no: p.po_no, po_id: p.id, item_name: it.item_name, model_name: it.model_name, quantity: qty, sale_price: sp });
         // 매출가 없음 — 배송비·샘플·운임·할인처럼 0원이 정상인 품목은 제외
         if (qty > 0 && !sp && !NO_SALE_ITEM_RE.test(it.item_name || '')) { v.saleMissingItems.push(row); vg.saleMissing += 1; }
       });
-      // 폴백: purchase_order_items가 없거나 전부 0이면 PO 자체의 total_amount/sale_amount 사용
+      // 폴백: purchase_order_items가 없거나 전부 0이면 PO 자체의 total_amount/sale_amount 사용 (발주 자체의 달에만)
       const itemCount = (p.purchase_order_items || []).length;
       const itemSum = (p.purchase_order_items || []).reduce((s, it) =>
         s + (Number(it.sale_price)||0)*(Number(it.quantity)||0) + (Number(it.unit_price)||0)*(Number(it.quantity)||0), 0);
-      if (itemCount === 0 || itemSum === 0) {
+      if ((itemCount === 0 || itemSum === 0) && p.base_month === ym) {
         const sa = Number(p.sale_amount) || 0;
         const ta = Number(p.total_amount) || 0;
         v.sale += sa; v.purchase += ta;
@@ -16552,7 +16563,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         missingPrice: v.missingItems.length > 0,
       };
     }).sort((a,b) => (b.sale + b.commission) - (a.sale + a.commission));
-  }, [pos, hospitals, discountByHosp]);
+  }, [pos, hospitals, discountByHosp, ym]);
 
   // 담당자별 요약 (owner 지정된 발주만)
   //   - 병원에 담당자 여러 명이 붙어있으면 그 병원의 할인은 균등 배분
@@ -16590,7 +16601,8 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
     const purchase = filtered.reduce((s, h) => s + h.purchase, 0);
     const discount = filtered.reduce((s, h) => s + h.discount, 0);
     const commission = filtered.reduce((s, h) => s + h.commission, 0);
-    return { sale, purchase, discount, commission, profit: sale - purchase - discount + commission };
+    const unbilled = filtered.reduce((s, h) => s + h.unbilled, 0);
+    return { sale, purchase, discount, commission, unbilled, profit: sale - purchase - discount + commission };
   }, [filtered]);
 
   const fmt = (n) => (n || 0).toLocaleString('ko-KR');
@@ -16608,6 +16620,11 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
         <div className="bg-blue-50 border border-blue-200 rounded p-3 text-center">
           <div className="text-[10px] text-slate-600 mb-1">총 매출</div>
           <div className="text-base font-bold font-mono text-blue-700">{fmt(totals.sale)}</div>
+          {totals.unbilled > 0 && (
+            <div className="text-[10px] text-slate-500 mt-0.5" title="매출 세금계산서가 아직 연결 안 된 품목 — 계산서가 나오면 그 발행월로 옮겨감">
+              계산서 전 <span className="font-mono">{fmt(totals.unbilled)}</span>
+            </div>
+          )}
         </div>
         <div className="bg-rose-50 border border-rose-200 rounded p-3 text-center">
           <div className="text-[10px] text-slate-600 mb-1">총 매입</div>
@@ -16730,6 +16747,13 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                             💰 매출가 없음 {h.saleMissingItems.length}
                           </button>
                         )}
+                        {h.unbilled > 0 && (
+                          <button type="button" onClick={() => setDetailModal({ hospName: h.name, items: h.unbilledItems, title: '계산서 전 품목' })}
+                            className="text-[10px] text-slate-500 hover:bg-slate-100 rounded px-1 py-0.5"
+                            title={`매출 세금계산서가 아직 연결 안 된 매출 ${fmt(h.unbilled)}원 — 지금은 발주일 달에 보이고, 계산서가 연결되면 그 발행월로 옮겨감`}>
+                            🧾 계산서 전 {h.unbilled === h.sale ? '전체' : fmt(h.unbilled)}
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-2 py-2 text-right">
@@ -16817,7 +16841,7 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
           )}
         </table>
       </div>
-      <div className="text-[10px] text-slate-500">※ 발주일 기준 (없으면 등록일) · 취소 제외 (준비중·발주완료·납품완료 모두 포함) · 매입가 0원 발주는 이익이 매출과 같게 표시됨 · 할인은 병원관리 저장된 것만 반영 · 직거래(제조사가 병원에 직접 계산서) 발주는 매출·매입 대신 수수료로 계산 — 수수료 계산서 연결 전엔 예상 수수료</div>
+      <div className="text-[10px] text-slate-500">※ 월 기준 (품목마다): 📅 이동한 달 → 매출 세금계산서 발행월 → 발주일 → 등록일 · 계산서 전 품목은 발주일 달에 보이다가 계산서가 연결되면 그 달로 옮겨감 · 매입도 같은 품목을 따라감 · 취소 제외 (준비중·발주완료·납품완료 모두 포함) · 매입가 0원 발주는 이익이 매출과 같게 표시됨 · 할인은 병원관리 저장된 것만 반영 · 직거래(제조사가 병원에 직접 계산서) 발주는 매출·매입 대신 수수료로 계산 — 수수료 계산서 연결 전엔 예상 수수료</div>
 
       {detailModal && (
         <PoDetailModal hospName={detailModal.hospName} items={detailModal.items} title={detailModal.title}
@@ -16896,7 +16920,7 @@ function MoveMonthModal({ hosp, currentYm, currentRangeFrom, currentRangeTo, onC
             현재 <b>{currentYm}</b> · 발주 {hosp.poList.length}건 · 매출 {(hosp.sale||0).toLocaleString()}원
           </div>
           <div className="text-xs text-slate-500">
-            원본 등록일(created_at)은 유지되고 리포트에서만 표시 월이 바뀝니다.
+            원래 날짜·계산서 연결은 그대로 두고 병원별 이익에서 보이는 달만 바뀝니다. 옮긴 달이 매출 세금계산서 발행월보다 먼저 적용됩니다.
           </div>
           <label className="block text-xs font-semibold text-slate-600 mb-1 pt-2">어느 달로 옮길까요?</label>
           <input type="month" value={isRestore ? '' : targetYm}
@@ -16906,7 +16930,7 @@ function MoveMonthModal({ hosp, currentYm, currentRangeFrom, currentRangeTo, onC
           <div className="pt-2 border-t border-slate-100">
             <button type="button" onClick={() => setTargetYm('__restore__')}
               className={`w-full text-left px-3 py-2 rounded text-sm ${isRestore ? 'bg-slate-100 text-slate-800 font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}>
-              ↺ 원본 날짜로 원복 (report_month 삭제)
+              ↺ 원래 기준으로 되돌리기 (계산서 발행월 → 발주일)
             </button>
           </div>
         </div>
@@ -17450,7 +17474,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         const d = p.tracking_delivered_at || p.delivery_date || p.updated_at || p.created_at;
         if (!d || !String(d).startsWith(doneMonth)) return false;
       }
-      const day = (p.created_at || '').slice(0, 10);
+      // 기간 = 발주일 (없으면 등록일) — 병원별 이익의 계산서 전 기준과 같음. 등록일로 거르면 사후 입력한 발주가 다른 달로 빠짐
+      const day = (p.ordered_at || p.created_at || '').slice(0, 10);
       if (dateFrom && day < dateFrom) return false;
       if (dateTo && day > dateTo) return false;
       if (filterHospId && p.hospital_id !== filterHospId) return false;
@@ -18033,10 +18058,10 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 mb-3 flex items-center gap-2 flex-wrap text-xs">
           <span className="text-slate-500">기간</span>
           <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
-            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발주 등록일 시작" />
+            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발주일 시작 (발주일 없으면 등록일)" />
           <span className="text-slate-400">~</span>
           <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
-            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발주 등록일 종료" />
+            className="border border-slate-200 rounded px-2 py-1 text-xs" title="발주일 종료 (발주일 없으면 등록일)" />
           <select value={filterHospId} onChange={e=>setFilterHospId(e.target.value)}
             className="border border-slate-200 rounded px-2 py-1 text-xs bg-white min-w-[130px] max-w-[220px]" title="병원">
             <option value="">병원 전체</option>
