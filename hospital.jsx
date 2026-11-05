@@ -1,7 +1,14 @@
 // 병원 포털 (hospital.html) — 빌드: npx esbuild hospital.jsx --outfile=hospital.js --loader:.jsx=jsx --minify
 // 데이터는 /api/portal 에서만 받음 (링크 코드+사업자번호 확인, 금액 없음). 이 파일에는 DB 키가 없음.
 // 디자인: 사용자가 준 관리 콘솔 레퍼런스(2026-11-04) 기준 — Pretendard 한 가지, 22px 제목, 회색 머리줄 표, 촘촘한 행
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } = React;
+
+// 화면을 나갔다 돌아와도 검색어·분류·탭을 그대로 (장비 상세 갔다가 뒤로 오면 같은 목록)
+const memo = { eqQ: '', eqCat: '전체', eqLoc: '전체', docsTab: null };
+const useMemoState = (k, init) => {
+  const [v, setV] = useState(memo[k] ?? init);
+  return [v, (x) => { memo[k] = x; setV(x); }];
+};
 
 const API = '/api/portal';
 // 짧은 링크 /h/<8자리> 또는 예전 링크 ?token=<UUID>
@@ -296,9 +303,9 @@ function LocationEditor({ e, data, pin, reload }) {
 
 /* ── 장비 목록 (표) ───────────────────────────────── */
 function EquipmentList({ data, go }) {
-  const [q, setQ] = useState('');
-  const [cat, setCat] = useState('전체');
-  const [loc, setLoc] = useState('전체');
+  const [q, setQ] = useMemoState('eqQ', '');
+  const [cat, setCat] = useMemoState('eqCat', '전체');
+  const [loc, setLoc] = useMemoState('eqLoc', '전체');
   const cats = useMemo(() => {
     const m = new Map();
     data.equipment.forEach((e) => { const c = e.category || '기타'; m.set(c, (m.get(c) || 0) + 1); });
@@ -368,9 +375,9 @@ function EquipmentList({ data, go }) {
 }
 
 /* ── 장비 상세 ───────────────────────────────── */
-function EquipmentDetail({ data, id, go, pin, reload }) {
+function EquipmentDetail({ data, id, go, back, pin, reload }) {
   const e = data.equipment.find((x) => x.key === id);
-  if (!e) return <div className="page"><button className="link" onClick={() => go('equipment')}>← 내 장비</button></div>;
+  if (!e) return <div className="page"><button className="link" onClick={() => back('equipment')}>← 내 장비</button></div>;
   const s = eqState(e);
   const rows = [
     ['상태', <Badge tone={s}>{s.label}</Badge>],
@@ -386,7 +393,7 @@ function EquipmentDetail({ data, id, go, pin, reload }) {
   ];
   return (
     <div className="page">
-      <button className="back" onClick={() => go('equipment')}><Ti n="chevron-left" s={16} /> 내 장비</button>
+      <button className="back" onClick={() => back('equipment')}><Ti n="chevron-left" s={16} /> 내 장비</button>
       <PageHead title={e.name} right={
         <div className="head-actions">
           <button className="btn secondary" onClick={() => go('reorder', e.key)}>다시 주문</button>
@@ -625,7 +632,8 @@ function Docs({ data, go, initialTab }) {
     { key: 'deliveries', title: '납품 내역', rows: data.documents.deliveries.map((d) => ({ date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, d.count && `${d.count}개 품목`].filter(Boolean).join(' · '), statementId: d.statementId || null })) },
     { key: 'invoices', title: '세금계산서 발행', rows: data.documents.invoices.map((d) => ({ date: d.date, title: d.summary, sub: '' })) },
   ];
-  const [tab, setTab] = useState(initialTab || SECTIONS.find((s) => s.rows.length)?.key || 'orders');
+  const [tab, setTabRaw] = useState(initialTab || memo.docsTab || SECTIONS.find((s) => s.rows.length)?.key || 'orders');
+  const setTab = (k) => { memo.docsTab = k; setTabRaw(k); };
   const sec = SECTIONS.find((s) => s.key === tab);
   return (
     <div className="page">
@@ -658,14 +666,14 @@ function Docs({ data, go, initialTab }) {
 }
 
 /* ── 거래명세서 (발행 사본, 금액 포함) ───────────────────────────────── */
-function StatementView({ data, id, go }) {
+function StatementView({ data, id, back }) {
   const s = data.documents.statements.find((x) => x.id === id);
-  if (!s) return <div className="page"><button className="back" onClick={() => go('docs', 'deliveries')}><Ti n="chevron-left" s={16} /> 문서함</button><div className="box empty">명세서를 찾을 수 없습니다.</div></div>;
+  if (!s) return <div className="page"><button className="back" onClick={() => back('docs', 'deliveries')}><Ti n="chevron-left" s={16} /> 문서함</button><div className="box empty">명세서를 찾을 수 없습니다.</div></div>;
   const sp = s.supplier || {};
   return (
     <div className="page">
       <div className="no-print stmt-bar">
-        <button className="back" style={{ margin: 0 }} onClick={() => go('docs', 'deliveries')}><Ti n="chevron-left" s={16} /> 문서함</button>
+        <button className="back" style={{ margin: 0 }} onClick={() => back('docs', 'deliveries')}><Ti n="chevron-left" s={16} /> 문서함</button>
         <button className="btn secondary sm" onClick={() => window.print()}><Ti n="printer" s={15} /> 인쇄 · PDF 저장</button>
       </div>
       <div className="stmt-scroll">
@@ -763,7 +771,54 @@ function App() {
     }).catch(() => setPhase('down'));
   }, [login]);
 
-  const go = (p, key = null) => { setPage(p); setSel(key); window.scrollTo(0, 0); };
+  // ── 브라우저(폰) 뒤로가기 ── 화면을 옮길 때마다 방문 기록을 남김.
+  // 떠나는 화면의 스크롤 위치를 그 기록에 적어 두고, 뒤로 오면 그 자리로 되돌림
+  const histIdx = useRef(0);
+  const restoreY = useRef(null);
+  useEffect(() => { try { window.history.scrollRestoration = 'manual'; } catch {} }, []);
+  useEffect(() => {
+    if (phase !== 'main') return;
+    try { window.history.replaceState({ dw: 1, page: 'home', sel: null, idx: 0, y: 0 }, ''); } catch {}
+    histIdx.current = 0;
+  }, [phase]);
+  useEffect(() => {
+    const onPop = (ev) => {
+      const s = ev.state;
+      if (!s || !s.dw) return; // 포털 들어오기 전 기록 → 브라우저 기본 동작(포털 밖으로)
+      histIdx.current = s.idx || 0;
+      restoreY.current = s.y || 0;
+      if (s.memo) Object.assign(memo, s.memo); // 그 화면을 떠날 때의 검색·분류·탭
+      setPage(s.page || 'home'); setSel(s.sel ?? null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  useLayoutEffect(() => {
+    if (restoreY.current == null) return;
+    const y = restoreY.current; restoreY.current = null;
+    window.scrollTo(0, y);
+    requestAnimationFrame(() => window.scrollTo(0, y)); // 이미지 등으로 높이가 늦게 잡힐 때 한 번 더
+  }, [page, sel]);
+
+  const go = (p, key = null) => {
+    if (p === page && key === sel) { window.scrollTo(0, 0); return; }
+    const leaving = { ...memo };
+    // 메뉴·"전체 보기"로 새로 들어가면 처음 상태로 (검색·분류 기억은 뒤로가기로 돌아올 때만)
+    if (p === 'equipment') Object.assign(memo, { eqQ: '', eqCat: '전체', eqLoc: '전체' });
+    if (p === 'docs') memo.docsTab = null;
+    try {
+      window.history.replaceState({ ...(window.history.state || {}), dw: 1, page, sel, idx: histIdx.current, y: window.scrollY, memo: leaving }, '');
+      histIdx.current += 1;
+      window.history.pushState({ dw: 1, page: p, sel: key, idx: histIdx.current, from: page, y: 0 }, '');
+    } catch {}
+    setPage(p); setSel(key); window.scrollTo(0, 0);
+  };
+  // 화면 안 "← 내 장비" 같은 버튼: 바로 앞 화면이 거기면 뒤로가기와 똑같이(검색·스크롤 그대로), 아니면 그 화면으로 이동
+  const back = (p, key = null) => {
+    const s = window.history.state;
+    if (s && s.dw && s.from === p && histIdx.current > 0) window.history.back();
+    else go(p, key);
+  };
 
   if (phase === 'loading') return <Gate><p className="desc" style={{ textAlign: 'center' }}>불러오는 중…</p></Gate>;
   if (phase === 'invalid') return (
@@ -786,11 +841,11 @@ function App() {
       <main>
         {page === 'home' && <Home data={data} go={go} />}
         {page === 'equipment' && <EquipmentList data={data} go={go} />}
-        {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} pin={pin} reload={reload} />}
+        {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} back={back} pin={pin} reload={reload} />}
         {page === 'service' && <Service key={'svc' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
         {page === 'reorder' && <Reorder key={'ro' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
         {page === 'docs' && <Docs key={'docs' + (sel || '')} data={data} go={go} initialTab={sel} />}
-        {page === 'statement' && <StatementView data={data} id={sel} go={go} />}
+        {page === 'statement' && <StatementView data={data} id={sel} back={back} />}
       </main>
       <footer className="footer">
         {data.company.name} · 대표번호 <a href={'tel:' + data.company.phone.replace(/-/g, '')}>{data.company.phone}</a>
