@@ -23,9 +23,11 @@ const COMPANY = { name: '대원메디칼', phone: '02-2202-0615' };
 const PORTAL_REP = { name: '최윤철', phone: '010-9471-0522' };
 // 장비가 아닌 줄 (할인·운송·선입금 등)은 보유 장비·재주문에서 뺌
 const NOT_EQUIPMENT_RE = /할인|discount|배송|운송|운임|택배|용달|퀵|설치비|선입금|계약금|잔금|중도금/i;
-// 재주문 목록에서 위로 올릴 소모품처럼 보이는 이름
-// (핫팩 "기계"는 장비라서 핫팩 뒤에 기/유닛/unit이 붙으면 제외)
-const CONSUMABLE_RE = /소모품|젤|gel|패드|pad|시트|sheet|롤|거즈|장갑|커버|필터|filter|전극|핫팩(?!\s*(기|유닛|가온))|베개|메트|매트|타올|수건|시린지|syringe|tray|jar|컵|cup|팁|tip|바늘|needle/i;
+// 소모품 = 장비 관리 분류가 "소모품"인 것만 (사용자 결정 2026-11-05 — 예전엔 이름으로 추측해서
+// "소모품" 꼬리표를 붙였는데 장비 관리 분류와 엇갈려 헷갈림. 분류는 장비 관리 한 곳에서만 정함)
+const CONSUMABLE_CAT = '소모품';
+// 장비가 아닌 분류 (배송비·할인·설치비 등) — 보유 장비·재주문에서 뺌
+const NON_ITEM_CAT = '비품목';
 
 async function sb(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -142,6 +144,7 @@ async function loadBundle(h) {
       if (!it.item_name && !it.model_name) continue;
       if (NOT_EQUIPMENT_RE.test(label)) continue;
       const eq = eqByModel.get(norm(it.model_name));
+      if (eq && (eq.cat_name || eq.category) === NON_ITEM_CAT) continue;
       events.push({ type: '납품', date: d.delivered_date, ref: d.doc_no || null, name: it.item_name || it.model_name, model: it.model_name || '', qty: Number(it.quantity) || 1, eq });
     }
   }
@@ -152,6 +155,7 @@ async function loadBundle(h) {
       const label = `${it.item_name || ''} ${it.model_name || ''}`;
       if (NOT_EQUIPMENT_RE.test(label)) continue;
       const eq = eqById.get(it.equipment_id) || eqByModel.get(norm(it.model_name));
+      if (eq && (eq.cat_name || eq.category) === NON_ITEM_CAT) continue;
       events.push({
         type: '주문', date, ref: p.po_no, name: it.item_name || it.model_name, model: it.model_name || '', qty: Number(it.quantity) || 1, eq,
         delivered: poDelivered || !!it.delivered,
@@ -214,9 +218,9 @@ async function loadBundle(h) {
     };
   }).sort((a, b) => String(b.lastDate).localeCompare(String(a.lastDate)) || a.name.localeCompare(b.name));
 
-  // 재주문 후보 — 전에 받은 품목 전부. 소모품처럼 보이는 것 → 여러 번 산 것 → 최근 순
+  // 재주문 후보 — 전에 받은 품목 전부. 소모품(장비 관리 분류) → 여러 번 산 것 → 최근 순
   const reorder = equipment
-    .map((e) => ({ key: e.key, name: e.name, model: e.model, category: e.category, image: e.image, lastDate: e.lastDate, purchases: e.purchases, consumable: CONSUMABLE_RE.test(`${e.name} ${e.model} ${e.category || ''}`) }))
+    .map((e) => ({ key: e.key, name: e.name, model: e.model, category: e.category, image: e.image, lastDate: e.lastDate, purchases: e.purchases, consumable: e.category === CONSUMABLE_CAT }))
     .sort((a, b) => (b.consumable - a.consumable) || (b.purchases - a.purchases) || String(b.lastDate).localeCompare(String(a.lastDate)));
 
   // 문서함 — 금액 없이 날짜·품목만

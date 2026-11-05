@@ -37,7 +37,7 @@ const CAT_ICON = {
   '영상진단장비': 'scan', '물리치료/재활장비': 'activity-heartbeat', '멸균/소독장비': 'flask', '수술실/병원가구': 'armchair',
   '병상/침대류': 'bed', '온열/냉각기기': 'temperature', '환자모니터링장비': 'heart-rate-monitor', '검사/측정장비': 'microscope',
   '수술장비': 'scissors', '수술기구': 'scissors', '수술기구/소모품': 'scissors', '내시경장비': 'camera', '치료장비': 'first-aid-kit',
-  '응급의료기': 'emergency-bed', '진료가구': 'armchair',
+  '응급의료기': 'emergency-bed', '진료가구': 'armchair', '소모품': 'package',
 };
 const catIcon = (c) => CAT_ICON[c] || 'box';
 
