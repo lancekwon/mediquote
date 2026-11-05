@@ -3,6 +3,8 @@
 //
 // 링크 토큰 + 접속코드(PIN)를 확인한 뒤 "그 병원 데이터만" 돌려줌.
 // - 금액(단가·합계·세금계산서 금액)은 응답에 아예 넣지 않음 (병원 화면에 금액 비공개 — 사용자 결정 2026-11-04)
+//   예외: 거래명세서(hospital_statements, SQL 44)는 병원에 드린 서류 그대로 단가·합계 포함 (사용자 결정 2026-11-05)
+//         — 관리자가 발주관리에서 발행하면서 "포털에 올리기" 한 것(shared)만. 발주 매입가·마진은 어디에도 없음
 // - 우리 매입처(거래처) 이름도 넣지 않음. 장비 제조사는 장비 마스터의 manufacturer가 vendor와 다를 때만
 // - 포털 페이지에는 DB 키가 없음. 예전 hospital.html은 브라우저가 DB를 직접 읽어서 다른 병원 데이터도 볼 수 있었음
 //
@@ -96,15 +98,17 @@ function cleanAllocations(rows, maxQty) {
 }
 
 async function loadBundle(h) {
-  const [deliveries, pos, invoices, services, orders, locRows] = await Promise.all([
-    sb(`deliveries?hospital_id=eq.${h.id}&select=id,delivered_date,doc_no,delivery_items(item_name,model_name,spec,quantity)&order=delivered_date.desc`),
+  const [deliveries, pos, invoices, services, orders, locRows, statements] = await Promise.all([
+    sb(`deliveries?hospital_id=eq.${h.id}&select=id,delivered_date,doc_no,notes,delivery_items(item_name,model_name,spec,quantity)&order=delivered_date.desc`),
     sb(`purchase_orders?hospital_id=eq.${h.id}&status=neq.${enc('취소')}` +
-      `&select=id,po_no,ordered_at,created_at,status,tracking_delivered,tracking_delivered_at,owner,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
+      `&select=id,po_no,ordered_at,created_at,status,delivery_date,tracking_delivered,tracking_delivered_at,owner,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
       `&order=po_no.desc`),
     sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=issue_date,memo&order=issue_date.desc`),
     sb(`service_requests?hospital_id=eq.${h.id}&select=id,equipment_name,model_name,issue,status,requested_at,engineer,created_at&order=created_at.desc`),
     sb(`order_requests?site=eq.${enc(h.name)}&requester=eq.${enc('병원 포털')}&select=id,model_name,quantity,status,created_at&order=created_at.desc&limit=100`),
     sb(`hospital_equipment_locations?hospital_id=eq.${h.id}&select=equip_key,allocations`),
+    sb(`hospital_statements?hospital_id=eq.${h.id}&shared=is.true` +
+      `&select=id,statement_date,issued_at,po_ids,hospital_name,hospital_address,supplier,items,subtotal,discount_total,total&order=statement_date.desc,issued_at.desc`),
   ]);
   const locByKey = new Map(locRows.map((r) => [r.equip_key, r.allocations]));
 
@@ -152,6 +156,8 @@ async function loadBundle(h) {
         type: '주문', date, ref: p.po_no, name: it.item_name || it.model_name, model: it.model_name || '', qty: Number(it.quantity) || 1, eq,
         delivered: poDelivered || !!it.delivered,
         deliveredAt: String(it.delivered_at || p.tracking_delivered_at || '').slice(0, 10) || null,
+        eta: String(p.delivery_date || '').slice(0, 10) || null, // 도착 예정일 (발주의 예상납품일)
+        poId: p.id, poNo: p.po_no,
         owner: p.owner || null,
       });
     }
@@ -174,6 +180,7 @@ async function loadBundle(h) {
     const qty = dels.reduce((s, e) => s + e.qty, 0) + ownOrders.reduce((s, e) => s + e.qty, 0);
     const dates = g.events.map((e) => e.date).filter(Boolean).sort();
     const pending = ownOrders.filter((o) => !o.delivered);
+    const etas = pending.map((o) => o.eta).filter((d) => d && d >= todayKST()).sort();
     const disp = shown(g.eq, g.name, g.model);
     // 점검·수리 신청은 신청 당시 화면 이름으로 저장됨 → 장비 관리 이름·발주 품목명 어느 쪽이든 같으면 이 장비
     const nameKeys = new Set([disp.name, ...g.events.map((e) => e.name)].map(norm).filter(Boolean));
@@ -183,7 +190,8 @@ async function loadBundle(h) {
       ...g.events.map((e) => ({
         date: e.date,
         title: e.type === '납품' ? '납품' : (e.delivered ? '주문 · 납품 완료' : '주문 접수'),
-        detail: `${e.qty}${e.qty > 1 ? '개' : '대'}${e.type === '납품' && e.ref ? ` · ${e.ref}` : ''}`,
+        detail: [`${e.qty}${e.qty > 1 ? '개' : '대'}`, e.type === '납품' && e.ref, e.type === '주문' && e.delivered && e.deliveredAt && `${e.deliveredAt.replace(/-/g, '.')} 납품`,
+          e.type === '주문' && !e.delivered && e.eta && `${e.eta.replace(/-/g, '.')} 도착 예정`].filter(Boolean).join(' · '),
       })),
       ...svc.map((s) => ({ date: String(s.requested_at || s.created_at || '').slice(0, 10), title: `점검·수리 ${s.status || '접수'}`, detail: s.issue || '' })),
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
@@ -198,6 +206,7 @@ async function loadBundle(h) {
       purchases: dels.length + ownOrders.length,
       // 납품 기록도, 납품 체크도 없이 주문만 있으면 "주문 접수" (발주를 나중에 입력하는 경우가 많아 단정하지 않음)
       state: dels.length === 0 && pending.length === ownOrders.length && ownOrders.length > 0 ? 'ordered' : 'delivered',
+      eta: etas[0] || null, // 아직 안 온 주문의 도착 예정일 (지난 날짜는 안 보냄)
       openService: svc.some((s) => openSvc.includes(s)),
       // 설치 위치 (병원이 입력) — 위치별 수량. 합이 수량보다 적으면 나머지는 "위치 미입력"
       locations: cleanAllocations(locByKey.get(g.key), qty),
@@ -220,13 +229,49 @@ async function loadBundle(h) {
     if (!orderByDate.has(ev.date)) orderByDate.set(ev.date, []);
     orderByDate.get(ev.date).push(ev);
   }
-  const documents = {
-    orders: [...orderByDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
-    deliveries: deliveries.map((d) => {
-      const items = d.delivery_items.filter((i) => !NOT_EQUIPMENT_RE.test(`${i.item_name || ''} ${i.model_name || ''}`))
+  // 납품 내역 = ① 거래명세서(발행 사본, 금액 포함 — 눌러서 봄) ② 명세서 없는 납품 기록(deliveries)
+  //            ③ 명세서도 납품 기록도 없는 "납품 완료" 발주 (납품일별로 묶음). 같은 발주가 두 번 나오지 않게 발주 id로 거름
+  const poIdByNo = new Map(pos.map((p) => [p.po_no, p.id]));
+  const poIdsIn = (text) => (String(text || '').match(/PO-\d{4}-\d+/g) || []).map((n) => poIdByNo.get(n)).filter(Boolean);
+  const stmtPoIds = new Set(statements.flatMap((s) => s.po_ids || []));
+  const deliveryPoIds = new Set(deliveries.flatMap((d) => poIdsIn(d.notes)));
+  const notEquip = (i) => NOT_EQUIPMENT_RE.test(`${i.item_name || ''} ${i.model_name || ''}`);
+  const deliveredByDate = new Map();
+  for (const ev of events) {
+    if (ev.type !== '주문' || !ev.delivered || stmtPoIds.has(ev.poId) || deliveryPoIds.has(ev.poId)) continue;
+    const d = ev.deliveredAt || ev.date;
+    if (!deliveredByDate.has(d)) deliveredByDate.set(d, []);
+    deliveredByDate.get(d).push(ev);
+  }
+  const deliveryRows = [
+    ...statements.map((s) => {
+      const items = (s.items || []).filter((i) => !notEquip(i)).map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.qty) || 1 }));
+      return { date: s.statement_date, summary: summary(items), count: items.length, statementId: s.id };
+    }),
+    ...deliveries.filter((d) => { const ids = poIdsIn(d.notes); return !(ids.length && ids.every((id) => stmtPoIds.has(id))); }).map((d) => {
+      const items = d.delivery_items.filter((i) => !notEquip(i))
         .map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.quantity) || 1, eq: eqByModel.get(norm(i.model_name)) }));
       return { date: d.delivered_date, docNo: d.doc_no || null, summary: summary(items), count: items.length };
     }),
+    ...[...deliveredByDate.entries()].map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
+  ].filter((r) => r.count > 0 || r.statementId).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  const documents = {
+    orders: [...orderByDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
+    deliveries: deliveryRows,
+    // 거래명세서 본문 (금액 포함) — 발행 당시 사본 그대로
+    statements: statements.map((s) => ({
+      id: s.id,
+      date: s.statement_date,
+      issuedAt: String(s.issued_at || '').slice(0, 10),
+      hospitalName: s.hospital_name || h.name,
+      hospitalAddress: s.hospital_address || h.address || '',
+      supplier: s.supplier || {},
+      items: (s.items || []).map((i) => ({ name: i.item_name || '', model: i.model_name || '', qty: Number(i.qty) || 0, unitPrice: Number(i.unit_price) || 0 })),
+      subtotal: Number(s.subtotal) || 0,
+      discount: Number(s.discount_total) || 0,
+      total: Number(s.total) || 0,
+    })),
     invoices: invoices.map((t) => ({ date: t.issue_date, summary: String(t.memo || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '') || '세금계산서 발행' })),
   };
 

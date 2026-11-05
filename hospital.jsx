@@ -45,7 +45,11 @@ const STATE = {
   ordered: { label: '주문 접수', ...TONE.blue },
   service: { label: '점검·수리 접수', ...TONE.orange },
 };
-const eqState = (e) => (e.openService ? STATE.service : STATE[e.state] || STATE.delivered);
+const etaLabel = (d) => { const t = new Date(d + 'T00:00:00'); return `${t.getMonth() + 1}/${t.getDate()}(${DOW[t.getDay()]}) 도착 예정`; };
+const eqState = (e) => (e.openService ? STATE.service
+  : e.state === 'ordered' && e.eta ? { ...STATE.ordered, label: etaLabel(e.eta) }
+  : STATE[e.state] || STATE.delivered);
+const won = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}`;
 const SVC_TONE = { '접수': TONE.orange, '처리중': TONE.blue, '완료': TONE.green, '대기': TONE.orange, '보류': TONE.gray };
 const Badge = ({ tone, children }) => <span className="badge" style={{ background: tone.bg, color: tone.text }}>{children}</span>;
 
@@ -115,7 +119,7 @@ const MENU = [
   { key: 'docs', label: '문서함', icon: 'file-text' },
 ];
 function TopHeader({ page, onNav, data }) {
-  const navKey = page === 'detail' ? 'equipment' : page;
+  const navKey = page === 'detail' ? 'equipment' : page === 'statement' ? 'docs' : page;
   return (
     <header className="topbar">
       <div className="topbar-in">
@@ -374,6 +378,7 @@ function EquipmentDetail({ data, id, go, pin, reload }) {
     ['분류', e.category || '—'],
     ...(e.maker ? [['제조사', e.maker]] : []),
     ['수량', `${e.qty}개`],
+    ...(e.state === 'ordered' && e.eta ? [['도착 예정', `${fmtDate(e.eta)} (${DOW[new Date(e.eta + 'T00:00:00').getDay()]})`]] : []),
     ['설치 위치', locationSummary(e) || <span className="t3">미입력</span>],
     [e.state === 'ordered' ? '주문일' : '처음 도입', fmtDate(e.firstDate)],
     ...(e.lastDate !== e.firstDate ? [['최근 주문·납품', fmtDate(e.lastDate)]] : []),
@@ -493,9 +498,23 @@ function Reorder({ data, preset, reload, pin }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [showAll, setShowAll] = useState(false);
+  const [q, setSearch] = useState('');
+  const [cat, setCat] = useState('전체');
   const picked = data.reorder.filter((r) => (qty[r.key] || 0) > 0);
   const count = picked.length + (extra.trim() ? 1 : 0);
-  const list = showAll || preset ? data.reorder : data.reorder.slice(0, 12);
+  const cats = useMemo(() => {
+    const m = new Map();
+    data.reorder.forEach((r) => { const c = r.category || '기타'; m.set(c, (m.get(c) || 0) + 1); });
+    return [['전체', data.reorder.length], ...[...m.entries()].sort((a, b) => b[1] - a[1])];
+  }, [data.reorder]);
+  const filtering = cat !== '전체' || q.trim() !== '';
+  const matched = data.reorder.filter((r) => {
+    if (cat !== '전체' && (r.category || '기타') !== cat) return false;
+    const s = q.trim().toLowerCase();
+    return !s || `${r.name} ${r.model} ${r.category || ''}`.toLowerCase().includes(s);
+  });
+  // 검색·분류로 좁혔으면 다 보여줌. 전체일 땐 12개까지 + 더 보기 (수량 담은 품목은 항상 보이게)
+  const list = showAll || preset || filtering ? matched : matched.filter((r, i) => i < 12 || (qty[r.key] || 0) > 0);
   const setQ = (k, v) => setQty((p) => ({ ...p, [k]: Math.max(0, Math.min(999, v)) }));
   const submit = async () => {
     const items = picked.map((r) => ({ name: r.name, model: r.model, quantity: qty[r.key] }));
@@ -513,9 +532,22 @@ function Reorder({ data, preset, reload, pin }) {
   return (
     <div className="page">
       <PageHead title="다시 주문하기" desc="전에 받으신 품목입니다. 수량을 정해 요청하시면 담당자가 확인 후 연락드립니다." />
+      {data.reorder.length > 0 && (
+        <>
+          <div className="toolbar">
+            <div className="search"><Ti n="search" s={16} c="#8b95a1" /><input value={q} onChange={(e) => setSearch(e.target.value)} placeholder="품목 · 모델 · 분류 검색" /></div>
+          </div>
+          <div className="chips" style={{ marginBottom: 16 }}>
+            {cats.map(([c, n]) => (
+              <button key={c} className={'chip' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c} <span className="chip-n">{n}</span></button>
+            ))}
+          </div>
+        </>
+      )}
       <div className="table">
         <div className="tr th ro-cols"><div>품목</div><div className="hide-sm">최근 주문</div><div className="center">수량</div></div>
         {data.reorder.length === 0 && <div className="empty">이전 주문 품목이 없습니다. 아래에 직접 적어 주세요.</div>}
+        {data.reorder.length > 0 && matched.length === 0 && <div className="empty">검색 결과가 없습니다. 아래 "목록에 없는 품목"에 적어 주세요.</div>}
         {list.map((r) => (
           <div key={r.key} className={'tr ro-cols' + ((qty[r.key] || 0) > 0 ? ' picked' : '')}>
             <div className="cell-main">
@@ -538,9 +570,10 @@ function Reorder({ data, preset, reload, pin }) {
             </div>
           </div>
         ))}
-        {!showAll && !preset && data.reorder.length > 12 && (
-          <button className="tfoot more" onClick={() => setShowAll(true)}>{data.reorder.length - 12}개 더 보기</button>
+        {!showAll && !preset && !filtering && matched.length > list.length && (
+          <button className="tfoot more" onClick={() => setShowAll(true)}>{matched.length - list.length}개 더 보기</button>
         )}
+        {filtering && matched.length > 0 && <div className="tfoot">{matched.length}개 품목</div>}
       </div>
 
       <div className="form box" style={{ marginTop: 16 }}>
@@ -586,17 +619,17 @@ function Reorder({ data, preset, reload, pin }) {
 }
 
 /* ── 문서함 ───────────────────────────────── */
-function Docs({ data }) {
+function Docs({ data, go, initialTab }) {
   const SECTIONS = [
     { key: 'orders', title: '주문 내역', rows: data.documents.orders.map((d) => ({ date: d.date, title: d.summary, sub: `${d.count}개 품목` })) },
-    { key: 'deliveries', title: '납품 내역', rows: data.documents.deliveries.map((d) => ({ date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, `${d.count}개 품목`].filter(Boolean).join(' · ') })) },
+    { key: 'deliveries', title: '납품 내역', rows: data.documents.deliveries.map((d) => ({ date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, d.count && `${d.count}개 품목`].filter(Boolean).join(' · '), statementId: d.statementId || null })) },
     { key: 'invoices', title: '세금계산서 발행', rows: data.documents.invoices.map((d) => ({ date: d.date, title: d.summary, sub: '' })) },
   ];
-  const [tab, setTab] = useState(SECTIONS.find((s) => s.rows.length)?.key || 'orders');
+  const [tab, setTab] = useState(initialTab || SECTIONS.find((s) => s.rows.length)?.key || 'orders');
   const sec = SECTIONS.find((s) => s.key === tab);
   return (
     <div className="page">
-      <PageHead title="문서함" desc="주문·납품·세금계산서 기록입니다. 금액과 서류 원본은 담당 영업사원에게 요청해 주세요." />
+      <PageHead title="문서함" desc="주문·납품·세금계산서 기록입니다. 거래명세서는 납품 내역에서 눌러서 보실 수 있습니다." />
       <div className="seg">
         {SECTIONS.map((s) => (
           <button key={s.key} className={tab === s.key ? 'on' : ''} onClick={() => setTab(s.key)}>{s.title} <span className="chip-n">{s.rows.length}</span></button>
@@ -605,7 +638,13 @@ function Docs({ data }) {
       <div className="table">
         <div className="tr th doc-cols"><div>날짜</div><div>내용</div><div className="hide-sm">비고</div></div>
         {sec.rows.length === 0 && <div className="empty">기록이 없습니다.</div>}
-        {sec.rows.map((r, i) => (
+        {sec.rows.map((r, i) => r.statementId ? (
+          <button key={i} className="tr doc-cols clickable" onClick={() => go('statement', r.statementId)}>
+            <div className="t2">{fmtDate(r.date)}</div>
+            <div className="t1 wrap">{r.title}<div className="show-sm"><span className="stmt-link"><Ti n="file-text" s={13} /> 거래명세서 보기</span></div></div>
+            <div className="hide-sm"><span className="stmt-link"><Ti n="file-text" s={14} /> 거래명세서 보기</span></div>
+          </button>
+        ) : (
           <div key={i} className="tr doc-cols">
             <div className="t2">{fmtDate(r.date)}</div>
             <div className="t1 wrap">{r.title}{r.sub && <div className="t3 show-sm">{r.sub}</div>}</div>
@@ -613,6 +652,75 @@ function Docs({ data }) {
           </div>
         ))}
         <div className="tfoot">총 {sec.rows.length}건</div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 거래명세서 (발행 사본, 금액 포함) ───────────────────────────────── */
+function StatementView({ data, id, go }) {
+  const s = data.documents.statements.find((x) => x.id === id);
+  if (!s) return <div className="page"><button className="back" onClick={() => go('docs', 'deliveries')}><Ti n="chevron-left" s={16} /> 문서함</button><div className="box empty">명세서를 찾을 수 없습니다.</div></div>;
+  const sp = s.supplier || {};
+  return (
+    <div className="page">
+      <div className="no-print stmt-bar">
+        <button className="back" style={{ margin: 0 }} onClick={() => go('docs', 'deliveries')}><Ti n="chevron-left" s={16} /> 문서함</button>
+        <button className="btn secondary sm" onClick={() => window.print()}><Ti n="printer" s={15} /> 인쇄 · PDF 저장</button>
+      </div>
+      <div className="stmt-scroll">
+        <div className="stmt">
+          <div className="stmt-top">
+            <div>
+              <img className="stmt-logo" src="/img/statement/dw_logo.png" alt="DW" />
+              <div><b>발행일자</b> {s.issuedAt || s.date}</div>
+            </div>
+            <div>{sp.name || data.company.name} 발행</div>
+          </div>
+          <div className="stmt-title">거 래 명 세 서</div>
+          <div className="stmt-parties">
+            <div className="stmt-party supplier">
+              <div className="plabel">공급자</div>
+              <div className="cname">{sp.name || '주식회사 대원메디칼'}</div>
+              <table><tbody>
+                <tr><td className="lbl">등록번호</td><td>{sp.business_no}</td></tr>
+                <tr><td className="lbl">대표자</td><td><span className="stmt-rep">{sp.representative}<img src="/img/statement/seal.png" alt="인" /></span></td></tr>
+                <tr><td className="lbl">주소</td><td>{sp.address}</td></tr>
+                {sp.phone && <tr><td className="lbl">전화</td><td>{sp.phone}{sp.fax ? ` · 팩스 ${sp.fax}` : ''}</td></tr>}
+              </tbody></table>
+            </div>
+            <div className="stmt-party">
+              <div className="plabel">공급받는자</div>
+              <div className="cname">{s.hospitalName}</div>
+              <table><tbody>
+                {s.hospitalAddress && <tr><td className="lbl">주소</td><td>{s.hospitalAddress}</td></tr>}
+                <tr><td className="lbl">납품일자</td><td>{s.date}</td></tr>
+              </tbody></table>
+            </div>
+          </div>
+          <table className="stmt-items">
+            <thead><tr><th style={{ width: 30 }}>No</th><th>품목</th><th style={{ width: '24%' }}>모델명</th><th style={{ width: 44 }}>수량</th><th style={{ width: '15%' }}>단가</th><th style={{ width: '17%' }}>합계금액</th></tr></thead>
+            <tbody>
+              {s.items.map((it, i) => (
+                <tr key={i}>
+                  <td className="c">{i + 1}</td><td>{it.name || '-'}</td><td>{it.model}</td><td className="c">{it.qty}</td>
+                  <td className="r">{won(it.unitPrice)}</td><td className="r">{won(it.qty * it.unitPrice)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              {s.discount > 0 && <>
+                <tr><td colSpan={5} className="r">소계 <span className="vat">(부가세 포함)</span></td><td className="r">{won(s.subtotal)}</td></tr>
+                <tr className="disc"><td colSpan={5} className="r">할인</td><td className="r">-{won(s.discount)}</td></tr>
+              </>}
+              <tr className="sum"><td colSpan={5} className="r">총 합계 <span className="vat">(부가세 포함)</span></td><td className="r">{won(s.total)}</td></tr>
+            </tfoot>
+          </table>
+          <div className="stmt-account">
+            <div className="plabel">입 금 계 좌</div>
+            <div><b>{sp.account || '주식회사 대원메디칼 · 국민은행 450901-01-469947'}</b></div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -681,7 +789,8 @@ function App() {
         {page === 'detail' && <EquipmentDetail data={data} id={sel} go={go} pin={pin} reload={reload} />}
         {page === 'service' && <Service key={'svc' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
         {page === 'reorder' && <Reorder key={'ro' + (sel || '')} data={data} preset={sel} reload={reload} pin={pin} />}
-        {page === 'docs' && <Docs data={data} />}
+        {page === 'docs' && <Docs key={'docs' + (sel || '')} data={data} go={go} initialTab={sel} />}
+        {page === 'statement' && <StatementView data={data} id={sel} go={go} />}
       </main>
       <footer className="footer">
         {data.company.name} · 대표번호 <a href={'tel:' + data.company.phone.replace(/-/g, '')}>{data.company.phone}</a>

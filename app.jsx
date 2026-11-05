@@ -574,6 +574,23 @@ async function dbUpdatePurchaseOrder(id, po) {
   const { error } = await sb.from('purchase_orders').update({ ...po, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
 }
+// 거래명세서 사본 (SQL 44 hospital_statements) — 병원 포털 문서함에서 병원이 다시 봄.
+// 같은 병원+납품일자+발주 묶음이면 덮어씀 (재출력 시 최신 내용으로)
+async function dbSaveHospitalStatement(row) {
+  const { error } = await sb.from('hospital_statements')
+    .upsert({ ...row, issued_at: new Date().toISOString() }, { onConflict: 'hospital_id,statement_date,po_key' });
+  if (error) throw error;
+}
+async function dbLoadHospitalStatements(hospitalId) {
+  const { data, error } = await sb.from('hospital_statements')
+    .select('id,statement_date,issued_at,total,shared,items').eq('hospital_id', hospitalId).order('statement_date', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+async function dbSetHospitalStatementShared(id, shared) {
+  const { error } = await sb.from('hospital_statements').update({ shared }).eq('id', id);
+  if (error) throw error;
+}
 async function dbDeletePurchaseOrder(id) {
   // 연동된 외상매입 트랜잭션 모두 정리 (purchase + adjustment + cancel — payment는 PO와 별개라 보존)
   await sb.from('payable_transactions').delete().eq('po_id', id).in('tx_type', ['purchase','adjustment','cancel']);
@@ -17274,6 +17291,47 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
   );
 }
 
+// 병원 포털(my.) 문서함에 올라간 거래명세서 목록 — 거래명세서 창 안에서 숨기기/다시 올리기
+function PortalStatementsList({ hospitalId }) {
+  const [rows, setRows] = React.useState(null);
+  const [err, setErr] = React.useState('');
+  React.useEffect(() => {
+    let alive = true;
+    dbLoadHospitalStatements(hospitalId).then(r => { if (alive) setRows(r); }).catch(e => { if (alive) setErr(e.message || String(e)); });
+    return () => { alive = false; };
+  }, [hospitalId]);
+  const toggle = async (r) => {
+    try {
+      await dbSetHospitalStatementShared(r.id, !r.shared);
+      setRows(p => p.map(x => x.id === r.id ? { ...x, shared: !r.shared } : x));
+    } catch (e) { alert('변경 실패: ' + (e.message || e)); }
+  };
+  if (err) return <div className="text-[11px] text-rose-600">포털 명세서 목록을 못 불러왔습니다: {err}</div>;
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div>
+      <div className="text-xs font-semibold text-slate-600 mb-1">포털에 올린 명세서 <span className="text-slate-400 font-normal">({rows.filter(r => r.shared).length}/{rows.length}건 공개)</span></div>
+      <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-40 overflow-y-auto">
+        {rows.map(r => {
+          const its = Array.isArray(r.items) ? r.items : [];
+          const label = its.slice(0, 2).map(i => i.item_name).filter(Boolean).join(', ') + (its.length > 2 ? ` 외 ${its.length - 2}건` : '');
+          return (
+            <div key={r.id} className={'flex items-center gap-2 px-3 py-1.5 text-xs ' + (r.shared ? '' : 'opacity-50')}>
+              <span className="font-mono text-slate-500">{r.statement_date}</span>
+              <span className="flex-1 truncate text-slate-700">{label || '(품목 없음)'}</span>
+              <span className="tnum text-slate-700 whitespace-nowrap">{Number(r.total || 0).toLocaleString()}원</span>
+              <button type="button" onClick={() => toggle(r)}
+                className={'px-2 py-0.5 rounded font-semibold ' + (r.shared ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700')}>
+                {r.shared ? '숨기기' : '다시 올리기'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false, appHospitals = null, appManufacturers = null, customEquips = [] }) {
   const [pos, setPos] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -17571,7 +17629,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
 
   // 병원 그룹의 발주 품목 → 거래명세서 PDF (병원용, A4 세로)
   // overrideDeliveryDate: 사용자가 모달에서 입력한 납품일자 (없으면 오늘 날짜 fallback)
-  const handleHospitalStatementForGroup = (g, overrideDeliveryDate = null, discount = 0) => {
+  // share: 병원 포털 문서함에도 올림 (hospital_statements 사본 저장, SQL 44)
+  const handleHospitalStatementForGroup = (g, overrideDeliveryDate = null, discount = 0, share = true) => {
     const list = g.list || [];
     if (list.length === 0) { alert('발주가 없습니다.'); return; }
     const allItems = [];
@@ -17700,12 +17759,40 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       <script>window.onload=function(){window.print();}<\/script>
       </body></html>`);
     win.document.close();
+
+    // 병원 포털(my.) 문서함 > 납품 내역에서 병원이 같은 명세서를 다시 볼 수 있게 사본 저장
+    if (share && hospId) {
+      const poIds = list.map(p => p.id).filter(Boolean);
+      dbSaveHospitalStatement({
+        hospital_id: hospId,
+        statement_date: overrideDeliveryDate || today,
+        po_ids: poIds,
+        po_key: [...poIds].sort().join(','),
+        hospital_name: hospName,
+        hospital_address: hospAddress || null,
+        supplier: {
+          name: company.name || '주식회사 대원메디칼',
+          business_no: company.business_no || '347-81-02449',
+          representative: company.representative || '성현기',
+          address: company.address || '서울특별시 동대문구 장한로 186, 201호',
+          phone: company.phone || '', fax: company.fax || '',
+          account: '주식회사 대원메디칼 · 국민은행 450901-01-469947', // 명세서 PDF 하단 입금계좌와 같게
+        },
+        items: allItems.map(({ it }) => ({ item_name: it.item_name || '', model_name: it.model_name || '', qty: Number(it.quantity) || 0, unit_price: Number(it.sale_price) || 0 })),
+        subtotal: grandTotal,
+        discount_total: Number(discount) || 0,
+        total: grandTotal - (Number(discount) || 0),
+        shared: true,
+        created_by: user?.email || user?.name || null,
+      }).then(() => showToast('병원 포털 문서함에도 올렸습니다.'))
+        .catch(e => { console.error(e); showToast('포털 명세서 저장 실패: ' + (e.message || e), 'error'); });
+    }
   };
 
   // 병원 그룹 발주 → deliveries 등록 + PO 목록에서 제거
   // deliveryDate: 명세서 모달에서 받은 납품일자 (없으면 오늘)
   // discountItems: [{memo, amount}, ...] — 할인 여러 개
-  const handleFinalizeToHospital = async (g, deliveryDate = null, discountItems = []) => {
+  const handleFinalizeToHospital = async (g, deliveryDate = null, discountItems = [], share = true) => {
     const list = g.list || [];
     if (list.length === 0) { alert('발주가 없습니다.'); return; }
     const hospName = g.hospName || '—';
@@ -17762,8 +17849,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       // 모든 PO 비활성화
       await Promise.all(list.map(p => dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() })));
       showToast(`${hospName} 발주가 병원관리 납품이력에 등록되었습니다.`);
-      // PDF 명세서도 자동 인쇄
-      handleHospitalStatementForGroup(g, delivered, discountTotal);
+      // PDF 명세서도 자동 인쇄 (+ 병원 포털 사본)
+      handleHospitalStatementForGroup(g, delivered, discountTotal, share);
       reload();
     } catch (e) {
       console.error(e);
@@ -18358,18 +18445,24 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   선택 합계: <span className="text-sky-700">{selTotal.toLocaleString()}원</span>
                 </div>
               </div>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={statementModal.share !== false}
+                  onChange={e => setStatementModal(p => ({ ...p, share: e.target.checked }))}/>
+                <span><b>병원 포털(my.) 문서함에도 올리기</b><br/><span className="text-slate-500">병원이 납품 내역에서 이 명세서를 금액까지 그대로 봅니다. 같은 납품일자·같은 발주로 다시 뽑으면 덮어씁니다.</span></span>
+              </label>
+              {(() => { const hid = groupPos.find(p => p.hospital_id)?.hospital_id; return hid ? <PortalStatementsList hospitalId={hid} /> : null; })()}
             </div>
             <div className="px-6 py-3 border-t border-slate-100 flex justify-between gap-2">
               <button onClick={() => setStatementModal(null)}
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
               <div className="flex gap-2">
-                <button onClick={() => { const { deliveryDate } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(subGroup, deliveryDate, 0); }}
+                <button onClick={() => { const { deliveryDate, share } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(subGroup, deliveryDate, 0, share !== false); }}
                   disabled={!statementModal.deliveryDate || selected.length === 0}
                   title="PDF 저장만 (DB 저장 X)"
                   className="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-semibold disabled:opacity-40">
                   📄 PDF 저장
                 </button>
-                <button onClick={() => { const { deliveryDate } = statementModal; setStatementModal(null); handleFinalizeToHospital(subGroup, deliveryDate, []); }}
+                <button onClick={() => { const { deliveryDate, share } = statementModal; setStatementModal(null); handleFinalizeToHospital(subGroup, deliveryDate, [], share !== false); }}
                   disabled={!statementModal.deliveryDate || selected.length === 0}
                   title="PDF 저장 + 병원관리에 저장 · 발주 진행에서 제거"
                   className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
