@@ -154,6 +154,8 @@ async function loadBundle(h) {
     for (const it of p.purchase_order_items) {
       const label = `${it.item_name || ''} ${it.model_name || ''}`;
       if (NOT_EQUIPMENT_RE.test(label)) continue;
+      // 반품 등으로 수량을 0으로 만든 품목은 보유 장비에서 뺌 (수량 미입력 null은 1개로 봄)
+      if (it.quantity != null && Number(it.quantity) <= 0) continue;
       const eq = eqById.get(it.equipment_id) || eqByModel.get(norm(it.model_name));
       if (eq && (eq.cat_name || eq.category) === NON_ITEM_CAT) continue;
       events.push({
