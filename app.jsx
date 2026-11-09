@@ -19967,13 +19967,17 @@ function useSalesChat() {
         headers: await salesAuthHeaders(),
         body: JSON.stringify({ sessionId, message }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'API error');
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 401) {
+        setMessages(p => [...p, { role: 'assistant', content: '로그인이 풀렸습니다. 앱을 껐다가 다시 열어 주세요.', error: true }]);
+        return;
+      }
+      if (!r.ok) throw Object.assign(new Error(data.error || 'API error'), { status: r.status });
       setSessionId(data.sessionId);
       setMessages(p => [...p, { role: 'assistant', content: data.reply || '답변을 받지 못했습니다. 다시 말씀해 주세요.', draftId: data.draftId }]);
     } catch (e) {
       console.error('sales chat', e);
-      setMessages(p => [...p, { role: 'assistant', content: '답변을 받지 못했습니다. 잠시 뒤 다시 보내 주세요.', error: true }]);
+      setMessages(p => [...p, { role: 'assistant', content: `답변을 받지 못했습니다. 잠시 뒤 다시 보내 주세요.${e.status ? ` (오류 ${e.status})` : ''}`, error: true }]);
     } finally {
       setLoading(false);
     }
