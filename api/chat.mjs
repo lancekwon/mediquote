@@ -2,6 +2,7 @@
 // Vercel Serverless Function (Node runtime)
 
 import { matchEquipment } from '../scripts/equipment_match.mjs';
+import { getLoginEmail, isAdminEmail } from './_auth.mjs';
 //
 // ⚠ 데이터 안전 원칙:
 //   - 기존 테이블(equipment, hospitals, manufacturers, quotes, purchase_orders 등)은 READ ONLY
@@ -255,8 +256,10 @@ const TOOLS = [
   },
 ];
 
-async function runTool(name, input, { sessionId, owner }) {
+// isAdmin=false(영업사원): 매입처·사업자번호는 빼고, 전체 견적 조회는 막고, 병원 정보 수정은 담당 병원만
+async function runTool(name, input, { sessionId, owner, isAdmin = false, repId = null }) {
   const esc = (s) => encodeURIComponent(s);
+  const hide = (rows, ...fields) => { if (!isAdmin) rows.forEach((r) => fields.forEach((f) => delete r[f])); return rows; };
   switch (name) {
     case 'search_equipment': {
       const q = esc(`%${input.query}%`);
@@ -271,22 +274,23 @@ async function runTool(name, input, { sessionId, owner }) {
           + `&select=id,equip_code,cat_name,item_name,model_name,manufacturer,vendor,price`
           + `&limit=${input.limit || 20}`;
       }
-      const rows = await sb(url);
+      const rows = hide(await sb(url), 'vendor');
       return { count: rows.length, rows };
     }
     case 'search_hospitals': {
       const q = esc(`%${input.query}%`);
-      const rows = await sb(
+      const rows = hide(await sb(
         `hospitals?name=ilike.${q}&select=id,name,hospital_code,business_reg_no&limit=${input.limit || 10}`
-      );
+      ), 'business_reg_no');
       return { count: rows.length, rows };
     }
     case 'search_manufacturers': {
-      const rows = (await searchByName('manufacturers', ['name', 'aliases'], input.query,
-        'id,name,aliases,vendor_code,business_reg_no,category', input.limit || 10)).slice(0, input.limit || 10);
+      const rows = hide((await searchByName('manufacturers', ['name', 'aliases'], input.query,
+        'id,name,aliases,vendor_code,business_reg_no,category', input.limit || 10)).slice(0, input.limit || 10), 'business_reg_no');
       return { count: rows.length, rows };
     }
     case 'get_recent_quotes': {
+      if (!isAdmin) return { error: '사용할 수 없는 기능입니다.' };
       let path = `quotes?select=*&order=created_at.desc&limit=${input.limit || 5}`;
       if (input.hospital_id) path += `&hospital_id=eq.${input.hospital_id}`;
       const rows = await sb(path);
@@ -520,6 +524,11 @@ async function runTool(name, input, { sessionId, owner }) {
       return { vendor_code: code, manufacturer_id: row.id, name: row.name };
     }
     case 'update_hospital_info': {
+      if (!isAdmin) {
+        const assigned = isUuid(input.hospital_id) && repId
+          ? await sb(`hospitals?id=eq.${input.hospital_id}&assigned_rep_id=eq.${repId}&select=id`) : [];
+        if (!assigned.length) return { success: false, error: '담당 병원만 정보를 고칠 수 있습니다.' };
+      }
       const payload = {};
       ['address', 'contact_name', 'contact_phone', 'business_reg_no'].forEach(k => {
         if (input[k]) payload[k] = input[k];
@@ -540,7 +549,7 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 1. 기존 데이터(장비·병원·제조사·발주·세금계산서·수금)는 **수정·삭제 절대 금지** (예외: update_hospital_info로 빈 칸 보강). 새로 만드는 건 도구로만, 사용자 승인 후에만.
 2. 견적은 반드시 \`save_quote_draft\` 로 **draft 상태**로만 저장. 기존 quotes 테이블은 안 건드립니다.
 3. 가격은 \`search_equipment\` 의 price 를 기준. 가격이 0 or 없으면 사용자에게 물어보세요.
-4. 병원이 DB에 없을 수 있으니 \`search_hospitals\` 로 먼저 확인 → 없으면 \`hospital_name\` 만 넣어 draft.
+4. 병원이 DB에 없을 수 있으니 \`search_hospitals\` 로 먼저 확인 → 없으면 \`hospital_name\` 만 넣어 draft. "어디 병원으로", "누구 이름으로" 견적서를 만들어 달라고 하면 담당 병원이 아니어도, 병원이 아닌 사람 이름이어도 그 이름 그대로 바로 draft를 만드세요. 병원 등록을 요구하지 마세요.
 5. 답변은 **한국어**, 숫자는 콤마(예: 1,500,000원), 간결하게.
 
 **매우 중요 — 부가세(VAT) 정책:**
@@ -633,15 +642,28 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { sessionId: sessionIdIn, owner, message } = body || {};
-    if (!owner || !message) {
-      res.status(400).json({ error: 'owner, message required' });
+    const { sessionId: sessionIdIn, message } = body || {};
+    // 누구인지는 보낸 값이 아니라 로그인 토큰으로 판단
+    const owner = await getLoginEmail(req);
+    if (!owner) {
+      res.status(401).json({ error: '다시 로그인해 주세요.' });
       return;
     }
+    if (!message) {
+      res.status(400).json({ error: 'message required' });
+      return;
+    }
+    const isAdmin = isAdminEmail(owner);
 
-    // 1. 세션 확보
+    // 1. 세션 확보 (남의 대화는 이어갈 수 없음)
     let sessionId = sessionIdIn;
-    if (!sessionId) {
+    if (sessionId) {
+      const own = isUuid(sessionId) ? await sb(`chat_sessions?id=eq.${sessionId}&owner=eq.${encodeURIComponent(owner)}&select=id`) : [];
+      if (!own.length) {
+        res.status(403).json({ error: '내 대화가 아닙니다.' });
+        return;
+      }
+    } else {
       const [sess] = await sb('chat_sessions', {
         method: 'POST',
         body: JSON.stringify({ owner, title: message.slice(0, 60) }),
@@ -691,9 +713,11 @@ export default async function handler(req, res) {
     let draftId = null;
     let finalText = '';
     let finished = false;
-    const reps = await sb('sales_reps?select=name,email&order=name');
-    const me = reps.find((r) => r.email === String(owner).toLowerCase());
-    const system = `${SYSTEM}\n\n오늘 날짜(한국 시간): ${todayKST()}\n판매 담당 목록: ${reps.map((r) => r.name).join(', ')}\n지금 대화 중인 사람: ${me ? `${me.name} (영업사원)` : '관리자'}`;
+    const reps = await sb('sales_reps?select=id,name,email&order=name');
+    const me = reps.find((r) => r.email === owner);
+    const repRule = isAdmin ? '' : '\n이 사람은 영업사원입니다. 매입가, 매입처, 이익, 통장, 세금계산서는 알려주지 말고 "관리자에게 문의해 주세요"라고 답하세요.';
+    const system = `${SYSTEM}\n\n오늘 날짜(한국 시간): ${todayKST()}\n판매 담당 목록: ${reps.map((r) => r.name).join(', ')}\n지금 대화 중인 사람: ${isAdmin ? '관리자' : `${me?.name || '영업사원'} (영업사원)`}${repRule}`;
+    const tools = isAdmin ? TOOLS : TOOLS.filter((t) => t.name !== 'get_recent_quotes');
     for (let turn = 0; turn < 16; turn++) {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -706,7 +730,7 @@ export default async function handler(req, res) {
           model: MODEL,
           max_tokens: 16000, // 긴 카톡 대화를 정리하다 4096에서 잘리지 않게
           system,
-          tools: TOOLS,
+          tools,
           messages,
         }),
       });
@@ -748,7 +772,7 @@ export default async function handler(req, res) {
       for (const tc of toolCalls) {
         let result;
         try {
-          result = await runTool(tc.name, tc.input, { sessionId, owner });
+          result = await runTool(tc.name, tc.input, { sessionId, owner, isAdmin, repId: me?.id || null });
           if (tc.name === 'save_quote_draft' && result?.draft_id) draftId = result.draft_id;
         } catch (e) {
           result = { error: e.message };

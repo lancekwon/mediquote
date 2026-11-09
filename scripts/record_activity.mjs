@@ -1,3 +1,4 @@
+import './sb_env.mjs';
 // 단일 거래 저장 유틸 — 모든 kind를 하나의 함수로 처리.
 // Clobe 소스 ID로 중복 자동 차단 · PO/payable/receivable 자동 매칭 · balance 재계산 플래그
 //
@@ -58,6 +59,7 @@ function subtractDays(dateStr, n) {
  * @param {number} [opts.saleSupplyValue] - PO 매출 공급가 (품목 안분용)
  * @param {object} [opts.equipmentIds] - PO 품목별 장비 { index: 기존 장비 id | 'new' } — 비슷한 기존 장비가 있는 품목은 필수 (findEquipmentCandidates로 미리보기)
  * @param {boolean} [opts.autoMatch=true] - 자동 매칭 활성화
+ * @param {'collect'|'refund'} [opts.cashInKind] - cash_in + 거래처: collect=우리가 끊은 매출 계산서 수금(수수료·광고료), refund=매입 환급·오송금 반환. 안 주면 entryType으로 판단(매출/수금 → collect, 환급/환불/반환 → refund), 그래도 모르면 저장하지 않고 에러
  * @param {string} [opts.cashLogId] - payable/receivable 연계 시
  *
  * @returns {Promise<{id,source_table,created,skipped?,poMatched?,needRebalance?}>}
@@ -172,6 +174,14 @@ export async function linkSaleTiItems(tiId, { salePoIds = [], saleItemIds = [] }
 // ============================================================
 // 통장 (cash_in / cash_out) + payable/receivable 자동 연계
 // ============================================================
+function manufacturerCashInKind(o) {
+  if (o.cashInKind === 'collect' || o.cashInKind === 'refund') return o.cashInKind;
+  if (o.cashInKind != null) throw new Error(`cashInKind는 collect 또는 refund만 가능: ${o.cashInKind}`);
+  if (/매출|수금/.test(o.entryType || '')) return 'collect';
+  if (/환급|환불|반환/.test(o.entryType || '')) return 'refund';
+  throw new Error(`${o.party.name} ${o.happenedAt} 입금 ${o.amount}원: 매출 수금인지 환급인지 모름 — cashInKind를 'collect' 또는 'refund'로 지정`);
+}
+
 async function recordCash(kind, o) {
   if (!o.accountId) throw new Error('accountId required for ' + kind);
   if (o.clobeTxId) {
@@ -191,43 +201,31 @@ async function recordCash(kind, o) {
     clobe_tx_id: o.clobeTxId || null,
     // balance_after는 끝에 rebuildBalanceAfter에서 재계산
   };
+  // 거래처 입금은 통장에 넣기 전에 수금/환급부터 정함 — 못 정하면 통장도 안 들어가게 여기서 멈춤
+  const linksParty = o.autoMatch !== false && !!o.party?.id;
+  const mfrInKind = linksParty && kind === 'cash_in' && o.party.kind === 'manufacturer' ? manufacturerCashInKind(o) : null;
+
   const inserted = await ins('cash_balance_log', row);
 
-  // 자동 매칭 — payable/receivable 함께 생성 (거래처 매칭된 경우만)
-  if (o.autoMatch !== false && o.party?.id) {
-    if (kind === 'cash_out' && o.party.kind === 'manufacturer') {
-      await ins('payable_transactions', {
-        manufacturer_id: o.party.id,
-        tx_date: o.happenedAt,
-        tx_type: 'payment',
-        amount: Math.abs(o.amount),
-        memo: o.memo || null,
-        po_id: o.poId || null,
-        cash_log_id: inserted.id,
-        confirmed: true,
-      }).catch(e => console.warn('payable auto-create', e.message));
-    } else if (kind === 'cash_in' && o.party.kind === 'hospital') {
-      await ins('receivable_transactions', {
-        hospital_id: o.party.id,
-        tx_date: o.happenedAt,
-        tx_type: 'collect',
-        amount: Math.abs(o.amount),
-        memo: o.memo || null,
-        cash_log_id: inserted.id,
-      }).catch(e => console.warn('receivable auto-create', e.message));
-    } else if (kind === 'cash_in' && o.party.kind === 'manufacturer') {
-      // 환급 — payable에 음수 payment
-      await ins('payable_transactions', {
-        manufacturer_id: o.party.id,
-        tx_date: o.happenedAt,
-        tx_type: 'payment',
-        amount: -Math.abs(o.amount),
-        memo: o.memo || null,
-        po_id: o.poId || null,
-        cash_log_id: inserted.id,
-        confirmed: true,
-      }).catch(e => console.warn('refund payable auto-create', e.message));
+  // 통장과 원장은 같이 들어가야 함 — 원장 저장이 실패하면 통장 행도 되돌림 (통장만 남으면 받을 돈/줄 돈이 틀어짐)
+  const link = async (table, ledgerRow) => {
+    try {
+      await ins(table, { ...ledgerRow, cash_log_id: inserted.id });
+    } catch (e) {
+      const undo = await fetch(`${B}cash_balance_log?id=eq.${inserted.id}`, { method: 'DELETE', headers: H });
+      const undone = undo.ok && (await undo.json()).length === 1;
+      throw new Error(`${table} 저장 실패 — 통장 행 ${undone ? '되돌림' : `되돌리기 실패, 직접 확인 필요 (id=${inserted.id})`}: ${e.message}`);
     }
+  };
+
+  if (linksParty) {
+    const base = { tx_date: o.happenedAt, memo: o.memo || null };
+    const payable = amount => link('payable_transactions', { ...base, manufacturer_id: o.party.id, tx_type: 'payment', amount, po_id: o.poId || null, confirmed: true });
+    const collect = idField => link('receivable_transactions', { ...base, [idField]: o.party.id, tx_type: 'collect', amount: Math.abs(o.amount) });
+    if (kind === 'cash_out' && o.party.kind === 'manufacturer') await payable(Math.abs(o.amount));
+    else if (kind === 'cash_in' && o.party.kind === 'hospital') await collect('hospital_id');
+    else if (mfrInKind === 'collect') await collect('manufacturer_id');
+    else if (mfrInKind === 'refund') await payable(-Math.abs(o.amount));
   }
 
   return { id: inserted.id, source_table: 'cash_balance_log', created: true, needRebalance: true };
@@ -311,8 +309,10 @@ async function recordPayablePay(o) {
 // receivable_transactions 단독 저장
 // ============================================================
 async function recordReceivableCollect(o) {
+  const isMfr = !!o.manufacturerId || o.party?.kind === 'manufacturer';
   const row = {
-    hospital_id: o.hospitalId || o.party?.id,
+    hospital_id: isMfr ? null : (o.hospitalId || o.party?.id),
+    manufacturer_id: isMfr ? (o.manufacturerId || o.party.id) : null,
     tx_date: o.happenedAt,
     tx_type: 'collect',
     amount: Math.abs(o.amount),

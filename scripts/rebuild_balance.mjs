@@ -1,3 +1,4 @@
+import './sb_env.mjs';
 // cash_balance_log.balance_after 재계산 유틸
 // - standalone CLI: node scripts/rebuild_balance.mjs [accountId]
 // - importable: import { rebuildBalanceAfter } from './scripts/rebuild_balance.mjs'

@@ -1,3 +1,4 @@
+import './sb_env.mjs';
 // purchase_order_items 자동 생성 유틸 — Clobe TI items[] 받아서 equipment 매칭·등록까지
 //
 // 사용 예:

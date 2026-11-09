@@ -16,7 +16,7 @@ const MIME = {
 
 // /api/<이름> → api/<이름>.mjs 핸들러를 Vercel처럼 실행 (로컬 확인용. 운영은 Vercel이 직접 실행)
 const { pathToFileURL } = require('url');
-function runApi(name, req, res) {
+function runApi(name, req, res, query = {}) {
   const file = path.join(__dirname, 'api', name.replace(/[^a-z0-9_-]/gi, '') + '.mjs');
   if (!fs.existsSync(file)) { res.writeHead(404); res.end('Not found'); return; }
   let raw = '';
@@ -27,12 +27,13 @@ function runApi(name, req, res) {
       setHeader: (k, v) => res.setHeader(k, v),
       status(c) { this.statusCode = c; return this; },
       json(o) { res.writeHead(this.statusCode, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(o)); },
+      send(b) { res.writeHead(this.statusCode); res.end(b); },
     };
     try {
       const mod = await import(pathToFileURL(file).href + '?t=' + fs.statSync(file).mtimeMs); // 파일 바뀌면 다시 읽음
       let body = {};
       try { body = raw ? JSON.parse(raw) : {}; } catch { body = raw; }
-      await mod.default({ method: req.method, headers: req.headers, body }, shim);
+      await mod.default({ method: req.method, headers: req.headers, body, url: req.url, query }, shim);
     } catch (e) {
       console.error('[api]', name, e);
       if (!res.headersSent) { res.writeHead(500); res.end(String(e.message || e)); }
@@ -43,6 +44,7 @@ function runApi(name, req, res) {
 http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
   if (url.startsWith('/api/')) { runApi(url.slice(5), req, res); return; }
+  if (url.startsWith('/q/')) { runApi('quote', req, res, { t: url.slice(3) }); return; } // vercel.json 리라이트와 같게
   if (url === '/') url = '/index.html';
   if (/^\/h\/[0-9a-fA-F]{8}\/?$/.test(url)) url = '/hospital.html'; // 병원 포털 짧은 링크 (vercel.json 리라이트와 같게)
   const filePath = path.join(__dirname, url);
