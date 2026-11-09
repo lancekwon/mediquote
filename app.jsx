@@ -15604,7 +15604,7 @@ function ActivityFeed() {
                 <th className="px-3 py-2 text-left bg-white">거래처</th>
                 <th className="px-3 py-2 text-right w-36 bg-white">금액</th>
                 <th className="px-3 py-2 text-left bg-white">적요</th>
-                <th className="px-3 py-2 text-center w-16 bg-white">담당</th>
+                <th className="px-3 py-2 text-center w-20 bg-white">판매 담당</th>
                 <th className="px-3 py-2 text-center w-12 bg-white">상세</th>
               </tr>
             </thead>
@@ -16288,7 +16288,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
                   <div className="bg-white border-t border-slate-200">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-500"><tr>
-                        <th className="px-2 py-1.5 text-center w-10">담당</th>
+                        <th className="px-2 py-1.5 text-center w-20">판매 담당</th>
                         <th className="px-2 py-1.5 text-left w-24">발주일</th>
                         <th className="px-2 py-1.5 text-left w-28">발주번호</th>
                         <th className="px-2 py-1.5 text-left">거래처</th>
@@ -16298,11 +16298,11 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
                       </tr></thead>
                       <tbody>
                         {g.pos.map(p => {
-                          const oc = p.owner ? (PO_OWNER_COLOR[p.owner] || { bg:'bg-slate-100', text:'text-slate-600' }) : null;
+                          const oc = p.owner ? poOwnerColor(p.owner) : null;
                           return (
                             <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50">
                               <td className="px-2 py-1.5 text-center">
-                                {oc ? <span className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold leading-5 ${oc.bg} ${oc.text}`}>{p.owner}</span>
+                                {oc ? <span className={`inline-block px-1.5 h-5 rounded-full text-[10px] font-bold leading-5 whitespace-nowrap ${oc.bg} ${oc.text}`}>{p.owner}</span>
                                     : <span className="text-slate-300">-</span>}
                               </td>
                               <td className="px-2 py-1.5 text-slate-600">{(p.created_at||'').slice(0,10)}</td>
@@ -16653,11 +16653,11 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
       {byOwner.length > 0 && (
         <div className="flex gap-2 flex-wrap">
           {byOwner.map(o => {
-            const c = PO_OWNER_COLOR[o.owner] || { bg:'bg-slate-100', text:'text-slate-600', ring:'ring-slate-300' };
+            const c = poOwnerColor(o.owner);
             return (
               <div key={o.owner} className={`flex-1 min-w-[180px] rounded-lg p-3 border-2 ${o.owner==='(미지정)' ? 'bg-slate-50 border-slate-200' : `${c.bg} border-${c.ring.replace('ring-','')}`}`}>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${o.owner==='(미지정)' ? 'bg-slate-200 text-slate-500' : `${c.bg.replace('100','200')} ${c.text}`}`}>{o.owner}</span>
+                  <span className={`inline-flex items-center justify-center px-2 h-6 rounded-full font-bold text-xs whitespace-nowrap ${o.owner==='(미지정)' ? 'bg-slate-200 text-slate-500' : `${c.bg.replace('100','200')} ${c.text}`}`}>{o.owner}</span>
                   <span className="text-[10px] text-slate-600">{o.hospCount}개 병원</span>
                 </div>
                 <div className="text-[10px] text-slate-500">매출 <span className="font-mono text-slate-700">{fmt(Math.round(o.sale))}</span></div>
@@ -16725,8 +16725,8 @@ function HospitalProfitTab({ hospitals = [], onOpenHospital }) {
                           {isExp ? '▼' : '▶'}
                         </button>
                         {h.ownerList && h.ownerList.map(o => {
-                          const c = PO_OWNER_COLOR[o] || { bg:'bg-slate-100', text:'text-slate-600' };
-                          return <span key={o} className={`inline-block w-5 h-5 rounded-full text-[10px] font-bold text-center leading-5 ${c.bg} ${c.text}`} title={`담당: ${o}`}>{o}</span>;
+                          const c = poOwnerColor(o);
+                          return <span key={o} className={`inline-block px-1.5 h-5 rounded-full text-[10px] font-bold text-center leading-5 whitespace-nowrap ${c.bg} ${c.text}`} title={`판매 담당: ${o}`}>{o}</span>;
                         })}
                         <button type="button" onClick={() => onOpenHospital?.(h.id, h.name)}
                           className="text-blue-600 hover:underline font-medium">{h.name}</button>
@@ -17013,13 +17013,46 @@ function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) 
 }
 
 /* 발주 진행 상단 — 세금계산서 스타일의 한 줄 입력 폼 (즉시 저장) */
-const PO_OWNERS = ['권', '성', '최'];
-const PO_OWNER_COLOR = {
-  '권': { bg:'bg-blue-100',    text:'text-blue-700',    ring:'ring-blue-400' },
-  '성': { bg:'bg-emerald-100', text:'text-emerald-700', ring:'ring-emerald-400' },
-  '최': { bg:'bg-amber-100',   text:'text-amber-700',   ring:'ring-amber-400' },
+// 판매 담당 = 영업사원 명단(sales_reps)의 이름. 발주마다 1명 (누가 팔았나, 실적 기준).
+// 병원의 관리 담당(hospitals.assigned_rep_id)과 별개.
+let salesRepNamesPromise = null;
+const loadSalesRepNames = () => {
+  if (!salesRepNamesPromise) {
+    salesRepNamesPromise = sb.from('sales_reps').select('name').order('name')
+      .then(({ data, error }) => { if (error) throw error; return data.map(r => r.name); })
+      .catch(e => { console.error('sales_reps', e); salesRepNamesPromise = null; return []; });
+  }
+  return salesRepNamesPromise;
+};
+function useSalesRepNames() {
+  const [names, setNames] = useState([]);
+  useEffect(() => {
+    let off = false;
+    loadSalesRepNames().then(n => { if (!off) setNames(n); });
+    return () => { off = true; };
+  }, []);
+  return names;
+}
+// 명단에서 빠진 사람이 담당인 발주도 지금 값이 보이게
+const poOwnerOptions = (names, current) => [...new Set([...names, current].filter(Boolean))];
+
+const PO_OWNER_PALETTE = [
+  { bg:'bg-blue-100',    text:'text-blue-700',    ring:'ring-blue-400' },
+  { bg:'bg-emerald-100', text:'text-emerald-700', ring:'ring-emerald-400' },
+  { bg:'bg-amber-100',   text:'text-amber-700',   ring:'ring-amber-400' },
+  { bg:'bg-violet-100',  text:'text-violet-700',  ring:'ring-violet-400' },
+  { bg:'bg-rose-100',    text:'text-rose-700',    ring:'ring-rose-400' },
+  { bg:'bg-cyan-100',    text:'text-cyan-700',    ring:'ring-cyan-400' },
+  { bg:'bg-orange-100',  text:'text-orange-700',  ring:'ring-orange-400' },
+  { bg:'bg-lime-100',    text:'text-lime-700',    ring:'ring-lime-400' },
+];
+const poOwnerColor = (name) => {
+  let hash = 0;
+  for (const ch of String(name)) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return PO_OWNER_PALETTE[hash % PO_OWNER_PALETTE.length];
 };
 function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [], onSaved, showToast }) {
+  const repNames = useSalesRepNames();
   const [form, setForm] = useState({
     hospital: null,       // { id, name }
     vendor: null,         // { id, name }
@@ -17030,7 +17063,7 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
     salePrice: '',
     deliveryDate: '',
     memo: '',
-    owner: (() => { try { return localStorage.getItem('dwmedi.lastPoOwner') || ''; } catch { return ''; } })(),
+    owner: (() => { try { return localStorage.getItem('dwmedi.lastPoOwnerName') || ''; } catch { return ''; } })(),
   });
   const [pickerOpen, setPickerOpen] = useState(null); // 'hospital' | 'vendor'
   const [equipOpen, setEquipOpen] = useState(false);
@@ -17164,7 +17197,7 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
         delivery_date: form.deliveryDate || null,
         owner: form.owner || null,
       }, [itemRow]);
-      if (form.owner) { try { localStorage.setItem('dwmedi.lastPoOwner', form.owner); } catch {} }
+      if (form.owner) { try { localStorage.setItem('dwmedi.lastPoOwnerName', form.owner); } catch {} }
       showToast && showToast(`발주 ${poNo} 생성됨${form.owner ? ` · ${form.owner}` : ''}`);
 
       clearForm();
@@ -17183,21 +17216,14 @@ function QuickPoEntry({ hospitals = [], vendors = [], customEquips = [], pos = [
     <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-semibold text-slate-700">빠른 발주 등록 <span className="text-slate-400 font-normal">(입력할 때마다 새 발주 번호 생성 · 개별 저장·삭제 · 기본 상태: 대기)</span></div>
-        <div className="flex items-center gap-1">
-          <span className="text-[11px] text-slate-500 mr-1">담당</span>
-          {PO_OWNERS.map(o => {
-            const c = PO_OWNER_COLOR[o];
-            const active = form.owner === o;
-            return (
-              <button key={o} type="button"
-                onClick={() => setForm(p => ({...p, owner: active ? '' : o}))}
-                className={`w-7 h-7 rounded-full text-xs font-bold transition-all ${active ? `${c.bg} ${c.text} ring-2 ${c.ring}` : 'bg-white border border-slate-200 text-slate-400 hover:border-slate-400'}`}
-                title={active ? `${o} 담당 해제` : `${o} 담당으로 지정`}>
-                {o}
-              </button>
-            );
-          })}
-        </div>
+        <label className="flex items-center gap-1">
+          <span className="text-[11px] text-slate-500 mr-1">판매 담당</span>
+          <select value={form.owner} onChange={e => setForm(p => ({...p, owner: e.target.value}))}
+            className="border border-slate-300 rounded px-2 py-1 text-xs bg-white">
+            <option value="">미지정</option>
+            {poOwnerOptions(repNames, form.owner).map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
       </div>
       <div className="flex gap-2 flex-wrap items-start">
         {/* 병원 */}
@@ -18246,10 +18272,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             <td className="px-2 py-1.5 text-xs font-mono text-slate-600 align-top">
                               {isFirst && (
                                 <>
-                                  <div className="flex items-center gap-1.5">
-                                    <EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} />
-                                    <span>{p.po_no || '—'}</span>
-                                  </div>
+                                  <div className="whitespace-nowrap">{p.po_no || '—'}</div>
+                                  <div className="mt-0.5"><EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>
                                   {!viewer && <div className="mt-0.5"><DealTypeCell po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>}
                                   {viewer && p.deal_type === 'commission' && <div className="mt-0.5 text-[10px] text-violet-700">직거래</div>}
                                 </>
@@ -18615,8 +18639,9 @@ function DealTypeCell({ po, setPos, reload, showToast }) {
 
 function EditableOwner({ po, setPos, reload, showToast }) {
   const [open, setOpen] = useState(false);
+  const repNames = useSalesRepNames();
   const cur = po.owner || '';
-  const c = cur && PO_OWNER_COLOR[cur];
+  const c = cur && poOwnerColor(cur);
 
   const save = async (newOwner) => {
     setOpen(false);
@@ -18636,27 +18661,17 @@ function EditableOwner({ po, setPos, reload, showToast }) {
 
   if (open) {
     return (
-      <div className="inline-flex items-center gap-0.5 border border-blue-400 rounded p-0.5 bg-white shadow-sm">
-        {PO_OWNERS.map(o => {
-          const oc = PO_OWNER_COLOR[o];
-          const active = cur === o;
-          return (
-            <button key={o} type="button" onClick={() => save(o)}
-              className={`w-5 h-5 rounded-full text-[10px] font-bold ${active ? `${oc.bg} ${oc.text}` : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-              title={`${o} 담당`}>
-              {o}
-            </button>
-          );
-        })}
-        <button type="button" onClick={() => save('')}
-          className="w-5 h-5 rounded text-[10px] text-slate-400 hover:text-rose-600 hover:bg-rose-50" title="담당 해제">✕</button>
-      </div>
+      <select autoFocus value={cur} onChange={e => save(e.target.value)} onBlur={() => setOpen(false)}
+        aria-label="판매 담당" className="border border-blue-400 rounded px-1 py-0.5 text-[11px] bg-white">
+        <option value="">미지정</option>
+        {poOwnerOptions(repNames, cur).map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
     );
   }
   return (
     <button type="button" onClick={() => setOpen(true)}
-      title={cur ? `담당: ${cur} · 클릭하여 변경` : '담당 지정'}
-      className={`w-5 h-5 rounded-full text-[10px] font-bold transition-all ${c ? `${c.bg} ${c.text}` : 'bg-white border border-dashed border-slate-300 text-slate-300 hover:border-slate-400 hover:text-slate-500'}`}>
+      title={cur ? `판매 담당: ${cur} · 클릭하여 변경` : '판매 담당 지정'}
+      className={`min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold whitespace-nowrap transition-all ${c ? `${c.bg} ${c.text}` : 'bg-white border border-dashed border-slate-300 text-slate-300 hover:border-slate-400 hover:text-slate-500'}`}>
       {cur || '?'}
     </button>
   );
@@ -20529,6 +20544,7 @@ function SalesRepsPage({ user, onLogout, nav }) {
     if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setFormError('이름과 이메일을 정확히 입력해 주세요.'); return; }
     const { data, error } = await sb.from('sales_reps').insert({ name, email }).select('id,name,email').single();
     if (error) { setFormError(error.code === '23505' ? '이미 등록된 이메일입니다.' : error.message); return; }
+    salesRepNamesPromise = null;
     setReps(p => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
     setForm({ name: '', email: '' });
     setFormError('');
@@ -20539,6 +20555,7 @@ function SalesRepsPage({ user, onLogout, nav }) {
     if (!confirm(`${rep.name}님을 명단에서 뺄까요?${n ? ` 담당 병원 ${n}곳은 미지정으로 돌아갑니다.` : ''}`)) return;
     const { error } = await sb.from('sales_reps').delete().eq('id', rep.id);
     if (error) { alert('삭제 실패: ' + error.message); return; }
+    salesRepNamesPromise = null;
     setReps(p => p.filter(x => x.id !== rep.id));
     setHospitals(p => p.map(h => (h.assigned_rep_id === rep.id ? { ...h, assigned_rep_id: null } : h)));
     if (filter === rep.id) setFilter('all');
@@ -20619,8 +20636,8 @@ function SalesRepsPage({ user, onLogout, nav }) {
                       </th>
                       <th className="px-2 py-2">병원</th>
                       <th className="px-2 py-2">주소</th>
-                      <th className="px-2 py-2 w-32">발주 담당 (참고)</th>
-                      <th className="px-4 py-2 w-44">영업 담당</th>
+                      <th className="px-2 py-2 w-32">판매 담당 (참고)</th>
+                      <th className="px-4 py-2 w-44">관리 담당</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white">

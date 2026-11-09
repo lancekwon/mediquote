@@ -32,7 +32,6 @@ async function sb(path, opts = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-const PO_OWNERS = ['최', '권', '성'];
 const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
 const todayKST = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 const dayGap = (a, b) => Math.abs((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 86400000);
@@ -166,7 +165,7 @@ const TOOLS = [
       properties: {
         manufacturer_id: { type: 'string', description: '거래처 UUID (search_manufacturers 결과의 id)' },
         hospital_id: { type: 'string', description: '병원 UUID (search_hospitals 결과의 id)' },
-        owner: { type: 'string', enum: PO_OWNERS, description: '우리 회사 발주 담당자 성씨. 병원·거래처 사람 이름이 아님. 모르면 호출 전에 사용자에게 물어볼 것.' },
+        owner: { type: 'string', description: '판매 담당 — 이 발주를 판 우리 회사 영업사원의 전체 이름. 시스템 프롬프트의 판매 담당 목록에 있는 이름 그대로. 병원·거래처 사람 이름이 아님. 모르면 호출 전에 사용자에게 물어볼 것.' },
         ordered_at: { type: 'string', description: '발주일 YYYY-MM-DD — 카톡에서 주문이 확정된 메시지의 날짜. 알 수 없으면 생략(오늘로 저장).' },
         items: {
           type: 'array',
@@ -327,7 +326,8 @@ async function runTool(name, input, { sessionId, owner }) {
       const items = Array.isArray(input.items) ? input.items : [];
       if (!items.length) return { error: '품목이 없습니다.' };
       if (!isUuid(input.hospital_id) || !isUuid(input.manufacturer_id)) return { error: 'hospital_id / manufacturer_id는 검색 결과의 UUID여야 합니다.' };
-      if (!PO_OWNERS.includes(input.owner)) return { error: '담당(owner)은 최/권/성 중 하나여야 합니다. 사용자에게 물어보고 다시 호출하세요.' };
+      const [ownerRep] = await sb(`sales_reps?name=eq.${esc(String(input.owner || ''))}&select=name`);
+      if (!ownerRep) return { error: '판매 담당(owner)은 판매 담당 목록에 있는 이름이어야 합니다. 사용자에게 물어보고 다시 호출하세요.' };
       const noEq = items.filter((it) => !isUuid(it.equipment_id));
       if (noEq.length) {
         return { error: `장비에 연결 안 된 품목: ${noEq.map((it) => it.item_name).join(', ')} — search_equipment로 찾거나, 사용자 승인 후 register_equipment로 등록한 다음 다시 호출하세요.` };
@@ -561,7 +561,7 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
    - 병원(납품처), 거래처(우리가 물건을 사는 곳), 품목·모델·수량
    - 매출가: 병원에 받는 단가(VAT 포함). 대화나 사용자가 말한 값만 — 추정 금지.
    - 발주일(ordered_at): 주문이 확정된 메시지의 날짜. 알 수 없으면 생략(오늘로 저장).
-   - 담당(owner): 우리 회사 담당자 성씨 — 최/권/성 셋 중 하나 (최윤철=최, 권우혁=권, 성현기=성). 병원 원장·직원이나 거래처 사람 이름이 아님. 확실하지 않으면 미리보기에서 묻기.
+   - 판매 담당(owner): 이 발주를 판 우리 회사 영업사원. 아래 "판매 담당 목록"의 이름 그대로 쓰기. 지금 대화 중인 사람이 영업사원이고 다른 말이 없으면 그 사람. 병원 원장·직원이나 거래처 사람 이름이 아님. 확실하지 않으면 미리보기에서 묻기.
    - 거래처 매입가가 대화에 나오면 notes에 "카톡 매입가 1,980,000원"처럼만 적기.
 2. DB 매칭
    - 병원·거래처는 핵심 단어로 검색 (법인 표기·괄호·"의원/병원" 빼고). 영문 이름이 있으면 영문으로도 따로 검색. 후보가 여럿이면 사용자에게 고르게.
@@ -570,7 +570,7 @@ const SYSTEM = `당신은 **mediquote(DWmedi)** 의료장비 영업 어시스턴
 3. 미리보기 — 어떤 쓰기 도구든 부르기 전에 반드시 보여주고 승인받기. 병원+거래처 조합마다 발주 1건:
    📦 발주 1 — 서울아산샘유외과 / 에이치씨케이
    · N322 회색 × 1 — 매출가 1,700,000원
-   · 발주일 2026-11-03 · 담당 성
+   · 발주일 2026-11-03 · 판매 담당 성현기
    · 신규 등록: 장비 "N322 회색" (있을 때만)
    매출가를 모르는 품목은 "매출가 미정"으로 적고 "알면 알려주세요, 없으면 비워두고 만들어요"라고 한 번만 묻기.
    마지막 줄: "이대로 만들까요?"
@@ -691,7 +691,9 @@ export default async function handler(req, res) {
     let draftId = null;
     let finalText = '';
     let finished = false;
-    const system = `${SYSTEM}\n\n오늘 날짜(한국 시간): ${todayKST()}`;
+    const reps = await sb('sales_reps?select=name,email&order=name');
+    const me = reps.find((r) => r.email === String(owner).toLowerCase());
+    const system = `${SYSTEM}\n\n오늘 날짜(한국 시간): ${todayKST()}\n판매 담당 목록: ${reps.map((r) => r.name).join(', ')}\n지금 대화 중인 사람: ${me ? `${me.name} (영업사원)` : '관리자'}`;
     for (let turn = 0; turn < 16; turn++) {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
