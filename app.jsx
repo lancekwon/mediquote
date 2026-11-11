@@ -3012,9 +3012,13 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
+    // 아이폰: 홈 화면 앱(black-translucent)에선 위쪽 시계·노치 밑으로 창 머리가 들어가고, 사파리에선 92vh가 툴바 때문에 실제 보이는 높이보다 커서
+    // 위아래가 잘림 → 안전 영역만큼 띄우고, 창 높이를 실제 보이는 높이 안으로 제한 (PC에선 env()=0, 92vh < 100%라 변화 없음)
+    <div className="fixed inset-0 z-40 flex items-center justify-center"
+      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative bg-white rounded-xl shadow-2xl w-[min(1100px,95vw)] h-[92vh] flex flex-col animate-fs">
+      <div className="relative bg-white rounded-xl shadow-2xl w-[min(1100px,95vw)] h-[92vh] flex flex-col animate-fs"
+        style={{ maxHeight: 'calc(100% - 16px)' }}>
         {/* Header */}
         <div className="bg-slate-900 text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
           <div className={onShare ? 'hidden sm:block' : ''}>
