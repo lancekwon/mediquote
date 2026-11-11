@@ -1395,7 +1395,7 @@ function Toast({ toasts: externalToasts }) {
 /* ============================================================
    HEADER
    ============================================================ */
-const DEPT_LIST = ['정형외과','내과','가정의학과','재활의학과','산부인과','피부과','응급의학과','영상의학과','안과','흉부외과','성형외과','비뇨기과','이비인후과','소아과','신경외과','정신건강의학과','마취통증의학과','통증과','직업의학과','신경과','외과'];
+const DEPT_LIST = ['정형외과','내과','가정의학과','재활의학과','산부인과','피부과','응급의학과','영상의학과','안과','흉부외과','성형외과','비뇨기과','이비인후과','소아과','신경외과','정신건강의학과','마취통증의학과','통증과','직업의학과','신경과','외과','한의원'];
 
 /* ============================================================
    LOGIN PAGE
@@ -10087,10 +10087,12 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
           uid: item.id || ('uid-' + Math.random()),
           catId: cat.id, catName: cat.name,
           itemName: item.name,
+          modelId: model.id || '',      // 장비 목록 모델 id — 견적서 사진 연결용 (편집 후 저장해도 유지)
           modelName: model.name || '',
           manufacturer: model.manufacturer || '',
           price: model.price || null,
           notes: model.notes || '',
+          quantity: item.quantity || 1, // 편집 후 저장해도 수량 유지 (예: 한의원 8베드 기준 적외선 8대)
         });
       }
     }
@@ -10102,12 +10104,13 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
     for (const item of items) {
       if (!catMap[item.catId]) catMap[item.catId] = { id: item.catId, name: item.catName, colorKey: 'neutral', items: [] };
       const uid = Date.now() + Math.random();
+      const modelId = item.modelId || ('tplm-' + uid);
       catMap[item.catId].items.push({
         id: 'tpl-' + uid,
         name: item.itemName,
-        selectedModelId: 'tplm-' + uid,
-        quantity: 1, itemDiscount: 0, excluded: false, memo: '',
-        models: [{ id: 'tplm-' + uid, name: item.modelName || '표준모델', manufacturer: item.manufacturer || '', price: item.price || null, notes: item.notes || '' }],
+        selectedModelId: modelId,
+        quantity: item.quantity || 1, itemDiscount: 0, excluded: false, memo: '',
+        models: [{ id: modelId, name: item.modelName || '표준모델', manufacturer: item.manufacturer || '', price: item.price || null, notes: item.notes || '' }],
       });
     }
     return Object.values(catMap);
@@ -10201,6 +10204,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
     '직업의학과':     ['검사','영상진단','기타의료'],
     '신경과':         ['영상진단','검사','기타의료'],
     '외과':           ['영상진단','수술','기타의료'],
+    '한의원':         ['물리치료','검사','기타의료'],
   };
 
   // 카테고리별 기본 단가 (가격 null인 장비용 예산 계산에만 사용)
@@ -10540,7 +10544,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
                               <td className="px-5 py-2.5 font-medium text-slate-800">{item.itemName}</td>
                               <td className="px-5 py-2.5 text-slate-500 text-xs">{item.modelName || <span className="text-slate-300">—</span>}</td>
                               <td className="px-5 py-2.5 text-slate-500 text-xs">{item.manufacturer || <span className="text-slate-300">—</span>}</td>
-                              <td className="px-5 py-2.5 text-right text-slate-700 text-xs font-mono">{item.price ? item.price.toLocaleString('ko-KR') + '원' : <span className="text-slate-300">—</span>}</td>
+                              <td className="px-5 py-2.5 text-right text-slate-700 text-xs font-mono">{item.price ? item.price.toLocaleString('ko-KR') + '원' : <span className="text-slate-300">—</span>}{item.quantity > 1 && <span className="text-slate-400"> × {item.quantity}</span>}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -10607,7 +10611,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
                               <td className="px-5 py-2.5 font-medium text-slate-800">{item.itemName}</td>
                               <td className="px-5 py-2.5 text-slate-500 text-xs">{item.modelName || <span className="text-slate-300">—</span>}</td>
                               <td className="px-5 py-2.5 text-slate-500 text-xs">{item.manufacturer || <span className="text-slate-300">—</span>}</td>
-                              <td className="px-5 py-2.5 text-right text-slate-700 text-xs font-mono">{item.price ? item.price.toLocaleString('ko-KR') + '원' : <span className="text-slate-300">—</span>}</td>
+                              <td className="px-5 py-2.5 text-right text-slate-700 text-xs font-mono">{item.price ? item.price.toLocaleString('ko-KR') + '원' : <span className="text-slate-300">—</span>}{item.quantity > 1 && <span className="text-slate-400"> × {item.quantity}</span>}</td>
                               <td className="px-4 py-2.5 text-center">
                                 <button onClick={() => setEditingItems(p => p.filter(i => i.uid !== item.uid))} className="w-6 h-6 rounded-full flex items-center justify-center text-slate-300 hover:bg-red-100 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/></svg>
@@ -20514,7 +20518,7 @@ function SalesMaterials({ share }) {
           <SalesSection>들어가는 장비</SalesSection>
           {items.map(i => {
             const m = getModel(i);
-            return <SalesInfoCard key={i.id} title={i.name} sub={m?.name} strong={m?.price != null ? salesWon(m.price) : '가격 문의'} />;
+            return <SalesInfoCard key={i.id} title={i.name} sub={`${m?.name || ''}${i.quantity > 1 ? ` × ${i.quantity}대` : ''}`} strong={m?.price != null ? salesWon(m.price) : '가격 문의'} />;
           })}
         </SalesScreen>
         {showPdf && (
