@@ -16982,9 +16982,10 @@ function MoveMonthModal({ hosp, currentYm, currentRangeFrom, currentRangeTo, onC
    PURCHASE ORDER TRACKING — 발주 진행 (메인 메뉴 항목)
    병원별 카드 + 상태 매트릭스 + 품목 도착 체크 + 메모/이슈 로그
    ============================================================ */
-// 발주 진행 — 모바일용 카드 (공유 URL을 폰에서 보기 편하게)
-function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) {
-  const toggleTrackingDelivered = async () => {
+// 발주 단위 납품완료 버튼 — 켜면 이 발주가 '납품완료' 탭으로 넘어감 (품목별 '납품' 체크와는 별개)
+// 폰 카드와 PC 표가 같이 씀 (2026-11-12 전엔 폰에만 있어서 PC에서는 발주를 납품완료로 옮길 수 없었음)
+function PoDeliveredToggle({ p, setPos, reload, showToast, small = false }) {
+  const toggle = async () => {
     const newVal = !p.trackingDone;
     const today = new Date().toISOString().slice(0, 10);
     setPos(prev => prev.map(po => po.id === p.id ? {
@@ -16992,8 +16993,21 @@ function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) 
     } : po));
     try {
       await dbUpdatePurchaseOrder(p.id, { tracking_delivered: newVal, tracking_delivered_at: newVal ? today : null });
+      if (small) showToast(newVal ? `[${p.po_no}] 납품완료로 옮김` : `[${p.po_no}] 진행중으로 되돌림`);
     } catch (e) { showToast('저장 실패: ' + (e.message || e), 'error'); reload(); }
   };
+  return (
+    <button onClick={toggle}
+      title={p.trackingDone ? `납품완료${p.tracking_delivered_at ? ' · ' + String(p.tracking_delivered_at).slice(0, 10) : ''} (누르면 진행중으로 되돌림)` : '이 발주를 납품완료로 옮기기'}
+      className={`shrink-0 inline-flex items-center gap-1 rounded font-semibold transition-colors ${small ? 'px-1.5 py-0.5 text-[10px] whitespace-nowrap' : 'px-2.5 py-1.5 text-xs'} ${p.trackingDone ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+      <svg className={small ? 'w-3 h-3' : 'w-3.5 h-3.5'} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+      {p.trackingDone ? '납품완료' : '납품대기'}
+    </button>
+  );
+}
+
+// 발주 진행 — 모바일용 카드 (공유 URL을 폰에서 보기 편하게)
+function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) {
   const vi = p.vendorInfo;
   const fmtDate = (s) => s ? s.slice(5).replace('-', '/') : '—';
   return (
@@ -17015,11 +17029,7 @@ function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) 
             {p.deal_type === 'commission' && <span className="ml-1.5 font-sans text-[10px] font-semibold text-violet-700 bg-violet-100 rounded px-1">직거래{p.commission_amount != null ? ` · 수수료 ${Number(p.commission_amount).toLocaleString()}` : ''}</span>}
           </div>
         </div>
-        <button onClick={toggleTrackingDelivered}
-          className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-semibold transition-colors ${p.trackingDone ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-          {p.trackingDone ? '납품완료' : '납품대기'}
-        </button>
+        <PoDeliveredToggle p={p} setPos={setPos} reload={reload} showToast={showToast} />
       </div>
       <div className="mt-2 text-sm text-slate-700">
         <span className="font-medium">{p.firstModel || '—'}</span>
@@ -18271,7 +18281,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                       <th className="px-2 py-2 text-center w-10" title="발주">발주</th>
                       <th className="px-2 py-2 text-center w-10" title="입금">입금</th>
                       <th className="px-2 py-2 text-center w-10" title="세금계산서">세계</th>
-                      <th className="px-2 py-2 text-center w-10" title="납품">납품</th>
+                      <th className="px-2 py-2 text-center w-10" title="품목별 납품 표시 — 발주를 납품완료 탭으로 옮기려면 발주번호 아래 '납품대기' 버튼">납품</th>
                       <th className="px-2 py-2 text-center w-10" title="중고 여부">중고</th>
                       <th className="px-2 py-2 text-center w-10">메모</th>
                       <th className="px-2 py-2 text-center w-10">담당</th>
@@ -18300,6 +18310,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                               {isFirst && (
                                 <>
                                   <div className="whitespace-nowrap">{p.po_no || '—'}</div>
+                                  <div className="mt-1 font-sans"><PoDeliveredToggle p={p} setPos={setPos} reload={reload} showToast={showToast} small /></div>
                                   <div className="mt-0.5"><EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>
                                   {!viewer && <div className="mt-0.5"><DealTypeCell po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>}
                                   {viewer && p.deal_type === 'commission' && <div className="mt-0.5 text-[10px] text-violet-700">직거래</div>}
