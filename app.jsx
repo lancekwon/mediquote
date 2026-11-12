@@ -8899,6 +8899,122 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
   );
 }
 
+// 병원 포털(my.dwmedi.kr) 링크 모아보기 — 병원관리 헤더 "포털 링크" 버튼 (2026-11-12)
+// 상태: 접속 가능(링크 + 사업자등록번호 또는 예전 PIN) / 링크 만들기 필요(접속 코드는 있는데 링크 없음)
+//       / 사업자번호 필요(접속 코드 없음 — 4월에 링크만 일괄 생성된 병원은 링크가 있어도 못 들어옴)
+function PortalLinksModal({ hospitals, onTokenMade, onClose, onOpenHosp, onEditHosp }) {
+  const [tab, setTab] = React.useState('ready');
+  const [q, setQ] = React.useState('');
+  const [copied, setCopied] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const rows = React.useMemo(() => hospitals.map(h => {
+    const biz = portalBizNo(h);
+    const pin = biz ? '' : String(h.access_pin || '').trim();
+    const status = !(biz || pin) ? 'needBiz' : (h.token ? 'ready' : 'needLink');
+    return { h, biz, pin, status, url: h.token ? portalUrl(h.token) : '' };
+  }).sort((a, b) => (a.h.name || '').localeCompare(b.h.name || '', 'ko')), [hospitals]);
+  const counts = rows.reduce((m, r) => { m[r.status] = (m[r.status] || 0) + 1; return m; }, {});
+  const ql = q.trim().toLowerCase();
+  const shown = rows.filter(r => (tab === 'all' || r.status === tab)
+    && (!ql || `${r.h.name || ''} ${r.h.hospital_code || ''} ${r.h.region || ''} ${r.biz || ''}`.toLowerCase().includes(ql)));
+  const copy = (key, text) => {
+    navigator.clipboard.writeText(text)
+      .then(() => { setCopied(key); setTimeout(() => setCopied(c => (c === key ? '' : c)), 1500); })
+      .catch(() => prompt('아래 내용을 복사해서 쓰세요:', text));
+  };
+  // 병원관리 상세의 "카톡 안내 복사"와 같은 문구
+  const guide = r => `의료기기 정보 시스템 접속 안내\n\n링크: ${r.url}\n접속 코드: ${r.biz ? '병원 사업자등록번호 10자리' : r.pin}`;
+  const makeLinks = async (targets) => {
+    if (!targets.length) return;
+    if (targets.length > 1 && !confirm(`${targets.length}곳의 포털 링크를 만듭니다. 진행할까요?`)) return;
+    setBusy(true);
+    let list = hospitals; // 새로 만든 토큰도 겹침 검사에 넣으려고 로컬로 들고 감
+    try {
+      for (const r of targets) {
+        const token = newPortalToken(list);
+        await dbUpdateHospital(r.h.id, { token });
+        list = list.map(h => (h.id === r.h.id ? { ...h, token } : h));
+        onTokenMade(r.h.id, token);
+      }
+    } catch (e) { alert('링크 만들기 실패: ' + (e.message || e)); }
+    setBusy(false);
+  };
+  const TABS = [
+    { k: 'ready', l: '접속 가능', c: 'text-emerald-700' },
+    { k: 'needLink', l: '링크 만들기 필요', c: 'text-blue-700' },
+    { k: 'needBiz', l: '사업자번호 필요', c: 'text-amber-700' },
+    { k: 'all', l: '전체', c: 'text-slate-700' },
+  ];
+  const btn = 'px-2.5 py-1 text-xs rounded border font-semibold whitespace-nowrap transition-colors';
+  const needLinkRows = rows.filter(r => r.status === 'needLink');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="absolute inset-0 bg-slate-900/50" onClick={onClose} />
+      <div className="relative bg-white rounded-xl shadow-2xl w-[min(920px,96vw)] flex flex-col" style={{ maxHeight: 'calc(100% - 24px)' }}>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-slate-900">병원 포털 링크</div>
+            <div className="text-xs text-slate-500 mt-0.5">병원은 포털 주소로 들어와 사업자등록번호 10자리를 넣으면 접속됩니다. 사업자등록번호가 없으면 링크가 있어도 못 들어옵니다.</div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400 shrink-0" aria-label="닫기">✕</button>
+        </div>
+        <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center gap-2">
+          {TABS.map(t => (
+            <button key={t.k} onClick={() => setTab(t.k)}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${tab === t.k ? 'bg-slate-900 text-white border-slate-900 font-semibold' : `bg-white border-slate-200 hover:bg-slate-50 ${t.c}`}`}>
+              {t.l} <span className="font-bold">{t.k === 'all' ? rows.length : (counts[t.k] || 0)}</span>
+            </button>
+          ))}
+          <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="병원명·코드·사업자번호 검색"
+            className="ml-auto w-full sm:w-56 border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        {tab === 'needLink' && needLinkRows.length > 1 && (
+          <div className="px-5 py-2 bg-blue-50 border-b border-blue-100 flex items-center gap-3 text-xs text-blue-800">
+            <span className="flex-1">사업자등록번호는 있는데 링크가 없는 병원입니다. 링크만 만들면 바로 접속할 수 있습니다.</span>
+            <button disabled={busy} onClick={() => makeLinks(needLinkRows)}
+              className={`${btn} bg-blue-600 text-white border-blue-600 hover:bg-blue-500 disabled:opacity-50`}>{busy ? '만드는 중…' : `${needLinkRows.length}곳 한 번에 만들기`}</button>
+          </div>
+        )}
+        <div className="overflow-y-auto flex-1">
+          {shown.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-400">{ql ? '검색 결과가 없습니다' : '해당하는 병원이 없습니다'}</div>
+          ) : shown.map(r => (
+            <div key={r.h.id} className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <button onClick={() => onOpenHosp(r.h)} className="text-left min-w-[150px] flex-1 group" title="병원 상세 열기">
+                <div className="text-sm font-semibold text-slate-800 group-hover:text-blue-600">{r.h.name}</div>
+                <div className="text-[11px] text-slate-400">{[r.h.hospital_code, r.h.region].filter(Boolean).join(' · ') || ' '}</div>
+              </button>
+              {r.status === 'ready' && (<>
+                <div className="font-mono text-xs text-slate-600 select-all">{r.url.replace(/^https:\/\//, '')}</div>
+                <div className="text-xs text-slate-700 w-28 tabular-nums">{r.biz ? fmtBizNo(r.biz) : `PIN ${r.pin}`}</div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => copy(r.h.id + ':url', r.url)}
+                    className={`${btn} ${copied === r.h.id + ':url' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
+                    {copied === r.h.id + ':url' ? '복사됨' : '주소 복사'}</button>
+                  <button onClick={() => copy(r.h.id + ':guide', guide(r))}
+                    className={`${btn} ${copied === r.h.id + ':guide' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-yellow-300 text-slate-900 border-yellow-300 hover:bg-yellow-400'}`}>
+                    {copied === r.h.id + ':guide' ? '복사됨' : '카톡 안내문 복사'}</button>
+                </div>
+              </>)}
+              {r.status === 'needLink' && (<>
+                <div className="text-xs text-slate-500">{r.biz ? `사업자번호 ${fmtBizNo(r.biz)}` : `PIN ${r.pin}`} · 링크 없음</div>
+                <button disabled={busy} onClick={() => makeLinks([r])}
+                  className={`${btn} bg-blue-600 text-white border-blue-600 hover:bg-blue-500 disabled:opacity-50`}>링크 만들기</button>
+              </>)}
+              {r.status === 'needBiz' && (<>
+                <div className="text-xs text-amber-700">{r.h.token ? '링크는 있지만 사업자등록번호가 없어 접속 불가' : '사업자등록번호 없음'}</div>
+                <button onClick={() => onEditHosp(r.h)}
+                  className={`${btn} bg-white text-amber-700 border-amber-300 hover:bg-amber-50`}>사업자번호 입력</button>
+              </>)}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNavigated, user, onLogout, nav }) {
   const [hospitals, setHospitals] = React.useState([]);
   const [contracts, setContracts] = React.useState([]);
@@ -8912,6 +9028,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   const [newHosp, setNewHosp] = React.useState({ name:'', region:'', address:'', phone:'', contact_name:'', contact_phone:'', contact_email:'', notes:'', access_pin:'', business_reg_no:'' });
   const [savingHosp, setSavingHosp] = React.useState(false);
   const [linkCopied, setLinkCopied] = React.useState(false);
+  const [showPortalLinks, setShowPortalLinks] = React.useState(false);
   const [showNewSRForm, setShowNewSRForm] = React.useState(false);
   const [newSR, setNewSR] = React.useState({ equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), engineer:'', notes:'' });
   const [savingSR, setSavingSR] = React.useState(false);
@@ -9072,6 +9189,11 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
           전체 A/S 이력
         </button>
+        <button onClick={() => setShowPortalLinks(true)} title="병원 포털(my.dwmedi.kr) 주소·접속 코드 모아보기"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+          포털 링크
+        </button>
         <button onClick={() => setShowDashboard(p => !p)}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border transition-colors ${showDashboard ? 'bg-white text-slate-900 border-white' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
@@ -9084,6 +9206,22 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
           신규 등록 → 거래처 관리
         </button>
       </AppHeader>
+
+      {showPortalLinks && (
+        <PortalLinksModal
+          hospitals={hospitals}
+          onClose={() => setShowPortalLinks(false)}
+          onTokenMade={(id, token) => {
+            setHospitals(p => p.map(h => (h.id === id ? { ...h, token } : h)));
+            setSelectedHosp(p => (p?.id === id ? { ...p, token } : p));
+          }}
+          onOpenHosp={h => {
+            setShowPortalLinks(false); setShowDashboard(false);
+            setSelectedHosp(h); setDetailTab('info'); setDeliveries([]); setExpandedDeliveryId(null);
+          }}
+          onEditHosp={h => { setShowPortalLinks(false); openEditHospForm(h); }}
+        />
+      )}
 
       {/* 대시보드 */}
       {showDashboard && (
