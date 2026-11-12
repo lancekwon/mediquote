@@ -118,12 +118,21 @@ async function loadBundle(h) {
   const eqIds = [...new Set(pos.flatMap((p) => p.purchase_order_items.map((i) => i.equipment_id)).filter(isUuid))];
   const models = [...new Set(deliveries.flatMap((d) => d.delivery_items.map((i) => String(i.model_name || '').trim())).filter((m) => m.length >= 2))];
   const eqSelect = 'id,item_name,model_name,manufacturer,vendor,cat_name,category,image_url';
-  const eqRows = [
-    ...(eqIds.length ? await sb(`equipment?id=in.(${eqIds.join(',')})&select=${eqSelect}`) : []),
-    ...(models.length ? await sb(`equipment?model_name=in.(${models.map((m) => `"${m.replace(/"/g, '')}"`).map(enc).join(',')})&select=${eqSelect}`) : []),
-  ];
-  const eqById = new Map(eqRows.map((e) => [e.id, e]));
-  const eqByModel = new Map(eqRows.filter((e) => e.model_name).map((e) => [norm(e.model_name), e]));
+  const [idRows, modelRows] = await Promise.all([
+    eqIds.length ? sb(`equipment?id=in.(${eqIds.join(',')})&select=${eqSelect}`) : [],
+    models.length ? sb(`equipment?model_name=in.(${models.map((m) => `"${m.replace(/"/g, '')}"`).map(enc).join(',')})&select=${eqSelect}`) : [],
+  ]);
+  const eqById = new Map([...modelRows, ...idRows].map((e) => [e.id, e]));
+  // 모델명이 같은 장비가 여럿이면(예: 수치료기 Aqua Healing Bed E048·E667) 이 병원 발주에 연결된 장비가 이김 — 뒤에 넣은 게 남음
+  const eqByModel = new Map([...modelRows, ...idRows].filter((e) => e.model_name).map((e) => [norm(e.model_name), e]));
+  // 납품이력 줄은 대개 발주 품목을 그대로 옮긴 것("병원관리 저장") → 같은 병원 발주 품목과 품목명+모델명이 같으면 그 발주의 장비로 묶음.
+  // 모델명이 빈 줄(진찰대·투타메트 등)이 발주 쪽 장비와 따로 두 줄로 보이던 문제 (2026-11-12 바루다)
+  const itemKey = (name, model) => `${norm(name)}|${norm(model)}`;
+  const eqByPoItem = new Map();
+  for (const p of pos) for (const i of p.purchase_order_items) {
+    const e = eqById.get(i.equipment_id);
+    if (e) eqByPoItem.set(itemKey(i.item_name, i.model_name), e);
+  }
   // 병원에 보여줄 이름 = 장비 관리 이름 (사용자 결정 2026-11-04 — 사진·분류·이름을 장비 관리 한 곳에서 관리).
   // 장비에 연결 안 된 품목만 발주·납품에 적힌 이름 그대로
   const shown = (eq, name, model) => (String(eq?.item_name || '').trim()
@@ -143,7 +152,7 @@ async function loadBundle(h) {
       const label = `${it.item_name || ''} ${it.model_name || ''}`;
       if (!it.item_name && !it.model_name) continue;
       if (NOT_EQUIPMENT_RE.test(label)) continue;
-      const eq = eqByModel.get(norm(it.model_name));
+      const eq = eqByPoItem.get(itemKey(it.item_name, it.model_name)) || eqByModel.get(norm(it.model_name));
       if (eq && (eq.cat_name || eq.category) === NON_ITEM_CAT) continue;
       events.push({ type: '납품', date: d.delivered_date, ref: d.doc_no || null, name: it.item_name || it.model_name, model: it.model_name || '', qty: Number(it.quantity) || 1, eq });
     }
@@ -256,7 +265,7 @@ async function loadBundle(h) {
     }),
     ...deliveries.filter((d) => { const ids = poIdsIn(d.notes); return !(ids.length && ids.every((id) => stmtPoIds.has(id))); }).map((d) => {
       const items = d.delivery_items.filter((i) => !notEquip(i))
-        .map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.quantity) || 1, eq: eqByModel.get(norm(i.model_name)) }));
+        .map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.quantity) || 1, eq: eqByPoItem.get(itemKey(i.item_name, i.model_name)) || eqByModel.get(norm(i.model_name)) }));
       return { date: d.delivered_date, docNo: d.doc_no || null, summary: summary(items), count: items.length };
     }),
     ...[...deliveredByDate.entries()].map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
