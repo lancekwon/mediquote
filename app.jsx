@@ -1477,20 +1477,47 @@ function LoginPage({ onLogin }) {
   );
 }
 
-// 발주 요청함 '대기' 건수 — 메뉴 뱃지용
+// 병원 요청함 대기 건수 — 메뉴 뱃지용. 재주문·발주 요청(order_requests '대기') + 점검·수리 신청(service_requests '접수')
 function useOrderRequestPending() {
   const [count, setCount] = useState(0);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const { count: c } = await sb.from('order_requests').select('id', { count: 'exact', head: true }).eq('status', '대기');
-        if (alive) setCount(c || 0);
+        const [o, s] = await Promise.all([
+          sb.from('order_requests').select('id', { count: 'exact', head: true }).eq('status', '대기'),
+          sb.from('service_requests').select('id', { count: 'exact', head: true }).eq('status', '접수'),
+        ]);
+        if (alive) setCount((o.count || 0) + (s.count || 0));
       } catch (_) {}
     })();
     return () => { alive = false; };
   }, []);
   return count;
+}
+
+// 관리자 메뉴 — AppHeader와 견적서 작성 화면 Header가 같이 씀 (2026-11-12 이름 정리: 견적서 작성/견적서 목록, 병원 요청함 추가)
+const MENU_ICONS = {
+  home: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
+  po: 'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1',
+  plus: 'M12 4v16m8-8H4',
+  list: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
+  hosp: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
+  inbox: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4',
+  manage: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
+  money: 'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z',
+};
+function adminMenuItems(h, pendingReqs = 0) {
+  return [
+    { label:'홈',                 onClick: h.home,       icon: MENU_ICONS.home },
+    { label:'발주 진행',           onClick: h.poTracking, icon: MENU_ICONS.po },
+    { label:'견적서 작성',         onClick: h.editor,     icon: MENU_ICONS.plus },
+    { label:'견적서 목록',         onClick: h.list,       icon: MENU_ICONS.list },
+    { label:'병원 관리',           onClick: h.hospitals,  icon: MENU_ICONS.hosp },
+    { label:'병원 요청함',         onClick: h.requests,   icon: MENU_ICONS.inbox, badge: pendingReqs },
+    { label:'장비 및 거래처 관리', onClick: h.manage,     icon: MENU_ICONS.manage },
+    { label:'매입매출 관리',       onClick: h.payables,   icon: MENU_ICONS.money },
+  ];
 }
 
 function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, user, onLogout }) {
@@ -1505,15 +1532,10 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
   }, []);
 
   const pendingReqs = useOrderRequestPending();
-  const menuItems = [
-    { label:'홈',               onClick: onDashboard, icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-    { label:'발주 진행',         onClick: onPoTracking, icon:'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1' },
-    { label:'견적 작성',         onClick: onHome,     icon:'M12 4v16m8-8H4' },
-    { label:'견적 관리',         onClick: onLoad,     icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
-    { label:'병원 관리',         onClick: onHospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-    { label:'장비 및 거래처 관리', onClick: onManage,   icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
-    { label:'매입매출 관리',   onClick: onPayables, icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
-  ];
+  const menuItems = adminMenuItems({
+    home: onDashboard, poTracking: onPoTracking, editor: onHome, list: onLoad,
+    hospitals: onHospitals, requests: onOrderRequests, manage: onManage, payables: onPayables,
+  }, pendingReqs);
 
   const textFields = [
     { key:'hospital', label:'병원명', w:'w-36' },
@@ -1525,7 +1547,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
 
   return (
     <header className="bg-slate-900 text-white px-5 py-2.5 flex items-center gap-4 shrink-0 border-b border-slate-800">
-      <button onClick={onHome} className="flex items-center gap-2 mr-2 shrink-0 hover:opacity-80 transition-opacity">
+      <button onClick={() => (onDashboard || onHome)?.()} className="flex items-center gap-2 mr-2 shrink-0 hover:opacity-80 transition-opacity">
         <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
         <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
       </button>
@@ -1566,7 +1588,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
         {menuOpen && (
           <div className="absolute right-0 top-10 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-fs z-50">
             {menuItems.map(item => (
-              <button key={item.label} onClick={() => { item.onClick(); setMenuOpen(false); }}
+              <button key={item.label} onClick={() => { item.onClick?.(); setMenuOpen(false); }}
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors text-left">
                 <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon}/>
@@ -1609,22 +1631,18 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     return () => document.removeEventListener('mousedown', handler);
   }, []);
   const pendingReqs = useOrderRequestPending();
-  const menuItems = [
-    { label:'홈',               onClick: nav?.home,      icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-    { label:'발주 진행',         onClick: nav?.poTracking, icon:'M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1' },
-    { label:'견적 작성',         onClick: nav?.editor,    icon:'M12 4v16m8-8H4' },
-    { label:'견적 관리',         onClick: nav?.list,      icon:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12' },
-    { label:'병원 관리',         onClick: nav?.hospitals, icon:'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
-    { label:'장비 및 거래처 관리', onClick: nav?.manage,    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
-    { label:'매입매출 관리',   onClick: nav?.payables,  icon:'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z' },
-  ];
+  const menuItems = adminMenuItems({
+    home: nav?.home, poTracking: nav?.poTracking, editor: nav?.editor, list: nav?.list,
+    hospitals: nav?.hospitals, requests: nav?.orderRequests, manage: nav?.manage, payables: nav?.payables,
+  }, pendingReqs);
   if (isAdminEmail(user?.email)) {
     menuItems.push({ label:'🔍 AI 챗 모니터링', onClick: nav?.aiMonitor, icon:'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z' });
     menuItems.push({ label:'영업사원 관리', onClick: nav?.salesReps, icon:'M17 20h5v-2a4 4 0 00-5-3.87M9 20H4v-2a4 4 0 015-3.87m8-3.13a4 4 0 10-8 0 4 4 0 008 0zm-1-8a3 3 0 110 6M8 3a3 3 0 100 6' });
   }
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
-      <button onClick={onLogoClick} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity shrink-0">
+      {/* 로고 = 항상 홈 (2026-11-12 — 전엔 화면마다 견적 작성/견적서 목록/홈으로 제각각) */}
+      <button onClick={() => (nav?.home ? nav.home() : onLogoClick?.())} className="flex items-center gap-2 mr-2 hover:opacity-80 transition-opacity shrink-0">
         <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center text-white font-bold text-xs">DW</div>
         <span className="font-bold text-sm tracking-tight text-slate-100">DWmedi</span>
       </button>
@@ -8685,10 +8703,10 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
     const hosp = hospitals.find(h => h.id === s.hospital_id);
     if (!hosp) return;
     const item = { type: 'as', hosp, tab: 'service', detail: s.equipment_name || '장비 미상', days, sortVal: -days };
-    if (days >= 14) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'red' });
-    else if (days >= 7) allTodoItems.push({ ...item, bucket: 'today', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
-    else if (days >= 3) allTodoItems.push({ ...item, bucket: 'week', label: `A/S 미처리 ${days}일`, urgency: 'amber' });
-    else allTodoItems.push({ ...item, bucket: 'month', label: days === 0 ? 'A/S 신규 접수 (오늘)' : `A/S 신규 접수 ${days}일`, urgency: 'blue' });
+    if (days >= 14) allTodoItems.push({ ...item, bucket: 'today', label: `점검·수리 미처리 ${days}일`, urgency: 'red' });
+    else if (days >= 7) allTodoItems.push({ ...item, bucket: 'today', label: `점검·수리 미처리 ${days}일`, urgency: 'amber' });
+    else if (days >= 3) allTodoItems.push({ ...item, bucket: 'week', label: `점검·수리 미처리 ${days}일`, urgency: 'amber' });
+    else allTodoItems.push({ ...item, bucket: 'month', label: days === 0 ? '점검·수리 신규 접수 (오늘)' : `점검·수리 신규 접수 ${days}일`, urgency: 'blue' });
   });
 
   // 보증기간 만료  (sortVal: dl = 남은 일수, 적을수록 먼저)
@@ -8805,7 +8823,7 @@ function HospitalDashboard({ hospitals, contracts, serviceReqs, inspectionItems 
             { label:'관리 병원', value:hospitals.length, sub:`이번달 +${thisMonthHosps.length}`, color:'text-blue-600' },
             { label:'총 납품금액', value:fmt(totalDeliveryAmt)+'원', sub:`올해 ${fmt(yearDeliveryAmt)}원`, color:'text-violet-600' },
             { label:'진행중 계약', value:activeContracts.length+'건', sub:`전체 ${contracts.length}건`, color:'text-emerald-600' },
-            { label:'미처리 A/S', value:pendingSR.length+'건', sub:`접수 ${serviceReqs.filter(s=>s.status==='접수').length} · 처리중 ${serviceReqs.filter(s=>s.status==='처리중').length}`, color:pendingSR.length > 0 ? 'text-red-600':'text-slate-600' },
+            { label:'미처리 점검·수리', value:pendingSR.length+'건', sub:`접수 ${serviceReqs.filter(s=>s.status==='접수').length} · 처리중 ${serviceReqs.filter(s=>s.status==='처리중').length}`, color:pendingSR.length > 0 ? 'text-red-600':'text-slate-600' },
           ].map((k,i) => (
             <div key={i} className="bg-white rounded-xl border border-slate-200 p-5">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{k.label}</div>
@@ -9085,11 +9103,24 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
   };
   React.useEffect(() => { loadAll(); }, []);
 
+  // 납품이력 = 예전 납품 기록(deliveries) + 발주에서 납품완료한 것 (2026-11-12부터 납품은 발주의 납품완료 표시로만 함)
+  // 같은 발주가 납품 기록 메모(PO 번호)에 있으면 발주 쪽은 안 보여줌 — 병원 포털과 같은 기준
+  const [deliveredPos, setDeliveredPos] = React.useState([]);
   const loadDeliveries = async (hospId) => {
     setLoadingDeliveries(true);
-    const data = await dbLoadDeliveries(hospId);
-    setDeliveries(data);
-    setLoadingDeliveries(false);
+    try {
+      const [data, pos] = await Promise.all([
+        dbLoadDeliveries(hospId),
+        sb.from('purchase_orders')
+          .select('id, po_no, status, tracking_delivered, tracking_delivered_at, delivery_date, created_at, purchase_order_items(item_name, model_name, quantity, sale_price)')
+          .eq('hospital_id', hospId).neq('status', '취소').then(r => r.data || []),
+      ]);
+      const inDeliv = new Set((data || []).flatMap(d => String(d.notes || '').match(/PO-\d{4}-\d+/g) || []));
+      setDeliveries(data);
+      setDeliveredPos(pos.filter(p => (p.tracking_delivered || p.status === '납품완료') && !inDeliv.has(p.po_no))
+        .map(p => ({ ...p, day: String(p.tracking_delivered_at || p.delivery_date || p.created_at || '').slice(0, 10) }))
+        .sort((a, b) => b.day.localeCompare(a.day) || String(b.po_no).localeCompare(String(a.po_no))));
+    } finally { setLoadingDeliveries(false); }
   };
 
   const openNewHospForm = () => {
@@ -9187,7 +9218,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
         <button onClick={() => nav?.service?.()}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          전체 A/S 이력
+          점검·수리 이력
         </button>
         <button onClick={() => setShowPortalLinks(true)} title="병원 포털(my.dwmedi.kr) 주소·접속 코드 모아보기"
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
@@ -9287,7 +9318,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {h.region && <span className="text-xs text-slate-400">{h.region}</span>}
                       {h.contact_name && <span className="text-xs text-slate-400">{h.contact_name}</span>}
-                      <span className="text-xs text-slate-300">계약 {hC} · A/S {hS}</span>
+                      <span className="text-xs text-slate-300">계약 {hC} · 점검·수리 {hS}</span>
                     </div>
                   </div>
                 );
@@ -9318,12 +9349,12 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
               {[
                 {key:'info',label:'기본 정보'},
                 {key:'contracts',label:`계약 이력 (${hospContracts.length})`},
-                {key:'service',label:`A/S 이력 (${hospSRs.length})`},
-                {key:'deliveries',label:'납품 이력'},
+                {key:'service',label:`점검·수리 (${hospSRs.length})`},
+                {key:'deliveries',label:'납품이력'},
               ].map(tab => (
                 <button key={tab.key} onClick={() => {
                   setDetailTab(tab.key);
-                  if (tab.key === 'deliveries' && deliveries.length === 0) loadDeliveries(selectedHosp.id);
+                  if (tab.key === 'deliveries') loadDeliveries(selectedHosp.id); // 다른 병원 것이 남지 않게 매번 새로
                 }}
                   className={`px-4 py-3 text-sm font-semibold border-b-2 mr-1 transition-colors ${detailTab===tab.key ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-700'}`}>
                   {tab.label}
@@ -9478,7 +9509,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                 hospContracts.length === 0 ? (
                   <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
                     <div className="text-sm font-medium">등록된 계약이 없습니다</div>
-                    <div className="text-xs mt-1">견적서 목록에서 "계약 등록" 버튼을 사용하세요</div>
+                    <div className="text-xs mt-1">예전 영업관리(계약) 기록만 여기 보입니다. 납품은 「납품이력」 탭을 보세요</div>
                   </div>
                 ) : (
                   <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -9601,19 +9632,52 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
               )}
               {/* 납품 이력 탭 */}
               {detailTab === 'deliveries' && (
-                <div>
-                  {loadingDeliveries ? (
-                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
-                  ) : deliveries.length === 0 ? (
-                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
-                      <svg className="w-10 h-10 mb-3 mx-auto opacity-25" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"/></svg>
-                      <div className="text-sm font-medium">등록된 납품 이력이 없습니다</div>
-                      <div className="text-xs mt-1">Excel import 후 이 곳에 표시됩니다</div>
-                    </div>
-                  ) : (
+                <div className="space-y-4">
+                  {!loadingDeliveries && deliveredPos.length > 0 && (
                     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                       <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-                        <div className="text-sm font-bold text-slate-800">납품 이력</div>
+                        <div className="text-sm font-bold text-slate-800">발주에서 납품완료 <span className="text-xs font-normal text-slate-400">발주 진행에서 납품완료로 표시한 것</span></div>
+                        <div className="text-xs text-slate-400">총 {deliveredPos.length}건</div>
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500 w-28">납품일</th>
+                            <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500 w-32">발주번호</th>
+                            <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500">품목</th>
+                            <th className="px-5 py-2.5 text-right text-xs font-semibold text-slate-500 w-32">매출 합계</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deliveredPos.map(p => {
+                            const items = p.purchase_order_items || [];
+                            const sale = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.sale_price) || 0), 0);
+                            return (
+                              <tr key={p.id} className="border-b border-slate-50 last:border-0">
+                                <td className="px-5 py-2.5 text-xs text-slate-700 whitespace-nowrap">{p.day || '—'}</td>
+                                <td className="px-5 py-2.5 text-xs font-mono text-slate-500 whitespace-nowrap">{p.po_no}</td>
+                                {(() => { const txt = items.map(it => `${it.item_name || ''}${it.model_name ? ` ${it.model_name}` : ''}${Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}`).join(', ') || '—';
+                                  return <td className="px-5 py-2.5 text-xs text-slate-700"><div className="line-clamp-2" title={txt}>{items.length > 1 ? <span className="text-slate-400 mr-1">{items.length}종</span> : null}{txt}</div></td>; })()}
+                                <td className="px-5 py-2.5 text-right text-xs font-mono text-slate-800">{sale ? sale.toLocaleString('ko-KR') + '원' : '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {loadingDeliveries ? (
+                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400 text-sm">불러오는 중...</div>
+                  ) : deliveries.length === 0 ? (deliveredPos.length > 0 ? null : (
+                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+                      <svg className="w-10 h-10 mb-3 mx-auto opacity-25" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"/></svg>
+                      <div className="text-sm font-medium">납품이력이 없습니다</div>
+                      <div className="text-xs mt-1">발주 진행에서 납품완료로 표시하면 여기에 보입니다</div>
+                    </div>
+                  )) : (
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+                        <div className="text-sm font-bold text-slate-800">납품 기록 <span className="text-xs font-normal text-slate-400">예전 엑셀·병원관리 저장으로 들어온 것</span></div>
                         <div className="text-xs text-slate-400">총 {deliveries.length}건 · 합계 {deliveries.reduce((s,d)=>s+(d.total_amount||0),0).toLocaleString('ko-KR')}원</div>
                       </div>
                       <table className="w-full text-sm">
@@ -9710,12 +9774,12 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
                     <button onClick={() => { setShowNewSRForm(true); setNewSR({ equipment_name:'', model_name:'', issue:'', status:'접수', requested_at:getToday(), engineer:'', notes:'' }); }}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded font-semibold hover:bg-blue-500 transition-colors">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-                      A/S 등록
+                      점검·수리 등록
                     </button>
                   </div>
                   {hospSRs.length === 0 ? (
                     <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
-                      <div className="text-sm font-medium">등록된 A/S 요청이 없습니다</div>
+                      <div className="text-sm font-medium">등록된 점검·수리가 없습니다</div>
                     </div>
                   ) : (
                     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -9848,13 +9912,13 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
         </div>
       )}
 
-      {/* A/S 등록 모달 */}
+      {/* 점검·수리 등록 모달 */}
       {showNewSRForm && selectedHosp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <div className="font-bold text-slate-900">A/S 등록</div>
+                <div className="font-bold text-slate-900">점검·수리 등록</div>
                 <div className="text-xs text-slate-400 mt-0.5">{selectedHosp.name}</div>
               </div>
               <button onClick={() => setShowNewSRForm(false)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
@@ -9900,7 +9964,7 @@ function HospitalsPage({ onBack, initialHospId = null, initialTab = 'info', onNa
               <button onClick={() => setShowNewSRForm(false)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
               <button onClick={handleSaveSR} disabled={savingSR}
                 className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50">
-                {savingSR ? '저장 중...' : 'A/S 등록'}
+                {savingSR ? '저장 중...' : '점검·수리 등록'}
               </button>
             </div>
           </div>
@@ -9973,7 +10037,7 @@ function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
-      <AppHeader title="병원 관리 · 전체 A/S 이력" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
+      <AppHeader title="점검·수리 이력" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
         <button onClick={() => nav?.hospitals?.()}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
@@ -9982,7 +10046,7 @@ function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
         <button onClick={openNew}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-          A/S 등록
+          점검·수리 등록
         </button>
       </AppHeader>
 
@@ -10003,7 +10067,7 @@ function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
             <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400 text-sm">불러오는 중...</div>
           ) : filtered.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-16 text-center text-slate-400">
-              <div className="text-sm font-medium">등록된 A/S 요청이 없습니다</div>
+              <div className="text-sm font-medium">등록된 점검·수리가 없습니다</div>
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -10047,7 +10111,7 @@ function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{background:'rgba(0,0,0,0.55)'}}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-              <div className="font-bold text-slate-900">{editingSR ? 'A/S 수정' : 'A/S 등록'}</div>
+              <div className="font-bold text-slate-900">{editingSR ? '점검·수리 수정' : '점검·수리 등록'}</div>
               <button onClick={() => { setShowForm(false); setEditingSR(null); }} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-400">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
@@ -10112,7 +10176,7 @@ function ServiceRequestsPage({ onBack, user, onLogout, nav }) {
               <button onClick={() => { setShowForm(false); setEditingSR(null); }} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50">취소</button>
               <button onClick={handleSave} disabled={saving}
                 className="px-5 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-500 disabled:opacity-50">
-                {saving ? '저장 중...' : (editingSR ? '수정 완료' : 'A/S 등록')}
+                {saving ? '저장 중...' : (editingSR ? '수정 완료' : '점검·수리 등록')}
               </button>
             </div>
           </div>
@@ -10425,11 +10489,11 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', background:'#f1f5f9'}}>
       {/* Header */}
-      <AppHeader title="견적서 관리" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
+      <AppHeader title="견적서" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav}>
         <Toast toasts={toasts}/>
         <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-          견적 작성
+          견적서 작성
         </button>
       </AppHeader>
 
@@ -10438,7 +10502,7 @@ function SavedQuotesList({ onLoad, onBack, onHospitals, onService, onLeads, cust
         <div className="max-w-7xl mx-auto flex">
           {[
             { key: 'list',     label: '견적서 목록' },
-            { key: 'standard', label: '진료과별 견적서' },
+            { key: 'standard', label: '표준견적 (진료과별)' },
           ].map(tab => (
             <button key={tab.key}
               onClick={() => { setActiveTab(tab.key); setSelectedDept(null); }}
@@ -11821,7 +11885,7 @@ function CashflowTab({ contracts = [], hospitals = [], manufacturers = [] }) {
             {extraRows.length === 0 ? (
               <tr><td colSpan={5} className="py-10 text-center text-slate-400 text-sm">
                 발주 외 매출 기록이 없습니다.<br/>
-                <span className="text-xs">「거래 입력」에서 <b>광고 매출 · 수수료 · 잡수입</b> 유형으로 입력하면 여기 모입니다.</span>
+                <span className="text-xs">「통장 출납」 탭 통장 거래 입력에서 <b>광고 매출 · 수수료 · 잡수입</b> 유형으로 입력하면 여기 모입니다.</span>
               </td></tr>
             ) : extraRows.map(c => {
               const st = CASH_TAG_STYLE[c.entry_type] || { bg: 'bg-slate-100', text: 'text-slate-600' };
@@ -12064,6 +12128,8 @@ function PaymentSelectModal({ mfrId, mfrName, allPayTx, manufacturers = [], onCl
 /* ============================================================
    ORDER REQUESTS (발주 요청함) PAGE — 현장/영업 요청 빠른 캡처 inbox
    ============================================================ */
+// 병원 요청함 (2026-11-12 이름 바꿈, 전엔 '발주 요청함'인데 메뉴가 없어서 못 들어갔음)
+// = 병원 포털 재주문(requester '병원 포털') + 영업사원·직접 입력 발주 요청. 포털 점검·수리 신청은 점검·수리 이력에 있고 여기엔 건수만
 function OrderRequestsPage({ onBack, user, onLogout, nav }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12071,11 +12137,16 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
   const [form, setForm] = useState({ site: '', requester: '', model_name: '', quantity: '', quote_price: '', content: '' });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('대기'); // 대기 | 전체 | 완료 | 보류
+  const [svcOpen, setSvcOpen] = useState({ new: 0, doing: 0 });
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const { data } = await sb.from('order_requests').select('*').order('created_at', { ascending: false });
+    const [{ data }, sv] = await Promise.all([
+      sb.from('order_requests').select('*').order('created_at', { ascending: false }),
+      sb.from('service_requests').select('status').in('status', ['접수', '처리중']).then(r => r.data || []),
+    ]);
     setRows(data || []);
+    setSvcOpen({ new: sv.filter(s => s.status === '접수').length, doing: sv.filter(s => s.status === '처리중').length });
     setLoading(false);
   }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -12135,11 +12206,20 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <AppHeader title="발주 요청함" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
+      <AppHeader title="병원 요청함" onLogoClick={onBack} user={user} onLogout={onLogout} nav={nav} />
       <div className="flex-1 overflow-y-auto p-4 md:p-6 w-full max-w-4xl mx-auto space-y-4">
+        <div className="text-xs text-slate-500">
+          병원 포털(my.)에서 병원이 누른 <b>재주문</b>과, 카톡·전화로 받은 <b>발주 요청</b>을 모아 봅니다. 처리하면 <b>완료</b>를 눌러 주세요.
+        </div>
+        {(svcOpen.new + svcOpen.doing) > 0 && (
+          <button onClick={() => nav?.service?.()}
+            className="w-full text-left bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900 hover:bg-amber-100 transition-colors">
+            🔧 점검·수리 신청 — 접수 <b>{svcOpen.new}</b>건 · 처리중 <b>{svcOpen.doing}</b>건 <span className="text-amber-700 text-xs ml-1">점검·수리 이력에서 보기 →</span>
+          </button>
+        )}
         {/* 빠른 입력 */}
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-sm font-semibold text-slate-700 mb-3">빠른 발주 요청 추가</div>
+          <div className="text-sm font-semibold text-slate-700 mb-3">요청 직접 추가 <span className="text-xs font-normal text-slate-400">카톡·전화로 받은 것</span></div>
           <div className="space-y-2">
             <div className="flex gap-2 flex-wrap">
               <input value={form.site} onChange={e => setForm(p => ({ ...p, site: e.target.value }))}
@@ -12194,8 +12274,9 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
               <div key={r.id} className={`bg-white border rounded-lg p-3 ${r.status === '완료' ? 'border-slate-100 opacity-60' : 'border-slate-200'}`}>
                 <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mb-1">
                   <span className={`px-2 py-0.5 rounded font-semibold ${STATUS_STYLE[r.status] || ''}`}>{r.status}</span>
+                  {r.requester === '병원 포털' && <span className="px-1.5 py-0.5 rounded font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200" title="병원이 포털(my.dwmedi.kr)에서 재주문">my. 재주문</span>}
                   {r.site && <span className="font-semibold text-slate-800">{r.site}</span>}
-                  {r.requester && <span>· {r.requester}</span>}
+                  {r.requester && r.requester !== '병원 포털' && <span>· {r.requester}</span>}
                   <span className="ml-auto">{fmtDate(r.created_at)}</span>
                 </div>
                 {(r.model_name || r.quantity || r.quote_price) && (
@@ -12226,8 +12307,8 @@ function OrderRequestsPage({ onBack, user, onLogout, nav }) {
 /* ============================================================
    PAYABLES (외상매입금 관리) PAGE
    ============================================================ */
-function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers }) {
-  const [tab, setTab] = useState('balance'); // balance | cashflow | cash | taxinv | activity | profit | todo
+function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManufacturers, initialTab = null, initialTodoFilter = null }) {
+  const [tab, setTab] = useState(initialTab || 'balance'); // balance | cashflow | cash | taxinv | activity | profit | todo
   const [balances, setBalances] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [cashLogs, setCashLogs] = useState([]);
@@ -12425,7 +12506,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
               </button>
             ))}
             <div className="ml-auto flex items-center px-4 text-xs text-slate-400">
-              모든 입력은 「거래 입력」 탭에서
+              입력은 「통장 출납」·「세금계산서」 탭에서
             </div>
           </div>
 
@@ -12563,7 +12644,7 @@ function PayablesPage({ onBack, user, onLogout, nav, manufacturers = [], setManu
           ) : tab === 'profit' ? (
             <HospitalProfitTab hospitals={hospitals} onOpenHospital={(id, name) => nav?.goToHospital?.(id)} />
           ) : tab === 'todo' ? (
-            <TodoTab hospitals={hospitals} manufacturers={manufacturers} nav={nav} onGoTab={setTab} />
+            <TodoTab hospitals={hospitals} manufacturers={manufacturers} nav={nav} onGoTab={setTab} initialFilter={initialTodoFilter} />
           ) : (
             <CashBalanceTable logs={cashLogs} onReload={reload} showToast={showToast} balances={balances} accounts={accounts}
               payTx={transactions} recvTx={arTransactions} purchaseTax={purchaseTax} saleTax={saleTax}
@@ -13947,7 +14028,7 @@ function HospitalLedgerModal({ hospitalId, hospitalName, contracts = [], onClose
               {loading ? (
                 <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-xs">불러오는 중...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-xs">거래 내역 없음 — 거래 입력 탭에서 '수금'으로 추가하세요</td></tr>
+                <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-xs">거래 내역 없음 — 통장 출납 탭 통장 거래 입력에서 '병원 입금'으로 추가하세요</td></tr>
               ) : rows.map(r => {
                 const ctr = r.contract_id ? contractMap.get(r.contract_id) : null;
                 return (
@@ -16233,12 +16314,123 @@ function PayableBalanceModal({ list, onClose }) {
 /* ============================================================
    할 일 (TODO) 탭 — 발주별 매입/매출 계산서 매칭 상태 (한 줄 = 한 거래)
    ============================================================ */
-function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
+// 할 일 탭과 홈 카드가 같이 쓰는 데이터·계산 (2026-11-12 TodoTab에서 꺼냄 — 계산은 그대로)
+async function loadTodoSources() {
+  const [pos, purchaseTax, saleTax] = await Promise.all([
+    sb.from('purchase_orders')
+      .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, owner, status, is_active, total_amount, sale_amount, deal_type, commission_amount')
+      .neq('status', '취소')
+      .not('hospital_id', 'is', null)
+      .gte('created_at', '2026-05-29T00:00:00')
+      .then(r => r.data || []),
+    sb.from('tax_invoices')
+      .select('id, kind, issue_date, party_name, manufacturer_id, hospital_id, amount, po_id, no_po')
+      .eq('kind', 'purchase').then(r => r.data || []),
+    sb.from('tax_invoices')
+      .select('id, kind, issue_date, party_name, manufacturer_id, hospital_id, amount, po_id, no_po')
+      .eq('kind', 'sale').gt('issue_date', '2026-05-29').then(r => r.data || []),
+  ]);
+  return { pos, purchaseTax, saleTax };
+}
+// 발주별 매입 상태 + 병원별 그룹 (매출 계산서는 병원 단위 합계로 비교)
+function buildTodoGroups(pos, purchaseTax, saleTax) {
+  // 매입 세금계산서 매칭: po_id로 그룹
+  const invoiceByPo = new Map();
+  purchaseTax.forEach(t => {
+    if (!t.po_id) return;
+    if (!invoiceByPo.has(t.po_id)) invoiceByPo.set(t.po_id, []);
+    invoiceByPo.get(t.po_id).push(t);
+  });
+
+  // 매출 세금계산서 병원별 집계
+  const salesByHosp = new Map();
+  saleTax.forEach(t => {
+    if (!t.hospital_id) return;
+    salesByHosp.set(t.hospital_id, (salesByHosp.get(t.hospital_id)||0) + Number(t.amount||0));
+  });
+
+  // 발주를 병원별로 그룹
+  const hospMap = new Map();
+  pos.forEach(p => {
+    if (!p.hospital_id) return;
+    // 각 발주의 매입 상태 계산
+    const invs = invoiceByPo.get(p.id) || [];
+    const invSum = invs.reduce((s,t)=>s+Number(t.amount||0),0);
+    const purchaseAmount = Number(p.total_amount||0);
+    let purchaseStatus, purchaseLabel, purchaseBadge;
+    if (p.deal_type === 'commission') {
+      // 제조사 직거래: 우리 매입 계산서는 없음. 제조사에 끊은 수수료 계산서(매출, po_id 연결)가 있으면 확정
+      const comm = saleTax.filter(t => t.po_id === p.id);
+      const commSum = comm.reduce((s, t) => s + Number(t.amount || 0), 0);
+      purchaseStatus = 'commission'; purchaseBadge = 'violet';
+      purchaseLabel = comm.length
+        ? `🤝 수수료 ✅ ${commSum.toLocaleString()}`
+        : `🤝 직거래 · 수수료 대기${p.commission_amount != null ? ` (예상 ${Number(p.commission_amount).toLocaleString()})` : ''}`;
+    } else if (purchaseAmount === 0) {
+      purchaseStatus = 'na'; purchaseLabel = '매입액 0'; purchaseBadge = 'slate';
+    } else if (invs.length === 0) {
+      const days = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000);
+      purchaseStatus = 'wait'; purchaseLabel = `📨 미수령 ${days}일`; purchaseBadge = days > 30 ? 'rose' : 'amber';
+    } else if (Math.abs(invSum - purchaseAmount) <= 1) {
+      purchaseStatus = 'ok'; purchaseLabel = `✅ ${invSum.toLocaleString()}`; purchaseBadge = 'emerald';
+    } else {
+      const diff = invSum - purchaseAmount;
+      purchaseStatus = 'mismatch';
+      purchaseLabel = `⚠ ${invSum.toLocaleString()} (${diff > 0 ? '+' : ''}${diff.toLocaleString()})`;
+      purchaseBadge = 'rose';
+    }
+    const poRow = { ...p, invs, invSum, purchaseStatus, purchaseLabel, purchaseBadge };
+
+    const g = hospMap.get(p.hospital_id) || {
+      hospital_id: p.hospital_id,
+      name: p.hospital_name || '(병원)',
+      pos: [],
+      saleTotal: 0,
+    };
+    g.pos.push(poRow);
+    g.saleTotal += Number(p.sale_amount||0);
+    hospMap.set(p.hospital_id, g);
+  });
+
+  // 병원별 매출 계산서 집계 + 상태 뱃지
+  return Array.from(hospMap.values()).map(g => {
+    const invoiceSaleTotal = salesByHosp.get(g.hospital_id) || 0;
+    const diff = g.saleTotal - invoiceSaleTotal;
+    let saleStatus, saleLabel, saleBadge;
+    if (g.saleTotal === 0 && invoiceSaleTotal === 0) {
+      saleStatus = 'na'; saleLabel = '매출액 0'; saleBadge = 'slate';
+    } else if (Math.abs(diff) <= 1) {
+      saleStatus = 'ok'; saleLabel = `✅ 계산서 발행 완료`; saleBadge = 'emerald';
+    } else if (diff > 1) {
+      saleStatus = 'wait'; saleLabel = `📝 미발행 ${diff.toLocaleString()}`; saleBadge = 'rose';
+    } else {
+      // 계산서 > 발주 매출 → 사용자 발행 금액이 다른 경우
+      saleStatus = 'diff'; saleLabel = `⚠ 차이 ${diff.toLocaleString()}`; saleBadge = 'amber';
+    }
+    // 그룹 완료 여부
+    const anyPurchaseWait = g.pos.some(p => p.purchaseStatus === 'wait' || p.purchaseStatus === 'mismatch');
+    const groupDone = (saleStatus === 'ok' || saleStatus === 'na') && !anyPurchaseWait;
+    // 발주 정렬: 최신 순
+    g.pos.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
+    return {
+      ...g,
+      invoiceSaleTotal, saleDiff: diff,
+      saleStatus, saleLabel, saleBadge,
+      anyPurchaseWait, groupDone,
+    };
+  }).sort((a,b) => {
+    // 미완료 상단, 그 안에서 saleDiff 큰 순
+    if (a.groupDone !== b.groupDone) return a.groupDone ? 1 : -1;
+    return b.saleDiff - a.saleDiff;
+  });
+}
+
+function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab, initialFilter = null }) {
   const [pos, setPos] = useState([]);
   const [purchaseTax, setPurchaseTax] = useState([]);
   const [saleTax, setSaleTax] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('todo'); // all | todo | purchase_wait | mismatch | sale_wait | done
+  const [filter, setFilter] = useState(initialFilter || 'todo'); // all | todo | purchase_wait | mismatch | sale_wait | done
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -16246,20 +16438,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
     setLoading(true);
     (async () => {
       try {
-        const [po, pt, st] = await Promise.all([
-          sb.from('purchase_orders')
-            .select('id, po_no, created_at, hospital_id, hospital_name, manufacturer_id, manufacturer_name, owner, status, is_active, total_amount, sale_amount, deal_type, commission_amount')
-            .neq('status', '취소')
-            .not('hospital_id', 'is', null)
-            .gte('created_at', '2026-05-29T00:00:00')
-            .then(r => r.data || []),
-          sb.from('tax_invoices')
-            .select('id, kind, issue_date, party_name, manufacturer_id, hospital_id, amount, po_id, no_po')
-            .eq('kind', 'purchase').then(r => r.data || []),
-          sb.from('tax_invoices')
-            .select('id, kind, issue_date, party_name, manufacturer_id, hospital_id, amount, po_id, no_po')
-            .eq('kind', 'sale').gt('issue_date', '2026-05-29').then(r => r.data || []),
-        ]);
+        const { pos: po, purchaseTax: pt, saleTax: st } = await loadTodoSources();
         if (!cancelled) { setPos(po); setPurchaseTax(pt); setSaleTax(st); }
       } finally { if (!cancelled) setLoading(false); }
     })();
@@ -16267,97 +16446,7 @@ function TodoTab({ hospitals = [], manufacturers = [], nav, onGoTab }) {
   }, []);
 
   // === 발주별 매입 상태 + 병원별 그룹 ===
-  const grouped = useMemo(() => {
-    // 매입 세금계산서 매칭: po_id로 그룹
-    const invoiceByPo = new Map();
-    purchaseTax.forEach(t => {
-      if (!t.po_id) return;
-      if (!invoiceByPo.has(t.po_id)) invoiceByPo.set(t.po_id, []);
-      invoiceByPo.get(t.po_id).push(t);
-    });
-
-    // 매출 세금계산서 병원별 집계
-    const salesByHosp = new Map();
-    saleTax.forEach(t => {
-      if (!t.hospital_id) return;
-      salesByHosp.set(t.hospital_id, (salesByHosp.get(t.hospital_id)||0) + Number(t.amount||0));
-    });
-
-    // 발주를 병원별로 그룹
-    const hospMap = new Map();
-    pos.forEach(p => {
-      if (!p.hospital_id) return;
-      // 각 발주의 매입 상태 계산
-      const invs = invoiceByPo.get(p.id) || [];
-      const invSum = invs.reduce((s,t)=>s+Number(t.amount||0),0);
-      const purchaseAmount = Number(p.total_amount||0);
-      let purchaseStatus, purchaseLabel, purchaseBadge;
-      if (p.deal_type === 'commission') {
-        // 제조사 직거래: 우리 매입 계산서는 없음. 제조사에 끊은 수수료 계산서(매출, po_id 연결)가 있으면 확정
-        const comm = saleTax.filter(t => t.po_id === p.id);
-        const commSum = comm.reduce((s, t) => s + Number(t.amount || 0), 0);
-        purchaseStatus = 'commission'; purchaseBadge = 'violet';
-        purchaseLabel = comm.length
-          ? `🤝 수수료 ✅ ${commSum.toLocaleString()}`
-          : `🤝 직거래 · 수수료 대기${p.commission_amount != null ? ` (예상 ${Number(p.commission_amount).toLocaleString()})` : ''}`;
-      } else if (purchaseAmount === 0) {
-        purchaseStatus = 'na'; purchaseLabel = '매입액 0'; purchaseBadge = 'slate';
-      } else if (invs.length === 0) {
-        const days = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000);
-        purchaseStatus = 'wait'; purchaseLabel = `📨 미수령 ${days}일`; purchaseBadge = days > 30 ? 'rose' : 'amber';
-      } else if (Math.abs(invSum - purchaseAmount) <= 1) {
-        purchaseStatus = 'ok'; purchaseLabel = `✅ ${invSum.toLocaleString()}`; purchaseBadge = 'emerald';
-      } else {
-        const diff = invSum - purchaseAmount;
-        purchaseStatus = 'mismatch';
-        purchaseLabel = `⚠ ${invSum.toLocaleString()} (${diff > 0 ? '+' : ''}${diff.toLocaleString()})`;
-        purchaseBadge = 'rose';
-      }
-      const poRow = { ...p, invs, invSum, purchaseStatus, purchaseLabel, purchaseBadge };
-
-      const g = hospMap.get(p.hospital_id) || {
-        hospital_id: p.hospital_id,
-        name: p.hospital_name || '(병원)',
-        pos: [],
-        saleTotal: 0,
-      };
-      g.pos.push(poRow);
-      g.saleTotal += Number(p.sale_amount||0);
-      hospMap.set(p.hospital_id, g);
-    });
-
-    // 병원별 매출 계산서 집계 + 상태 뱃지
-    return Array.from(hospMap.values()).map(g => {
-      const invoiceSaleTotal = salesByHosp.get(g.hospital_id) || 0;
-      const diff = g.saleTotal - invoiceSaleTotal;
-      let saleStatus, saleLabel, saleBadge;
-      if (g.saleTotal === 0 && invoiceSaleTotal === 0) {
-        saleStatus = 'na'; saleLabel = '매출액 0'; saleBadge = 'slate';
-      } else if (Math.abs(diff) <= 1) {
-        saleStatus = 'ok'; saleLabel = `✅ 계산서 발행 완료`; saleBadge = 'emerald';
-      } else if (diff > 1) {
-        saleStatus = 'wait'; saleLabel = `📝 미발행 ${diff.toLocaleString()}`; saleBadge = 'rose';
-      } else {
-        // 계산서 > 발주 매출 → 사용자 발행 금액이 다른 경우
-        saleStatus = 'diff'; saleLabel = `⚠ 차이 ${diff.toLocaleString()}`; saleBadge = 'amber';
-      }
-      // 그룹 완료 여부
-      const anyPurchaseWait = g.pos.some(p => p.purchaseStatus === 'wait' || p.purchaseStatus === 'mismatch');
-      const groupDone = (saleStatus === 'ok' || saleStatus === 'na') && !anyPurchaseWait;
-      // 발주 정렬: 최신 순
-      g.pos.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
-      return {
-        ...g,
-        invoiceSaleTotal, saleDiff: diff,
-        saleStatus, saleLabel, saleBadge,
-        anyPurchaseWait, groupDone,
-      };
-    }).sort((a,b) => {
-      // 미완료 상단, 그 안에서 saleDiff 큰 순
-      if (a.groupDone !== b.groupDone) return a.groupDone ? 1 : -1;
-      return b.saleDiff - a.saleDiff;
-    });
-  }, [pos, purchaseTax, saleTax]);
+  const grouped = useMemo(() => buildTodoGroups(pos, purchaseTax, saleTax), [pos, purchaseTax, saleTax]);
 
   // 매입 계산서 중 어느 발주와도 매칭 안 된 것
   const orphanPurchaseInvoices = useMemo(() => purchaseTax.filter(t => !t.po_id && !t.no_po), [purchaseTax]);
@@ -17562,7 +17651,7 @@ function PortalStatementsList({ hospitalId }) {
   );
 }
 
-function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false, appHospitals = null, appManufacturers = null, customEquips = [] }) {
+function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false, appHospitals = null, appManufacturers = null, customEquips = [], initialFilter = null }) {
   const [pos, setPos] = useState([]);
   const [notes, setNotes] = useState([]);
   const [checklists, setChecklists] = useState([]);
@@ -17573,7 +17662,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   // App 캐시 변동 시 동기화
   useEffect(() => { if (appHospitals) setHospitals(appHospitals); }, [appHospitals]);
   useEffect(() => { if (appManufacturers) setVendors(appManufacturers); }, [appManufacturers]);
-  const [filter, setFilter] = useState('ongoing'); // ongoing | done — 기본은 진행중만
+  const [filter, setFilter] = useState(initialFilter === 'done' || initialFilter === 'all' ? initialFilter : 'ongoing'); // ongoing | done | all — 기본은 진행중만
   const [doneMonth, setDoneMonth] = useState(''); // done 필터일 때 월별 (yyyy-MM), 빈값 = 전체
   const [groupBy, setGroupBy] = useState('hospital'); // hospital | vendor
   const [search, setSearch] = useState('');
@@ -17807,6 +17896,21 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     catch (e) { alert('저장 실패: '+(e.message||e)); reload(); }
   };
 
+  // 발주 여러 건을 한 번에 납품완료로 (발주마다 있는 '납품대기' 버튼과 같은 표시)
+  // 2026-11-12 사용자 결정: '병원관리 저장 · 삭제' / 'PDF + 병원관리 저장' / 품목 ✓ 를 이걸로 합침 — 납품이력(deliveries)은 더 안 만듦.
+  // 다시 눌러도 중복이 안 생기고, 병원 포털·병원관리 납품이력은 발주의 납품완료를 그대로 보여줌
+  const markDelivered = async (list, date = null) => {
+    const targets = (list || []).filter(p => !p.trackingDone && p.status !== '취소');
+    if (!targets.length) return 0;
+    const d = date || new Date().toISOString().slice(0, 10);
+    const ids = new Set(targets.map(p => p.id));
+    setPos(prev => prev.map(po => ids.has(po.id) ? { ...po, tracking_delivered: true, tracking_delivered_at: d } : po));
+    try {
+      await Promise.all(targets.map(p => dbUpdatePurchaseOrder(p.id, { tracking_delivered: true, tracking_delivered_at: d })));
+    } catch (e) { showToast('저장 실패: ' + (e.message || e), 'error'); reload(true); return 0; }
+    return targets.length;
+  };
+
   // 품목별 카톡 메시지 생성
   const sendKakaoForItem = (p, it) => {
     const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
@@ -18020,183 +18124,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     }
   };
 
-  // 병원 그룹 발주 → deliveries 등록 + PO 목록에서 제거
-  // deliveryDate: 명세서 모달에서 받은 납품일자 (없으면 오늘)
-  // discountItems: [{memo, amount}, ...] — 할인 여러 개
-  const handleFinalizeToHospital = async (g, deliveryDate = null, discountItems = [], share = true) => {
-    const list = g.list || [];
-    if (list.length === 0) { alert('발주가 없습니다.'); return; }
-    const hospName = g.hospName || '—';
-    const hospId = list.find(p => p.hospital_id)?.hospital_id || null;
-    if (!hospId) {
-      alert(`병원 정보를 찾을 수 없습니다: ${hospName}\n먼저 발주에 병원을 연결해주세요.`);
-      return;
-    }
-    const allItems = [];
-    list.forEach(p => (p.purchase_order_items || []).forEach(it => allItems.push({ po: p, it })));
-    if (allItems.length === 0) { alert('품목이 없습니다.'); return; }
-
-    const discountTotal = discountItems.reduce((s, x) => s + (Number(x.amount)||0), 0);
-    const discountLabel = discountTotal > 0 ? `\n할인: ${discountTotal.toLocaleString()}원 (${discountItems.length}건)` : '';
-    if (!confirm(
-      `${hospName}의 발주 ${list.length}건 (품목 ${allItems.length}개)을 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거합니다.${discountLabel}\n\n· 병원관리 → 해당 병원 → 납품이력에서 확인 가능\n· 발주 진행 리스트에서 사라집니다 (되돌리기 불가)\n· PDF 명세서가 함께 인쇄됩니다\n\n계속할까요?`
-    )) return;
-
-    try {
-      let supplyTotal = 0, vatTotal = 0, grandTotal = 0;
-      const delItems = allItems.map(({ it }) => {
-        const qty = Number(it.quantity)||0;
-        const unit = Number(it.sale_price)||0;
-        const supply = qty * unit;
-        const vat = Math.round(supply * 0.1);
-        const total = supply + vat;
-        supplyTotal += supply; vatTotal += vat; grandTotal += total;
-        return {
-          item_name: it.item_name || '',
-          model_name: it.model_name || '',
-          spec: null,
-          unit: null,
-          quantity: qty,
-          unit_price: unit,
-          supply_amount: supply,
-          vat, total_amount: total,
-        };
-      });
-      const today = new Date().toISOString().slice(0,10);
-      const delivered = deliveryDate || today;
-      const poNos = list.map(p => p.po_no).filter(Boolean).join(', ');
-      await dbSaveDelivery({
-        hospital_id: hospId,
-        delivered_date: delivered,
-        doc_no: `PO-BATCH-${today.replace(/-/g,'')}`,
-        supply_amount: supplyTotal,
-        vat: vatTotal,
-        total_amount: grandTotal,
-        notes: `발주 진행에서 일괄 등록 (${poNos})`,
-        discount_items: discountItems,
-        discount_total: discountTotal,
-      }, delItems);
-
-      // 모든 PO 비활성화
-      await Promise.all(list.map(p => dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() })));
-      showToast(`${hospName} 발주가 병원관리 납품이력에 등록되었습니다.`);
-      // PDF 명세서도 자동 인쇄 (+ 병원 포털 사본)
-      handleHospitalStatementForGroup(g, delivered, discountTotal, share);
-      reload();
-    } catch (e) {
-      console.error(e);
-      alert('저장 실패: ' + (e.message || e));
-    }
-  };
-
-  // 단일 발주(PO)만 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거
-  const handleFinalizePo = async (p) => {
-    const items = p.purchase_order_items || [];
-    if (items.length === 0) { alert('품목이 없습니다.'); return; }
-    const hospName = p.hospital_name || '병원';
-    const hospId = p.hospital_id;
-    if (!hospId) {
-      alert(`병원 정보를 찾을 수 없습니다: ${hospName}\n먼저 발주에 병원을 연결해주세요.`);
-      return;
-    }
-    if (!confirm(
-      `[${p.po_no || '(발주번호 없음)'}] ${hospName} — 품목 ${items.length}개를 병원관리 납품이력에 등록하고 발주 진행 목록에서 제거합니다.\n\n· 이 발주 하나만 처리됩니다 (같은 병원의 다른 발주는 유지)\n· 되돌리기 불가\n\n계속할까요?`
-    )) return;
-
-    try {
-      let supplyTotal = 0, vatTotal = 0, grandTotal = 0;
-      const delItems = items.map(it => {
-        const qty = Number(it.quantity)||0;
-        const unit = Number(it.sale_price)||0;
-        const supply = qty * unit;
-        const vat = Math.round(supply * 0.1);
-        const total = supply + vat;
-        supplyTotal += supply; vatTotal += vat; grandTotal += total;
-        return {
-          item_name: it.item_name || '',
-          model_name: it.model_name || '',
-          spec: null, unit: null,
-          quantity: qty, unit_price: unit,
-          supply_amount: supply, vat, total_amount: total,
-        };
-      });
-      const today = new Date().toISOString().slice(0,10);
-      await dbSaveDelivery({
-        hospital_id: hospId,
-        delivered_date: today,
-        doc_no: p.po_no || `PO-${today.replace(/-/g,'')}`,
-        supply_amount: supplyTotal,
-        vat: vatTotal,
-        total_amount: grandTotal,
-        notes: `발주 진행에서 개별 등록 (${p.po_no || ''})`.trim(),
-      }, delItems);
-      await dbUpdatePurchaseOrder(p.id, { status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() });
-      showToast(`[${p.po_no || '발주'}] 병원관리 납품이력에 등록됨`);
-      reload();
-    } catch (e) {
-      console.error(e);
-      alert('저장 실패: ' + (e.message || e));
-    }
-  };
-
-  // 단일 아이템만 병원관리 납품이력에 저장하고, 발주에서 그 아이템만 제거
-  // 발주에 남은 아이템 없으면 발주도 함께 납품완료 처리
-  const handleFinalizeItem = async (p, it) => {
-    if (!it || !it.id) { alert('아이템 정보가 없습니다.'); return; }
-    const hospId = p.hospital_id;
-    if (!hospId) {
-      alert(`병원 정보를 찾을 수 없습니다.\n먼저 발주에 병원을 연결해주세요.`);
-      return;
-    }
-    const itemLabel = [it.item_name, it.model_name].filter(Boolean).join(' ') || '아이템';
-    if (!confirm(
-      `[${p.po_no || '-'}] ${p.hospital_name || '병원'} — 「${itemLabel}」 (${it.quantity || 1}개)\n\n이 아이템만 병원관리 납품이력에 등록하고 발주에서 제거합니다.\n같은 발주의 다른 아이템은 유지됩니다.\n\n계속할까요?`
-    )) return;
-
-    try {
-      const qty = Number(it.quantity) || 0;
-      const unit = Number(it.sale_price) || 0;
-      const supply = qty * unit;
-      const vat = Math.round(supply * 0.1);
-      const total = supply + vat;
-      const today = new Date().toISOString().slice(0, 10);
-
-      await dbSaveDelivery({
-        hospital_id: hospId,
-        delivered_date: today,
-        doc_no: `${p.po_no || 'PO'}-${it.id.slice(0, 6)}`,
-        supply_amount: supply,
-        vat, total_amount: total,
-        notes: `발주 진행에서 아이템 개별 등록 (${p.po_no || ''} · ${itemLabel})`.trim(),
-      }, [{
-        item_name: it.item_name || '',
-        model_name: it.model_name || '',
-        spec: null, unit: null,
-        quantity: qty, unit_price: unit,
-        supply_amount: supply, vat, total_amount: total,
-      }]);
-
-      // 발주에서 이 아이템 삭제
-      await sb.from('purchase_order_items').delete().eq('id', it.id);
-
-      // 발주 total_amount 재계산 (남은 아이템 기준 · 매입가 × 수량)
-      const remaining = (p.purchase_order_items || []).filter(x => x.id !== it.id);
-      const newTotal = remaining.reduce((s, x) => s + (Number(x.unit_price) || 0) * (Number(x.quantity) || 0), 0);
-
-      if (remaining.length === 0) {
-        // 남은 아이템 없음 → 발주도 납품완료 처리
-        await dbUpdatePurchaseOrder(p.id, { total_amount: 0, status: '납품완료', is_active: false, tracking_delivered: true, tracking_delivered_at: new Date().toISOString() });
-        showToast(`[${p.po_no}] 마지막 아이템 저장 · 발주도 납품완료 처리`);
-      } else {
-        await dbUpdatePurchaseOrder(p.id, { total_amount: newTotal });
-        showToast(`「${itemLabel}」 저장됨 (발주에는 ${remaining.length}개 남음)`);
-      }
-      reload();
-    } catch (e) {
-      console.error(e);
-      alert('저장 실패: ' + (e.message || e));
-    }
-  };
+  // (2026-11-12) 예전 '병원관리 저장' 3종(handleFinalizeToHospital / handleFinalizePo / handleFinalizeItem) 삭제 —
+  // 누를 때마다 납품이력(deliveries)을 새로 만들어 같은 납품이 두세 번 쌓였고(바루다·본별·에이블), 품목 ✓는 발주 품목을 지웠음.
+  // 이제 납품은 발주의 납품완료 표시(markDelivered, 발주마다 '납품대기' 버튼) 하나로 관리
 
   const handleResend = (p) => {
     const lines = (p.purchase_order_items || []).map(it => `· ${it.item_name || '-'}${it.model_name ? ' ('+it.model_name+')':''} × ${it.quantity || 1}`);
@@ -18386,11 +18316,21 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors">
                         📄 거래명세서
                       </button>
-                      <button onClick={()=>handleFinalizeToHospital(g)}
-                        title="병원관리 납품이력에 등록하고 발주 진행 목록에서 제거"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors">
-                        📥 병원관리 저장 · 삭제
-                      </button>
+                      {(() => {
+                        const left = (g.list || []).filter(p => !p.trackingDone).length;
+                        if (!left) return null;
+                        return (
+                          <button onClick={async () => {
+                              if (!confirm(`${g.hospName} 발주 ${left}건을 납품완료로 표시합니다.\n(발주마다 있는 '납품대기' 버튼을 한 번에 누르는 것과 같습니다)`)) return;
+                              const n = await markDelivered(g.list);
+                              if (n) showToast(`${g.hospName} ${n}건 납품완료로 옮김`);
+                            }}
+                            title="이 병원 발주를 모두 납품완료로 — 병원 포털과 병원관리 납품이력에 바로 보임"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors">
+                            ✓ 모두 납품완료 ({left})
+                          </button>
+                        );
+                      })()}
                     </div>
                   )}
                   <button
@@ -18580,15 +18520,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                                 </button>
                               )}
                             </td>
-                            {/* 발주 액션 — 첫 행: 취소, 모든 행: 이 아이템만 저장 */}
+                            {/* 발주 액션 — 첫 행: 취소 (품목별 '병원관리 저장' ✓ 버튼은 2026-11-12 납품완료 버튼으로 합치며 뺌) */}
                             <td className="px-2 py-1.5 text-center align-top whitespace-nowrap">
-                              {it && !viewer && groupBy === 'hospital' && p.hospital_id && (
-                                <button onClick={() => handleFinalizeItem(p, it)}
-                                  title="이 아이템만 병원관리 납품이력에 저장하고 발주에서 제거"
-                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-emerald-600 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 transition-colors mr-0.5">
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                </button>
-                              )}
                               {isFirst && (
                                 <button onClick={() => handleCancel(p)}
                                   title="이 발주 전체를 취소 처리 (비활성화)"
@@ -18680,23 +18613,30 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   onChange={e => setStatementModal(p => ({ ...p, share: e.target.checked }))}/>
                 <span><b>병원 포털(my.) 문서함에도 올리기</b><br/><span className="text-slate-500">병원이 납품 내역에서 이 명세서를 금액까지 그대로 봅니다. 같은 납품일자·같은 발주로 다시 뽑으면 덮어씁니다.</span></span>
               </label>
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={statementModal.markDone !== false}
+                  onChange={e => setStatementModal(p => ({ ...p, markDone: e.target.checked }))}/>
+                <span><b>선택한 발주를 납품완료로 표시</b> (납품일자로)<br/><span className="text-slate-500">발주 진행 '납품완료' 탭으로 넘어가고, 병원 포털·병원관리 납품이력에 납품으로 보입니다. 다시 뽑아도 중복으로 생기지 않습니다.</span></span>
+              </label>
               {(() => { const hid = groupPos.find(p => p.hospital_id)?.hospital_id; return hid ? <PortalStatementsList hospitalId={hid} /> : null; })()}
             </div>
             <div className="px-6 py-3 border-t border-slate-100 flex justify-between gap-2">
               <button onClick={() => setStatementModal(null)}
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
               <div className="flex gap-2">
-                <button onClick={() => { const { deliveryDate, share } = statementModal; setStatementModal(null); handleHospitalStatementForGroup(subGroup, deliveryDate, 0, share !== false); }}
+                <button onClick={async () => {
+                    const { deliveryDate, share, markDone } = statementModal;
+                    setStatementModal(null);
+                    handleHospitalStatementForGroup(subGroup, deliveryDate, 0, share !== false); // 팝업이라 await 전에 먼저
+                    if (markDone !== false) {
+                      const n = await markDelivered(selPos, deliveryDate);
+                      if (n) showToast(`${n}건 납품완료로 옮김 (${deliveryDate})`);
+                    }
+                  }}
                   disabled={!statementModal.deliveryDate || selected.length === 0}
-                  title="PDF 저장만 (DB 저장 X)"
-                  className="px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-semibold disabled:opacity-40">
-                  📄 PDF 저장
-                </button>
-                <button onClick={() => { const { deliveryDate, share } = statementModal; setStatementModal(null); handleFinalizeToHospital(subGroup, deliveryDate, [], share !== false); }}
-                  disabled={!statementModal.deliveryDate || selected.length === 0}
-                  title="PDF 저장 + 병원관리에 저장 · 발주 진행에서 제거"
+                  title="거래명세서 PDF 만들기 (체크한 것: 포털 문서함 올리기, 납품완료 표시)"
                   className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-40">
-                  📥 PDF + 병원관리 저장
+                  📄 거래명세서 만들기
                 </button>
               </div>
             </div>
@@ -19313,60 +19253,58 @@ function PoQuickEditModal({ po, user, onClose, onSaved }) {
    HOME 대시보드 — 출근 첫 화면
    ============================================================ */
 function HomePage({ user, onLogout, nav }) {
+  // 2026-11-12 홈 다시 짬: 영업관리(리드·캘린더)는 안 써서 뺌. 카드는 실제로 쓰는 값으로 —
+  // 품목 체크(발주·입금·세금계산서)는 아무도 안 눌러서(입금·계산서 체크 0건) 숫자가 의미 없었음.
+  // 카드를 누르면 그 조건으로 걸러진 화면이 열림
   const [loading, setLoading] = useState(true);
   const [pos, setPos] = useState([]);
-  const [leads, setLeads] = useState([]);
+  const [todo, setTodo] = useState([]);
+  const [reqs, setReqs] = useState([]);
+  const [svcs, setSvcs] = useState([]);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poData, ldData] = await Promise.all([
-        sb.from('purchase_orders').select('*, purchase_order_items(*)').eq('is_active', true).order('created_at',{ascending:false}).then(r => r.data || []),
-        dbLoadLeads(),
+      const [poData, src, rq, sv] = await Promise.all([
+        sb.from('purchase_orders').select('id, status, tracking_delivered').neq('status', '취소').then(r => r.data || []),
+        loadTodoSources(),
+        sb.from('order_requests').select('id, created_at, site, requester, model_name, quantity, content').eq('status', '대기')
+          .order('created_at', { ascending: false }).then(r => r.data || []),
+        sb.from('service_requests').select('id, created_at, requested_at, hospital_name, equipment_name, model_name, issue, status, notes')
+          .in('status', ['접수', '처리중']).order('created_at', { ascending: false }).then(r => r.data || []),
       ]);
       setPos(poData);
-      setLeads(ldData);
+      setTodo(buildTodoGroups(src.pos, src.purchaseTax, src.saleTax));
+      setReqs(rq);
+      setSvcs(sv);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
 
-  // 발주 4단계 미완료 카운트
-  const poStats = useMemo(() => {
-    let notOrdered=0, notPaid=0, notTax=0, notDelivered=0, done=0;
-    pos.forEach(p => {
-      const items = p.purchase_order_items || [];
-      const total = items.length;
-      if (total === 0) return;
-      const o = items.filter(it=>it.ordered).length;
-      const pd = items.filter(it=>it.paid).length;
-      const t = items.filter(it=>it.tax_invoiced).length;
-      const d = items.filter(it=>it.delivered).length;
-      const all = o===total && pd===total && t===total && d===total;
-      if (all) { done++; return; }
-      if (o<total) notOrdered++;
-      if (pd<total) notPaid++;
-      if (t<total) notTax++;
-      if (d<total) notDelivered++;
-    });
-    return { notOrdered, notPaid, notTax, notDelivered, done, total: pos.length };
-  }, [pos]);
-
-  // 신규 문의 lead (영업관리 신규문의 단계)
-  const newInquiries = useMemo(() => leads.filter(l => (l.stage || '신규문의') === '신규문의')
-    .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||'')), [leads]);
-
+  // 발주 진행 '진행중'과 같은 기준 (납품완료 버튼 또는 상태 납품완료면 끝)
+  const ongoing = useMemo(() => pos.filter(p => !(p.tracking_delivered || p.status === '납품완료')).length, [pos]);
+  // 매입매출 관리 > 할 일 탭과 같은 숫자 (병원 수)
+  const todoN = useMemo(() => ({
+    purchase_wait: todo.filter(g => g.pos.some(p => p.purchaseStatus === 'wait')).length,
+    mismatch: todo.filter(g => g.pos.some(p => p.purchaseStatus === 'mismatch')).length,
+    sale_wait: todo.filter(g => g.saleStatus === 'wait' || g.saleStatus === 'diff').length,
+  }), [todo]);
+  const newSvcs = svcs.filter(s => s.status === '접수');
 
   const greeting = (() => { const h = new Date().getHours(); return h<11?'좋은 아침이에요':h<14?'점심 잘 챙기세요':h<18?'좋은 오후예요':'고생하셨어요'; })();
+  const fmtDay = (s) => s ? String(s).slice(5, 10).replace('-', '/') : '';
 
-  // 영업관리에서 lead 열기
-  const openLead = (lead) => {
-    // 영업관리 페이지로 점프 (lead 클릭은 LeadsPage에서 자동 처리되도록 lead.id 전달 어려움 → 일단 leads로 이동)
-    nav?.leads?.();
-  };
+  const cards = [
+    { label: '납품 대기', sub: '발주 진행 중', n: ongoing, unit: '건', c: 'text-blue-600', go: () => nav?.poTracking?.('ongoing') },
+    { label: '매입 계산서 대기', sub: '발주는 있는데 계산서 아직', n: todoN.purchase_wait, unit: '곳', c: 'text-amber-600', go: () => nav?.payables?.('todo', 'purchase_wait') },
+    { label: '매입 금액 차이', sub: '계산서와 발주 매입가 다름', n: todoN.mismatch, unit: '곳', c: 'text-rose-600', go: () => nav?.payables?.('todo', 'mismatch') },
+    { label: '매출 계산서 대기', sub: '발주 매출보다 덜 발행', n: todoN.sale_wait, unit: '곳', c: 'text-violet-600', go: () => nav?.payables?.('todo', 'sale_wait') },
+    { label: '병원 요청', sub: '재주문·점검수리 새로 들어옴', n: reqs.length + newSvcs.length, unit: '건', c: 'text-emerald-600', go: () => nav?.orderRequests?.() },
+  ];
 
   return (
     <div style={{height:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <AppHeader title="홈 대시보드" user={user} onLogout={onLogout} nav={nav} />
+      <AppHeader title="홈" user={user} onLogout={onLogout} nav={nav} />
 
       <div style={{maxWidth:'1400px', margin:'0 auto', padding:'24px', width:'100%', flex:1, overflowY:'auto'}}>
         {/* 인사 */}
@@ -19375,64 +19313,69 @@ function HomePage({ user, onLogout, nav }) {
           <div className="text-lg font-bold text-slate-800">{new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'})}</div>
         </div>
 
-        {/* 1행 — 발주 4단계 미완료 (클릭 시 발주 진행으로 점프) */}
+        {/* 오늘 확인할 것 — 누르면 걸러진 화면으로 */}
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-slate-700">📦 발주 진행</h3>
-            <button onClick={() => nav?.poTracking?.()} className="text-xs text-blue-500 hover:text-blue-700">전체 보기 →</button>
-          </div>
+          <h3 className="text-sm font-semibold text-slate-700 mb-2">오늘 확인할 것</h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[
-              { label:'발주 미완료',     n:poStats.notOrdered,   c:'text-blue-600',     k:'ordered' },
-              { label:'입금 미완료',     n:poStats.notPaid,      c:'text-violet-600',   k:'paid' },
-              { label:'세금계산서 미수령', n:poStats.notTax,       c:'text-amber-600',    k:'tax' },
-              { label:'납품 미완료',     n:poStats.notDelivered, c:'text-emerald-600',  k:'delivered' },
-              { label:'완료',           n:poStats.done,         c:'text-slate-500',    k:'done' },
-            ].map(card => (
-              <button key={card.k} onClick={() => nav?.poTracking?.()}
+            {cards.map(card => (
+              <button key={card.label} onClick={card.go}
                 className="bg-white rounded-xl border border-slate-200 p-4 text-left hover:border-blue-300 transition-colors">
                 <div className="text-xs text-slate-500 mb-1">{card.label}</div>
-                <div className={`text-2xl font-bold ${card.c}`}>{card.n}<span className="text-sm font-normal text-slate-500 ml-1">건</span></div>
+                <div className={`text-2xl font-bold ${card.n > 0 ? card.c : 'text-slate-300'}`}>{loading ? '…' : card.n}<span className="text-sm font-normal text-slate-500 ml-1">{card.unit}</span></div>
+                <div className="text-[11px] text-slate-400 mt-1">{card.sub}</div>
               </button>
             ))}
           </div>
         </div>
 
-        {/* 2행 — 신규 문의 + 캘린더 */}
+        {/* 병원 요청 — 포털 재주문·발주 요청 / 점검·수리 신청 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* 신규 문의 (영업관리 신규문의 단계) */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700 flex items-center justify-between">
-              <span>🆕 신규 문의</span>
-              <button onClick={() => nav?.leads?.()} className="text-xs text-blue-500 hover:text-blue-700">영업관리 →</button>
+              <span>📥 재주문·발주 요청 <span className="text-slate-400 font-normal">{reqs.length}건</span></span>
+              <button onClick={() => nav?.orderRequests?.()} className="text-xs text-blue-500 hover:text-blue-700">병원 요청함 →</button>
             </div>
             <div className="divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
-              {newInquiries.length === 0 ? (
-                <div className="px-4 py-8 text-center text-slate-400 text-sm">신규 문의가 없습니다</div>
-              ) : newInquiries.map(l => (
-                <button key={l.id} onClick={() => openLead(l)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-3">
+              {reqs.length === 0 ? (
+                <div className="px-4 py-8 text-center text-slate-400 text-sm">대기 중인 요청이 없습니다</div>
+              ) : reqs.map(r => (
+                <button key={r.id} onClick={() => nav?.orderRequests?.()} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-slate-800 truncate">{l.hospital_name || '(병원 미정)'}</div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      {l.contact_name || ''}{l.contact_phone ? ' · ' + l.contact_phone : ''}
-                      {l.source ? ' · ' + l.source : ''}
+                    <div className="text-sm font-medium text-slate-800 truncate">
+                      {r.requester === '병원 포털' && <span className="mr-1.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">my.</span>}
+                      {r.site || '(병원 미정)'}
                     </div>
-                    {l.memo && <div className="text-[11px] text-slate-400 truncate mt-0.5">{l.memo}</div>}
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {[r.model_name && `${r.model_name}${r.quantity ? ` ×${r.quantity}` : ''}`, r.requester !== '병원 포털' && r.requester, r.content].filter(Boolean).join(' · ') || '내용 없음'}
+                    </div>
                   </div>
-                  <span className="text-[10px] text-slate-400 shrink-0">{(l.created_at || '').slice(0,10)}</span>
+                  <span className="text-[10px] text-slate-400 shrink-0">{fmtDay(r.created_at)}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* 영업관리 캘린더 */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm text-slate-700 flex items-center justify-between">
-              <span>📅 캘린더</span>
-              <button onClick={() => nav?.leads?.()} className="text-xs text-blue-500 hover:text-blue-700">영업관리 →</button>
+              <span>🔧 점검·수리 <span className="text-slate-400 font-normal">접수 {newSvcs.length} · 처리중 {svcs.length - newSvcs.length}</span></span>
+              <button onClick={() => nav?.service?.()} className="text-xs text-blue-500 hover:text-blue-700">점검·수리 이력 →</button>
             </div>
-            <div className="p-2">
-              <LeadsCalendar leads={leads} onEdit={openLead} onNewLead={() => nav?.leads?.()} onLoadQuote={() => nav?.leads?.()} />
+            <div className="divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
+              {svcs.length === 0 ? (
+                <div className="px-4 py-8 text-center text-slate-400 text-sm">처리할 점검·수리가 없습니다</div>
+              ) : svcs.map(s => (
+                <button key={s.id} onClick={() => nav?.service?.()} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-800 truncate">
+                      {String(s.notes || '').includes('[병원 포털 신청]') && <span className="mr-1.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">my.</span>}
+                      {s.hospital_name || '(병원 미정)'}
+                      <span className={`ml-1.5 text-[10px] font-semibold rounded px-1 ${s.status === '접수' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>{s.status}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">{[s.equipment_name, s.model_name, s.issue].filter(Boolean).join(' · ')}</div>
+                  </div>
+                  <span className="text-[10px] text-slate-400 shrink-0">{fmtDay(s.requested_at || s.created_at)}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -20291,7 +20234,7 @@ function SalesHome({ data, onMakeQuote, onGo, onFindEquipment, onShowDrafts, onO
         );
       })}
 
-      {services.length > 0 && <SalesSection>A/S 요청</SalesSection>}
+      {services.length > 0 && <SalesSection>점검·수리 요청</SalesSection>}
       {services.map(s => (
         <SalesInfoCard key={s.id} title={s.hospital_name} sub={[s.equipment_name, s.model_name, s.issue].filter(Boolean).join(' · ')}
           strong={`${s.status || '접수'} · ${salesDate(s.requested_at || s.created_at)}`} danger onClick={() => onOpenHospital(s.hospital_id)} />
@@ -20516,7 +20459,7 @@ function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContac
         </>
       )}
 
-      {services.length > 0 && <SalesSection>A/S 요청</SalesSection>}
+      {services.length > 0 && <SalesSection>점검·수리 요청</SalesSection>}
       {services.map(s => (
         <SalesInfoCard key={s.id} title={[s.equipment_name, s.model_name].filter(Boolean).join(' ') || '장비 미입력'} sub={s.issue}
           strong={`${s.status || '접수'} · ${salesDate(s.requested_at || s.created_at)}`} danger />
@@ -21045,6 +20988,9 @@ function App() {
   const [view, setView] = useState('home'); // 'home' | 'editor' | 'list' | 'manage' | 'leads' | 'po-plan' | 'po-tracking' | 'payables' | 'hospitals' | 'service'
   const [poPlanLead, setPoPlanLead] = useState(null);
   const [leadsStageFilter, setLeadsStageFilter] = useState(null); // 영업관리 진입 시 초기 단계 필터 (발주계획서 뒤로가기 → '발주진행중')
+  // 홈 카드 → 걸러진 화면으로 (2026-11-12). 메뉴로 들어가면 null로 초기화
+  const [poTrackingInit, setPoTrackingInit] = useState(null); // 'ongoing' | 'done'
+  const [payablesInit, setPayablesInit] = useState(null);     // { tab, todo }
   const [listInitialTab, setListInitialTab] = useState('saved');
   const [listInitialDept, setListInitialDept] = useState(null);
   const [hospitalsInitialHospId, setHospitalsInitialHospId] = useState(null);
@@ -21087,15 +21033,7 @@ function App() {
     await sb.auth.signOut();
   }, []);
 
-  // 어드민 로그인시 초기 진입을 '매입매출 관리'로 (최초 1회만 — 이후 홈 복귀는 그대로)
-  const didInitialAdminRouteRef = React.useRef(false);
-  useEffect(() => {
-    if (!user || didInitialAdminRouteRef.current) return;
-    if (isAdminEmail(user.email) && view === 'home') {
-      didInitialAdminRouteRef.current = true;
-      setView('payables');
-    }
-  }, [user, view]);
+  // 어드민 첫 화면 = 홈 (2026-11-12 사용자 결정 — 전엔 로그인하면 '매입매출 관리'로 한 번 보냈음)
 
   // 인증 완료 후 모든 데이터 프리로드 (user가 설정된 후 실행)
   useEffect(() => {
@@ -21302,9 +21240,10 @@ function App() {
     service:   () => { setListInitialTab('saved'); setListInitialDept(null); setView('service'); },
     manage:    () => setView('manage'),
     home:       () => setView('home'),
-    payables:  () => setView('payables'),
+    // 인자는 홈 카드에서만 줌 (메뉴·버튼 onClick은 이벤트 객체가 들어올 수 있어서 문자열일 때만 씀)
+    payables:  (tab, todo) => { setPayablesInit(typeof tab === 'string' ? { tab, todo: typeof todo === 'string' ? todo : null } : null); setView('payables'); },
     orderRequests: () => setView('order-requests'),
-    poTracking: () => setView('po-tracking'),
+    poTracking: (filter) => { setPoTrackingInit(typeof filter === 'string' ? filter : null); setView('po-tracking'); },
     poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
     aiMonitor: () => setView('ai-monitor'),
     salesReps: () => setView('sales-reps'),
@@ -21321,6 +21260,8 @@ function App() {
   }
   if (view === 'po-tracking') {
     return <PurchaseOrderTrackingPage
+      key={poTrackingInit || 'default'}
+      initialFilter={poTrackingInit}
       onBack={() => setView('home')}
       user={user}
       onLogout={handleLogout}
@@ -21336,6 +21277,9 @@ function App() {
   }
   if (view === 'payables') {
     return <PayablesPage
+      key={payablesInit ? `${payablesInit.tab}:${payablesInit.todo || ''}` : 'default'}
+      initialTab={payablesInit?.tab}
+      initialTodoFilter={payablesInit?.todo}
       onBack={() => setView('editor')}
       user={user}
       onLogout={handleLogout}
@@ -21687,7 +21631,7 @@ function ChatMonitorPage({ user, onLogout, nav }) {
               type="search"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="딜러 이메일 / 제목 검색"
+              placeholder="영업사원 이메일 / 제목 검색"
               className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
             />
           </div>
