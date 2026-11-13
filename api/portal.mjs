@@ -103,7 +103,7 @@ async function loadBundle(h) {
   const [deliveries, pos, invoices, services, orders, locRows, statements] = await Promise.all([
     sb(`deliveries?hospital_id=eq.${h.id}&select=id,delivered_date,doc_no,notes,delivery_items(item_name,model_name,spec,quantity)&order=delivered_date.desc`),
     sb(`purchase_orders?hospital_id=eq.${h.id}&status=neq.${enc('취소')}` +
-      `&select=id,po_no,ordered_at,created_at,status,delivery_date,tracking_delivered,tracking_delivered_at,owner,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
+      `&select=id,po_no,ordered_at,created_at,status,delivery_date,tracking_delivered,tracking_delivered_at,owner,deal_type,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
       `&order=po_no.desc`),
     sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=issue_date,memo&order=issue_date.desc`),
     sb(`service_requests?hospital_id=eq.${h.id}&select=id,equipment_name,model_name,issue,status,requested_at,engineer,created_at&order=created_at.desc`),
@@ -249,6 +249,9 @@ async function loadBundle(h) {
   const poIdByNo = new Map(pos.map((p) => [p.po_no, p.id]));
   const poIdsIn = (text) => (String(text || '').match(/PO-\d{4}-\d+/g) || []).map((n) => poIdByNo.get(n)).filter(Boolean);
   const stmtPoIds = new Set(statements.flatMap((s) => s.po_ids || []));
+  // 직거래(제조사가 병원에 직접 계산서) 발주는 우리 거래명세서에 안 들어감 → 명세서가 덮는지 따질 때 빼고 봄
+  // (2026-11-12 바루다: 명세서 20건 + DK 직거래 PO-254가 섞인 납품 기록이 명세서와 별도로 한 줄 더 보였음)
+  const commissionPoIds = new Set(pos.filter((p) => p.deal_type === 'commission').map((p) => p.id));
   const deliveryPoIds = new Set(deliveries.flatMap((d) => poIdsIn(d.notes)));
   const notEquip = (i) => NOT_EQUIPMENT_RE.test(`${i.item_name || ''} ${i.model_name || ''}`);
   const deliveredByDate = new Map();
@@ -263,7 +266,10 @@ async function loadBundle(h) {
       const items = (s.items || []).filter((i) => !notEquip(i)).map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.qty) || 1 }));
       return { date: s.statement_date, summary: summary(items), count: items.length, statementId: s.id };
     }),
-    ...deliveries.filter((d) => { const ids = poIdsIn(d.notes); return !(ids.length && ids.every((id) => stmtPoIds.has(id))); }).map((d) => {
+    ...deliveries.filter((d) => {
+      const ids = poIdsIn(d.notes).filter((id) => !commissionPoIds.has(id));
+      return !(ids.length && ids.every((id) => stmtPoIds.has(id)));
+    }).map((d) => {
       const items = d.delivery_items.filter((i) => !notEquip(i))
         .map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.quantity) || 1, eq: eqByPoItem.get(itemKey(i.item_name, i.model_name)) || eqByModel.get(norm(i.model_name)) }));
       return { date: d.delivered_date, docNo: d.doc_no || null, summary: summary(items), count: items.length };
