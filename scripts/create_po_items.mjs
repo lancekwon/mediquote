@@ -168,8 +168,13 @@ export async function createPoItems(poId, clobeItems, options = {}) {
         equipId = madeInThisCall.get(newKey);
       } else {
         // 신규 equipment 등록
-        const lastE = await q('equipment?select=equip_code&equip_code=like.E*&order=equip_code.desc&limit=1');
-        const n = parseInt((lastE[0]?.equip_code || 'E000').replace(/\D/g, ''), 10) || 0;
+        // 문자 정렬이면 'E999' > 'E1000' 이라 자릿수 긴 것부터 찾음
+        let n = 0;
+        for (const pat of ['E_____', 'E____', 'E___']) {
+          const lastE = await q(`equipment?select=equip_code&equip_code=like.${pat}&order=equip_code.desc&limit=5`);
+          n = Math.max(0, ...lastE.map(r => parseInt(r.equip_code.slice(1), 10)).filter(Number.isFinite));
+          if (n) break;
+        }
         const newCode = 'E' + String(n + 1).padStart(3, '0');
         const eq = await ins('equipment', {
           equip_code: newCode,

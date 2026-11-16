@@ -471,8 +471,13 @@ async function runTool(name, input, { sessionId, owner, isAdmin = false, repId =
       }
       const [mfr] = await sb(`manufacturers?id=eq.${input.manufacturer_id}&select=id,name`);
       if (!mfr) return { error: '해당 manufacturer_id의 거래처가 없습니다.' };
-      const lastE = await sb('equipment?select=equip_code&equip_code=like.E*&order=equip_code.desc&limit=1');
-      const n = parseInt((lastE[0]?.equip_code || 'E000').replace(/\D/g, ''), 10) || 0;
+      // 문자 정렬이면 'E999' > 'E1000' 이라 자릿수 긴 것부터 찾음
+      let n = 0;
+      for (const pat of ['E_____', 'E____', 'E___']) {
+        const lastE = await sb(`equipment?select=equip_code&equip_code=like.${pat}&order=equip_code.desc&limit=5`);
+        n = Math.max(0, ...lastE.map((r) => parseInt(r.equip_code.slice(1), 10)).filter(Number.isFinite));
+        if (n) break;
+      }
       const code = 'E' + String(n + 1).padStart(3, '0');
       const [row] = await sb('equipment', {
         method: 'POST',

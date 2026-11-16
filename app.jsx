@@ -40,8 +40,15 @@ function vendorMatch(name, query) {
 // 목록 로드: image_data 제외 (Egress 절감)
 const EQUIP_COLUMNS = 'id,equip_code,cat_id,cat_name,category,item_name,model_name,model_id,manufacturer,vendor,vendor_id,price,model_notes,alt_text,alt_models,homepage,purchase_price,contact_name,contact_phone,image_url,description,specs,origin,cert,as_period,warranty,memo,created_at,manufacturers:vendor_id(id,vendor_code,name,contact_name,contact_phone)';
 async function dbLoadEquip() {
-  const { data, error } = await sb.from('equipment').select(EQUIP_COLUMNS).order('created_at', { ascending: false });
-  if (error) { console.error('dbLoadEquip:', error); return []; }
+  // Supabase는 한 번에 최대 1,000줄 → 끝까지 나눠 읽기 (장비 1,000개 넘음)
+  const data = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page, error } = await sb.from('equipment').select(EQUIP_COLUMNS)
+      .order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, from + 999);
+    if (error) { console.error('dbLoadEquip:', error); return []; }
+    data.push(...page);
+    if (page.length < 1000) break;
+  }
   return data.map(r => ({
     id:       r.id,
     equipCode: r.equip_code || '',
@@ -167,11 +174,14 @@ async function dbSaveEquip(entry) {
     if (error) throw error;
     return data.id;
   }
-  // 신규 — equip_code 자동 부여 (현존 max + 1)
-  const { data: last } = await sb.from('equipment')
-    .select('equip_code').not('equip_code', 'is', null)
-    .order('equip_code', { ascending: false }).limit(1);
-  const lastNum = (last && last[0]?.equip_code) ? parseInt(last[0].equip_code.slice(1), 10) : 0;
+  // 신규 — equip_code 자동 부여 (현존 max + 1). 문자 정렬이면 'E999' > 'E1000' 이라 자릿수 긴 것부터 찾음
+  let lastNum = 0;
+  for (const pat of ['E_____', 'E____', 'E___']) {
+    const { data: last } = await sb.from('equipment').select('equip_code').like('equip_code', pat)
+      .order('equip_code', { ascending: false }).limit(5);
+    const n = Math.max(0, ...(last || []).map(r => parseInt(r.equip_code.slice(1), 10)).filter(Number.isFinite));
+    if (n) { lastNum = n; break; }
+  }
   row.equip_code = 'E' + String(lastNum + 1).padStart(3, '0');
   const { data, error } = await sb.from('equipment').insert(row).select('id').single();
   if (error) throw error;
@@ -19375,12 +19385,21 @@ function AIChatPane({ owner, fullscreen = false }) {
   const loadEquipment = async () => {
     setEquipLoading(true);
     try {
-      const { data } = await sb
-        .from('equipment')
-        .select('id, equip_code, cat_name, item_name, model_name, manufacturer, price, image_url')
-        .order('equip_code', { ascending: true, nullsFirst: false })
-        .limit(2000);
-      setEquipData(data || []);
+      // 1,000줄씩 끝까지 읽고, 장비번호는 숫자 순서로 (문자 순서면 E1000이 E099 뒤에 옴)
+      const data = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error } = await sb
+          .from('equipment')
+          .select('id, equip_code, cat_name, item_name, model_name, manufacturer, price, image_url')
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        if (error) throw error;
+        data.push(...page);
+        if (page.length < 1000) break;
+      }
+      const codeNum = e => { const n = parseInt(String(e.equip_code || '').slice(1), 10); return Number.isFinite(n) ? n : Infinity; };
+      data.sort((a, b) => codeNum(a) - codeNum(b));
+      setEquipData(data);
     } catch (e) {
       console.error('loadEquipment', e);
       setEquipData([]);
