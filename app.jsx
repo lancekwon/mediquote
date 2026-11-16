@@ -17699,8 +17699,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     return targets.length;
   };
 
-  // 품목별 카톡 메시지 생성
-  const sendKakaoForItem = (p, it) => {
+  // 카톡 발주 메시지 — 품목 한 줄(그 줄의 카톡 버튼) 또는 발주 전체(발주번호 아래 '전체' 버튼, 거래처별로 한 번에)
+  // 단위: 장비관리 분류가 소모품·수술기구면 '개', 나머지는 '대'
+  const sendKakaoOrder = (p, list) => {
     const company = (typeof getCompanyInfo === 'function') ? getCompanyInfo() : {};
     const cleanName = (company.name || '대원메디칼').replace(/^(주식회사|㈜|\(주\))\s*/, '').trim();
     const cleanCo = `(주)${cleanName}`;
@@ -17724,7 +17725,20 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     lines.push(`${greeting} ${cleanCo} ${sender}입니다.`);
     lines.push('발주내용 보내드립니다.');
     lines.push('');
-    lines.push(`${it.model_name || it.item_name || ''} ${it.quantity || 1}대`);
+    const unitOf = (it) => {
+      const cat = (customEquips || []).find(e => e.id === it.equipment_id)?.catName;
+      return cat === '소모품' || cat === '수술기구' ? '개' : '대';
+    };
+    const label = (it) => [it.item_name, it.model_name].map(s => (s || '').trim()).filter(Boolean).join(' ');
+    if (list.length === 1) {
+      lines.push(`${label(list[0])} ${list[0].quantity || 1}${unitOf(list[0])}`);
+    } else {
+      // 넣은 순서(견적서 줄 순서)대로
+      [...list].sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
+        .forEach((it, i) => lines.push(`${i + 1}. ${label(it)} - ${it.quantity || 1}${unitOf(it)}`));
+      lines.push('');
+      lines.push(`총 ${list.length}품목`);
+    }
     lines.push('');
     if (p.hospital_name) lines.push(`병원명 : ${p.hospital_name}`);
     if (hospAddress) lines.push(`주소 : ${hospAddress}`);
@@ -17735,6 +17749,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     lines.push(`${sender}올림`);
     setKakaoModal({ vendor: p.manufacturer_name || p.vendor_name || '거래처', text: lines.join('\n') });
   };
+  const sendKakaoForItem = (p, it) => sendKakaoOrder(p, [it]);
 
   const handleCancel = async (p) => {
     if (!confirm(`발주 [${p.po_no}] 를 취소할까요?\n거래처: ${p.manufacturer_name}\n금액: ${(p.total_amount||0).toLocaleString()}원\n\n발주서만 비활성화됩니다. 매입(줄 돈)은 「매입매출 관리 > 세금계산서」 탭에서 관리하세요.`)) return;
@@ -18181,6 +18196,13 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                                   <div className="mt-0.5"><EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>
                                   {!viewer && <div className="mt-0.5"><DealTypeCell po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>}
                                   {viewer && p.deal_type === 'commission' && <div className="mt-0.5 text-[10px] text-violet-700">직거래</div>}
+                                  {items.length > 1 && (
+                                    <button onClick={() => sendKakaoOrder(p, items)} title="이 발주 품목 전체를 카톡 발주 메시지 하나로"
+                                      className="mt-1 inline-flex items-center gap-1 h-6 px-1.5 rounded bg-yellow-400 text-slate-900 hover:bg-yellow-300 font-sans text-[10px] font-bold whitespace-nowrap">
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                                      카톡 전체 {items.length}
+                                    </button>
+                                  )}
                                 </>
                               )}
                             </td>
