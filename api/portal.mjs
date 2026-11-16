@@ -105,7 +105,7 @@ async function loadBundle(h) {
     sb(`purchase_orders?hospital_id=eq.${h.id}&status=neq.${enc('취소')}` +
       `&select=id,po_no,ordered_at,created_at,status,delivery_date,tracking_delivered,tracking_delivered_at,owner,deal_type,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
       `&order=po_no.desc`),
-    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=issue_date,memo&order=issue_date.desc`),
+    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=id,issue_date,amount,memo&order=issue_date.desc`),
     sb(`service_requests?hospital_id=eq.${h.id}&select=id,equipment_name,model_name,issue,status,requested_at,engineer,created_at&order=created_at.desc`),
     sb(`order_requests?site=eq.${enc(h.name)}&requester=eq.${enc('병원 포털')}&select=id,model_name,quantity,status,created_at&order=created_at.desc&limit=100`),
     sb(`hospital_equipment_locations?hospital_id=eq.${h.id}&select=equip_key,allocations`),
@@ -235,10 +235,32 @@ async function loadBundle(h) {
     .sort((a, b) => (b.consumable - a.consumable) || (b.purchases - a.purchases) || String(b.lastDate).localeCompare(String(a.lastDate)));
 
   // 문서함 — 금액 없이 날짜·품목만
+  // 같은 이름(크기만 다른 수술기구 등)은 한 번만, 수량은 합쳐서 — 전엔 "Hegar Single ended ×2, …, Hegar Single ended ×2"처럼 겹쳐 보였음 (2026-11-16 에제르)
   const summary = (items) => {
-    const names = items.map((i) => `${shown(i.eq, i.name, '').name}${i.qty > 1 ? ` ×${i.qty}` : ''}`);
+    const byName = new Map();
+    for (const i of items) {
+      const n = shown(i.eq, i.name, '').name;
+      byName.set(n, (byName.get(n) || 0) + (Number(i.qty) || 1));
+    }
+    const names = [...byName].map(([n, q]) => `${n}${q > 1 ? ` ×${q}` : ''}`);
     return names.length > 4 ? `${names.slice(0, 4).join(', ')} 외 ${names.length - 4}건` : names.join(', ');
   };
+  // 세금계산서 — 취소된 원본과 그 취소(마이너스) 계산서는 짝지어 빼고, 우리 메모의 " — " 뒤 설명(재발행 사연·할인 금액 등)은 안 보여 줌
+  // (2026-11-16 에제르·바루다: "원본 — 같은 날 취소 후 …", "원본 취소 (기재사항 착오정정)", "… 할인 후 5,652,400원" 이 병원에 그대로 보였음)
+  const invoiceRows = (() => {
+    const list = invoices.map((t) => ({ ...t, amt: Number(t.amount) || 0 }));
+    const gone = new Set();
+    for (const neg of list.filter((t) => t.amt < 0)) {
+      const cands = list.filter((t) => t.amt === -neg.amt && !gone.has(t.id));
+      if (!cands.length) continue;
+      const orig = cands.find((t) => /^\s*(\[[^\]]*\]\s*)?원본/.test(t.memo || ''))
+        || [...cands].sort((a, b) => String(a.issue_date).localeCompare(String(b.issue_date)))[0];
+      gone.add(neg.id); gone.add(orig.id);
+    }
+    const text = (m) => String(m || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '').split(/\s+—\s+/)[0].trim();
+    return list.filter((t) => !gone.has(t.id))
+      .map((t) => ({ date: t.issue_date, summary: text(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서 발행') }));
+  })();
   const orderByDate = new Map();
   for (const ev of events.filter((e) => e.type === '주문')) {
     if (!orderByDate.has(ev.date)) orderByDate.set(ev.date, []);
@@ -293,7 +315,7 @@ async function loadBundle(h) {
       discount: Number(s.discount_total) || 0,
       total: Number(s.total) || 0,
     })),
-    invoices: invoices.map((t) => ({ date: t.issue_date, summary: String(t.memo || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '') || '세금계산서 발행' })),
+    invoices: invoiceRows,
   };
 
   return {
