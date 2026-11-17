@@ -2862,8 +2862,9 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       if (i.pNotes) noteParts.push(escape(i.pNotes));
       const note = noteParts.join('<br/>');
       const img = i.pImage
-        ? `<img src="${i.pImage}" alt="${escape(i.itemName)}" style="max-width:80px;max-height:80px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto"/>`
-        : `<div style="width:80px;height:80px;border:1px dashed #cbd5e1;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:18px;margin:0 auto">📷</div>`;
+        // 사진은 칸 안쪽(84 − 여백 8 = 76px)보다 작게 — 전엔 가로로 긴 사진(연장 암 등)이 80px까지 커져 칸 테두리를 넘었음 (2026-11-17)
+        ? `<img src="${i.pImage}" alt="${escape(i.itemName)}" style="max-width:70px;max-height:76px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto"/>`
+        : `<div style="width:70px;height:70px;border:1px dashed #cbd5e1;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:18px;margin:0 auto">📷</div>`;
       return `
       <tr>
         <td class="c-no">${i.rowNum}</td>
@@ -2922,7 +2923,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
         table.quote tr { page-break-inside:avoid; }
         table.quote td.c-no    { text-align:center; width:30px; font-weight:600; color:#64748b; }
         table.quote td.c-name  { text-align:center; width:95px; font-size:11px; }
-        table.quote td.c-img   { text-align:center; width:84px; padding:4px; }
+        table.quote td.c-img   { text-align:center; width:84px; min-width:84px; padding:4px; overflow:hidden; }
         table.quote td.c-spec  { vertical-align:top; padding:6px 8px; word-break:keep-all; }
         table.quote td.c-qty   { text-align:center; width:36px; font-weight:600; }
         table.quote td.c-price { text-align:right; width:76px; font-variant-numeric:tabular-nums; }
