@@ -3632,7 +3632,8 @@ function ManufacturerManageTab({ manufacturers, setManufacturers, equips, onEqui
               <div><label className={labelCls}>리드타임 (일)</label>
                 <input type="number" value={form.lead_time_days} onChange={e => setForm(p=>({...p, lead_time_days:parseInt(e.target.value)||14}))} className={inputCls}/></div>
               <div><label className={labelCls}>결제조건</label>
-                <input value={form.payment_terms} onChange={e => setForm(p=>({...p, payment_terms:e.target.value}))} className={inputCls} placeholder="납품 후 30일"/></div>
+                <input value={form.payment_terms} onChange={e => setForm(p=>({...p, payment_terms:e.target.value}))} className={inputCls} placeholder="선입금 / 납품 후 30일"/>
+                <div className="text-[11px] text-slate-400 mt-0.5">"선입금"이라고 적으면 발주 진행에 💰 선입금으로 표시돼요</div></div>
               <div className="col-span-2"><label className={labelCls}>계좌정보</label>
                 <input value={form.bank_info} onChange={e => setForm(p=>({...p, bank_info:e.target.value}))} className={inputCls} placeholder="국민은행 000-00-000000"/></div>
               <div className="col-span-2"><label className={labelCls}>계좌주/별칭 <span className="text-slate-400 font-normal">(쉼표로 구분 — 통장 자동매칭용)</span></label>
@@ -6600,11 +6601,12 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
   );
 }
 
-function VendorContactModal({ vendor, items, manufacturers = [], onSave, onClose }) {
+function VendorContactModal({ vendor, items, manufacturers = [], onSave, onClose, withPrepay = false }) {
   const mfr = manufacturers.find(m => m.name === vendor);
   const first = items?.[0] || {};
   const [name, setName] = React.useState(first.vendorContactName || mfr?.contact_name || '');
   const [phone, setPhone] = React.useState(first.vendorContactPhone || mfr?.contact_phone || '');
+  const [prepay, setPrepay] = React.useState(isPrepayTerms(mfr?.payment_terms));
   const inputCls = "bg-white border border-slate-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400";
   return (
     <ModalShell title={`거래처 담당자 — ${vendor}`} onClose={onClose}>
@@ -6617,11 +6619,18 @@ function VendorContactModal({ vendor, items, manufacturers = [], onSave, onClose
           <label className="text-xs text-slate-500 mb-1 block">연락처</label>
           <input value={phone} onChange={e=>setPhone(e.target.value)} className={`w-full ${inputCls}`} placeholder="010-0000-0000"/>
         </div>
+        {withPrepay && (
+          <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer ${prepay ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200'}`}>
+            <input type="checkbox" checked={prepay} onChange={e => setPrepay(e.target.checked)} className="w-4 h-4"/>
+            <span className="text-sm font-semibold text-slate-700">💰 선입금 거래처</span>
+            <span className="text-[11px] text-slate-500">입금해야 출고 — 발주 진행에 표시돼요</span>
+          </label>
+        )}
         <div className="text-[11px] text-slate-400">저장 시 거래처 마스터(거래처 관리)에도 함께 갱신됩니다.</div>
       </div>
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded">취소</button>
-        <button onClick={() => onSave({ contact_name: name.trim(), contact_phone: phone.trim() })}
+        <button onClick={() => onSave({ contact_name: name.trim(), contact_phone: phone.trim(), ...(withPrepay ? { payment_terms: setPrepayTerms(mfr?.payment_terms, prepay) } : {}) })}
           className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold">저장</button>
       </div>
     </ModalShell>
@@ -6679,7 +6688,7 @@ function ItemMemoModal({ item, onSave, onClose }) {
 }
 
 // 카톡 발주 메시지 모달
-function KakaoMessageModal({ vendor, text, onClose }) {
+function KakaoMessageModal({ vendor, text, notice = null, onClose }) {
   const [editText, setEditText] = React.useState(text);
   const [copied, setCopied] = React.useState(false);
   const taRef = React.useRef(null);
@@ -6713,6 +6722,7 @@ function KakaoMessageModal({ vendor, text, onClose }) {
         </div>
 
         <div className="px-6 py-4 overflow-y-auto flex-1">
+          {notice && <div className="mb-2 px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-sm font-semibold">{notice}</div>}
           <div className="text-xs text-slate-500 mb-2">아래 내용을 복사해서 카톡에 붙여넣으세요. 필요시 수정 가능합니다.</div>
           <textarea ref={taRef} value={editText} onChange={e => setEditText(e.target.value)}
             rows={Math.min(20, Math.max(8, editText.split('\n').length + 2))}
@@ -17041,6 +17051,28 @@ function PoDeliveredToggle({ p, setPos, reload, showToast, small = false }) {
 }
 
 // 발주 진행 — 모바일용 카드 (공유 URL을 폰에서 보기 편하게)
+// 거래처에 주문할 품목 줄인지 — 배송비·운임·택배·용달·할인 등 우리 쪽 비용 기록 줄은 아님 (카톡 발주 문구용)
+const isOrderLine = (it) => !/배송|운송|운임|택배|용달|퀵|설치비|할인/.test(`${it?.item_name || ''} ${it?.model_name || ''}`);
+// 선입금 거래처 = 거래처 결제조건(payment_terms)에 "선입금"/"선결제" (2026-11-17 — 입금해야 출고되는 곳을 자꾸 놓쳐서)
+const isPrepayTerms = (t) => /선입금|선결제/.test(String(t || ''));
+function setPrepayTerms(terms, on) {
+  const cur = String(terms || '').trim();
+  if (on) return isPrepayTerms(cur) ? cur : (cur ? `선입금 / ${cur}` : '선입금');
+  return cur.replace(/\s*\/?\s*(선입금|선결제)\s*\/?\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// 발주에 붙이는 표시 — 품목이 모두 '입금' 체크면 입금 완료
+function PrepayBadge({ p, className = '' }) {
+  const vi = p.vendorInfo;
+  if (!isPrepayTerms(vi?.payment_terms)) return null;
+  const done = (p.total || 0) > 0 && p.paidN >= p.total;
+  return (
+    <span title={`선입금 거래처 — 입금해야 출고돼요${vi.bank_info ? '\n' + vi.bank_info : ''}`}
+      className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap ${done ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700 ring-1 ring-rose-300'} ${className}`}>
+      💰 선입금 · {done ? '입금 완료' : '입금 전'}
+    </span>
+  );
+}
+
 function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) {
   const vi = p.vendorInfo;
   const fmtDate = (s) => s ? s.slice(5).replace('-', '/') : '—';
@@ -17051,6 +17083,7 @@ function PoTrackingCard({ p, groupBy, setPos, reload, showToast, onChecklist }) 
           <div className="text-sm font-semibold text-slate-800">
             {groupBy === 'vendor' ? p.hospName : (p.manufacturer_name || p.vendor_name || '—')}
           </div>
+          <PrepayBadge p={p} className="mt-0.5" />
           {groupBy !== 'vendor' && vi && (vi.contact_name || vi.contact_phone) && (
             <div className="text-xs text-slate-500 mt-0.5">
               {vi.contact_name && <span>{vi.contact_name}</span>}
@@ -17749,6 +17782,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       return cat === '소모품' || cat === '수술기구' ? '개' : '대';
     };
     const label = (it) => [it.item_name, it.model_name].map(s => (s || '').trim()).filter(Boolean).join(' ');
+    // 배송비·운임·할인 같은 우리 쪽 기록 줄은 거래처 발주 문구에서 뺌 (품목 줄 하나만 보낼 땐 그대로)
+    if (list.length > 1) { const real = list.filter(isOrderLine); if (real.length) list = real; }
     if (list.length === 1) {
       lines.push(`${label(list[0])} ${list[0].quantity || 1}${unitOf(list[0])}`);
     } else {
@@ -17766,7 +17801,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     lines.push('');
     lines.push('감사합니다.');
     lines.push(`${sender}올림`);
-    setKakaoModal({ vendor: p.manufacturer_name || p.vendor_name || '거래처', text: lines.join('\n') });
+    const notice = isPrepayTerms(vMfr?.payment_terms) ? `💰 선입금 거래처예요 — 입금해야 출고돼요${vMfr.bank_info ? ` (${vMfr.bank_info})` : ''}` : null;
+    setKakaoModal({ vendor: p.manufacturer_name || p.vendor_name || '거래처', text: lines.join('\n'), notice });
   };
   const sendKakaoForItem = (p, it) => sendKakaoOrder(p, [it]);
 
@@ -18215,11 +18251,11 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                                   <div className="mt-0.5"><EditableOwner po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>
                                   {!viewer && <div className="mt-0.5"><DealTypeCell po={p} setPos={setPos} reload={reload} showToast={showToast} /></div>}
                                   {viewer && p.deal_type === 'commission' && <div className="mt-0.5 text-[10px] text-violet-700">직거래</div>}
-                                  {items.length > 1 && (
+                                  {items.filter(isOrderLine).length > 1 && (
                                     <button onClick={() => sendKakaoOrder(p, items)} title="이 발주 품목 전체를 카톡 발주 메시지 하나로"
                                       className="mt-1 inline-flex items-center gap-1 h-6 px-1.5 rounded bg-yellow-400 text-slate-900 hover:bg-yellow-300 font-sans text-[10px] font-bold whitespace-nowrap">
                                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-                                      카톡 전체 {items.length}
+                                      카톡 전체 {items.filter(isOrderLine).length}
                                     </button>
                                   )}
                                 </>
@@ -18228,10 +18264,14 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                             {/* 거래처/병원: 첫 행만 */}
                             <td className="px-2 py-2">
                               {isFirst && (groupBy === 'vendor' ? (
-                                <div className="text-slate-800 text-sm leading-7">{p.hospName}</div>
+                                <div>
+                                  <div className="text-slate-800 text-sm leading-7">{p.hospName}</div>
+                                  <PrepayBadge p={p} />
+                                </div>
                               ) : (
                                 <div>
                                   <div className="text-slate-800 text-sm leading-7">{p.manufacturer_name || p.vendor_name || '—'}</div>
+                                  <PrepayBadge p={p} className="mb-0.5" />
                                   {vi && (vi.contact_name || vi.contact_phone) && (
                                     <div className="text-[10px] text-slate-500">
                                       {vi.contact_name && <span>{vi.contact_name}</span>}
@@ -18473,6 +18513,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         <KakaoMessageModal
           vendor={kakaoModal.vendor}
           text={kakaoModal.text}
+          notice={kakaoModal.notice}
           onClose={() => setKakaoModal(null)}
         />
       )}
@@ -18485,11 +18526,12 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
             vendor={vName}
             items={items}
             manufacturers={vendors}
+            withPrepay
             onSave={async (patch) => {
               if (vMfr?.id) {
                 try {
-                  await dbUpdateManufacturer(vMfr.id, { contact_name: patch.contact_name, contact_phone: patch.contact_phone });
-                  showToast('담당자 정보가 저장되었습니다.');
+                  await dbUpdateManufacturer(vMfr.id, { contact_name: patch.contact_name, contact_phone: patch.contact_phone, ...(patch.payment_terms !== undefined ? { payment_terms: patch.payment_terms } : {}) });
+                  showToast('거래처 정보가 저장되었습니다.');
                   // vendors 캐시 갱신
                   const fresh = await dbLoadManufacturers();
                   setVendors(fresh);
