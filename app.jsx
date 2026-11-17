@@ -2297,7 +2297,9 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onV
   const colors = NEUTRAL_COLORS;
   // 이미지: 모델에 직접 저장된 것 → customEquips에서 매칭 순으로 조회
   // 우선순위: equipment 테이블 최신 이미지 → 견적서에 저장된 옛 이미지 (수정 반영용)
-  const imageData = customEquips.find(e => e.itemName === item.name && e.model.name === model?.name)?.image || model?.image || null;
+  // 연결된 장비(모델 id = 장비 id)를 먼저 찾음 — PDF와 같은 기준. 품목명·모델명이 장비관리와 조금만 달라도 사진이 안 뜨던 문제 (2026-11-17)
+  const imageData = (model?.id && customEquips.find(e => e.id === model.id || e.model.id === model.id)?.image)
+    || customEquips.find(e => e.itemName === item.name && e.model.name === model?.name)?.image || model?.image || null;
 
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceInput, setPriceInput] = useState('');
