@@ -2828,6 +2828,12 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
   const s = useMemo(() => calcSummary(categories, globalDiscount), [categories, globalDiscount]);
   // 장비 단가 = VAT 포함 가정. finalAmt 그대로가 최종금액.
   const iframeRef = React.useRef(null);
+  // PDF 저장 파일 이름 = 문서 제목 → "문덕환원장님 귀하_2026-11-17" (원장님 이름 없으면 "병원명 귀하_날짜") (2026-11-17 사용자 요청)
+  const pdfTitle = useMemo(() => {
+    const who = (quoteInfo.doctor || '').trim() ? `${quoteInfo.doctor.trim()}원장님 귀하` : `${(quoteInfo.hospital || '견적서').trim()} 귀하`;
+    const d = quoteInfo.date || new Date().toISOString().slice(0, 10);
+    return `${who}_${d}`.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  }, [quoteInfo.doctor, quoteInfo.hospital, quoteInfo.date]);
 
   // 출력용 HTML 생성 (미리보기 iframe = 인쇄 결과물 동일)
   const buildHtml = useMemo(() => {
@@ -2884,7 +2890,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
     }).join('');
 
     return `<!DOCTYPE html><html lang="ko"><head>
-      <meta charset="UTF-8"><title>의료장비 견적서</title>
+      <meta charset="UTF-8"><title>${escape(pdfTitle)}</title>
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; color-adjust:exact !important; }
@@ -3017,19 +3023,25 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
     </div>
 
     </body></html>`;
-  }, [categories, globalDiscount, vatIncluded, customEquips, quoteInfo, logoBase64, sealBase64, s, companyInfo, validUntil]);
+  }, [categories, globalDiscount, vatIncluded, customEquips, quoteInfo, logoBase64, sealBase64, s, companyInfo, validUntil, pdfTitle]);
 
   // 모달의 미리보기 iframe을 인쇄 (= 사용자가 보는 화면 그대로 저장)
+  // 브라우저에 따라 PDF 파일 이름을 바깥 페이지 제목에서 가져가기도 해서, 인쇄하는 동안만 바깥 제목도 같게 바꿨다가 되돌림
   const handlePrint = () => {
     const fr = iframeRef.current;
     if (!fr) return;
+    const prevTitle = document.title;
     try {
       const w = fr.contentWindow;
       if (!w) return;
+      try { w.document.title = pdfTitle; } catch (_) {}
+      document.title = pdfTitle;
       w.focus();
       w.print();
     } catch (e) {
       alert('인쇄 실패: ' + (e.message || e));
+    } finally {
+      setTimeout(() => { document.title = prevTitle; }, 1000);
     }
   };
 
@@ -3111,7 +3123,11 @@ const DEFAULT_COMPANY_INFO = {
 function getCompanyInfo() {
   try {
     const saved = JSON.parse(localStorage.getItem('company_info') || '{}');
-    return { ...DEFAULT_COMPANY_INFO, ...saved };
+    // 저장된 값이 빈칸이면 기본값을 씀. 상호·대표·사업자번호·주소는 늘 같으니 브라우저 저장값을 쓰지 않고 고정
+    // (회사 정보가 브라우저마다 따로 저장돼, 주소가 빈칸으로 저장된 PC에선 견적서에 주소가 안 나왔음 — 2026-11-17)
+    const filled = Object.fromEntries(Object.entries(saved || {}).filter(([, v]) => v != null && String(v).trim() !== ''));
+    const { name, representative, business_no, address } = DEFAULT_COMPANY_INFO;
+    return { ...DEFAULT_COMPANY_INFO, ...filled, name, representative, business_no, address };
   } catch { return DEFAULT_COMPANY_INFO; }
 }
 function setCompanyInfo(info) {
@@ -3139,16 +3155,16 @@ function CompanySettingsModal({ onClose }) {
         </div>
         <div className="p-6 space-y-3">
           <div className="text-xs text-slate-500 mb-2">발주서 등 PDF 출력 시 발주처 정보로 사용됩니다.</div>
-          <div><label className={labelCls}>회사명 <span className="text-red-400">*</span></label>
-            <input value={form.name} onChange={e => setForm(p=>({...p, name:e.target.value}))} className={inputCls}/></div>
+          <div><label className={labelCls}>회사명 <span className="text-slate-400 font-normal">(고정)</span></label>
+            <input value={form.name} readOnly disabled className={inputCls + ' bg-slate-50 text-slate-500'}/></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelCls}>대표 전화</label>
               <input value={form.phone} onChange={e => setForm(p=>({...p, phone:e.target.value}))} className={inputCls} placeholder="02-0000-0000"/></div>
             <div><label className={labelCls}>팩스</label>
               <input value={form.fax} onChange={e => setForm(p=>({...p, fax:e.target.value}))} className={inputCls}/></div>
           </div>
-          <div><label className={labelCls}>주소</label>
-            <input value={form.address} onChange={e => setForm(p=>({...p, address:e.target.value}))} className={inputCls}/></div>
+          <div><label className={labelCls}>주소 <span className="text-slate-400 font-normal">(고정)</span></label>
+            <input value={form.address} readOnly disabled className={inputCls + ' bg-slate-50 text-slate-500'}/></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelCls}>담당자명</label>
               <input value={form.contact_name} onChange={e => setForm(p=>({...p, contact_name:e.target.value}))} className={inputCls}/></div>
