@@ -8,7 +8,7 @@ const SUPABASE_KEY = 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // 어드민 이메일 (추후 profiles 테이블로 확장)
-const ADMIN_EMAILS = ['wooheock2@gmail.com'];
+const ADMIN_EMAILS = ['wooheock2@gmail.com', 'daewonmedical89@gmail.com'];
 const isAdminEmail = (email) => ADMIN_EMAILS.includes((email || '').toLowerCase());
 
 /* ---------- 한글 초성 검색 유틸 ---------- */

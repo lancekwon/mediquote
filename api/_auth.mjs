@@ -4,7 +4,7 @@ export const SUPABASE_URL = process.env.SUPABASE_URL || 'https://nbgubiywavozgig
 const SUPABASE_PUBLIC_KEY = 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 export const SUPABASE_KEY = process.env.SUPABASE_KEY || SUPABASE_PUBLIC_KEY;
 
-const ADMIN_EMAILS = ['wooheock2@gmail.com'];
+const ADMIN_EMAILS = ['wooheock2@gmail.com', 'daewonmedical89@gmail.com'];
 export const isAdminEmail = (email) => ADMIN_EMAILS.includes(String(email || '').toLowerCase());
 
 // Authorization: Bearer <로그인 토큰> → 그 사람의 이메일 (소문자). 토큰이 없거나 틀리면 null

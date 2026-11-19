@@ -5,7 +5,7 @@
 create or replace function public.is_admin() returns boolean
 language sql stable
 set search_path = ''
-as $$ select coalesce(auth.jwt() ->> 'email', '') = 'wooheock2@gmail.com' $$;
+as $$ select coalesce(auth.jwt() ->> 'email', '') in ('wooheock2@gmail.com', 'daewonmedical89@gmail.com') $$;  -- 어드민 목록: app.jsx·api/_auth.mjs ADMIN_EMAILS와 같게
 
 do $$
 declare
