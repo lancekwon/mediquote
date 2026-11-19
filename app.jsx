@@ -1709,14 +1709,18 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
 /* ============================================================
    PRODUCT DETAIL MODAL
    ============================================================ */
+// 견적 줄의 모델 → 장비관리 장비. 연결된 장비(모델 id = 장비 id 또는 model_id)를 먼저 찾고, 없을 때만 모델명+제조사로 (2026-11-19)
+//   예전엔 "id 같음 || 이름 같음"을 한 번에 찾아, 같은 모델명 장비가 목록 앞에 있으면 엉뚱한 장비의 사진·비고·거래처를 집었음
+function findQuoteEquip(list, id, name, manufacturer) {
+  return (id && list.find(e => e.id === id || e.model.id === id))
+    || list.find(e => e.model.name === name && e.model.manufacturer === manufacturer);
+}
+
 function ProductDetailModal({ modelId, modelName, manufacturer, catName, catColorKey, onClose, onViewManufacturer, customEquips = [] }) {
   const spec = PRODUCT_SPECS[modelId] || PRODUCT_SPECS['_default'];
   const colors = NEUTRAL_COLORS;
   // DB에서 실제 장비 조회 (modelId 또는 modelName+manufacturer로 매칭)
-  const dbEquip = customEquips.find(e =>
-    e.model.id === modelId ||
-    (e.model.name === modelName && e.model.manufacturer === manufacturer)
-  );
+  const dbEquip = findQuoteEquip(customEquips, modelId, modelName, manufacturer);
   const equipImage = dbEquip?.image || null;
   // DB spec이 있으면 우선 사용
   const dbSpec = dbEquip?.spec;
@@ -2835,7 +2839,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
       if (!item.excluded) {
         rowNum++;
         const m = getModel(item);
-        const dbE = customEquips.find(e => e.model.id === m?.id || (e.model.name === m?.name && e.model.manufacturer === m?.manufacturer));
+        const dbE = findQuoteEquip(customEquips, m?.id, m?.name, m?.manufacturer);
         const equipImg = dbE?.image || m?.image || null;
         activeItems.push({ rowNum, catName: cat.name, itemName: item.name, modelId: m?.id||'', modelName: m?.name||'', manufacturer: m?.manufacturer||'', price: m?.price, quantity: item.quantity, gross: getGross(item), discount: item.itemDiscount, net: getNet(item), image: equipImg });
       }
@@ -2844,7 +2848,7 @@ function PdfPreviewModal({ quoteInfo, categories, globalDiscount, vatIncluded, o
     // 통합 견적서 행 — 사진·규격·수량·단가·합계·비고 한 줄
     const enriched = activeItems.map(i => {
       const foundSpec = PRODUCT_SPECS[i.modelId] || PRODUCT_SPECS['_default'];
-      const dbE = customEquips.find(e => e.model.id === i.modelId || (e.model.name === i.modelName && e.model.manufacturer === i.manufacturer));
+      const dbE = findQuoteEquip(customEquips, i.modelId, i.modelName, i.manufacturer);
       // 견적서 PDF — 장비별 desc만 표시(없으면 빈칸). _default fallback 안내문구는 노출 안 함.
       const pDesc     = dbE?.spec?.desc     || (PRODUCT_SPECS[i.modelId]?.desc || '');
       const pSpecs    = (dbE?.spec?.specs?.length ? dbE.spec.specs : foundSpec.specs) || [];
@@ -5620,9 +5624,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
           sourceCategories.forEach(cat => {
             (cat.items || []).filter(i => !i.excluded).forEach(item => {
               const model = item.models?.find(m => m.id === item.selectedModelId) || item.models?.[0];
-              const eq = equipments.find(e =>
-                e.model.id === model?.id || (e.model.name === model?.name && e.model.manufacturer === model?.manufacturer)
-              );
+              const eq = findQuoteEquip(equipments, model?.id, model?.name, model?.manufacturer);
               const manufacturer = model?.manufacturer || eq?.model.manufacturer || '';
               const vendor = eq?.vendor || manufacturer || '';
               const vInfo = manufacturers.find(m => m.name === vendor);
@@ -5721,7 +5723,7 @@ function PurchaseOrderPlanPage({ lead, equipments = [], manufacturers = [], setM
     sourceCategories.forEach(cat => {
       (cat.items || []).filter(i => !i.excluded).forEach(item => {
         const model = item.models?.find(m => m.id === item.selectedModelId) || item.models?.[0];
-        const eq = equipments.find(e => e.model.id === model?.id || (e.model.name === model?.name && e.model.manufacturer === model?.manufacturer));
+        const eq = findQuoteEquip(equipments, model?.id, model?.name, model?.manufacturer);
         const manufacturer = model?.manufacturer || eq?.model.manufacturer || '';
         const vendor = eq?.vendor || manufacturer || '';
         const vInfo = freshMfrs.find(m => m.name === vendor);
