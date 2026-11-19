@@ -2289,7 +2289,7 @@ function ControlsBar({ search, setSearch, onAddEquip }) {
 /* ============================================================
    ITEM ROW
    ============================================================ */
-function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onViewProduct, onViewManufacturer, catName, customEquips = [] }) {
+function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onViewProduct, onViewManufacturer, catName, customEquips = [], onMove = null, canMoveUp = false, canMoveDown = false }) {
   const model = getModel(item);
   const gross = getGross(item);
   const net = getNet(item);
@@ -2342,6 +2342,11 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onV
     <tr className={`tr-row border-b border-slate-100 align-middle ${item.excluded ? 'tr-excluded bg-slate-50' : 'bg-white'}`}>
       {/* 번호 / 상태 */}
       <td className="td-toggle px-2 py-2 text-center w-10">
+        {/* 순서 바꾸기 ▲▼ (2026-11-19 사용자 요청) — 구역 맨 위/아래면 옆 구역으로 넘어감. 검색 중엔 숨김 */}
+        {onMove && (
+          <button onClick={() => onMove(-1)} disabled={!canMoveUp} title="위로"
+            className="block mx-auto mb-1 w-6 h-5 rounded text-[10px] leading-none text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent">▲</button>
+        )}
         <button
           onClick={() => onUpdate({...item, excluded:!item.excluded})}
           title={item.excluded?'반영하기':'제외하기'}
@@ -2353,6 +2358,10 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onV
         >
           {!item.excluded && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>}
         </button>
+        {onMove && (
+          <button onClick={() => onMove(1)} disabled={!canMoveDown} title="아래로"
+            className="block mx-auto mt-1 w-6 h-5 rounded text-[10px] leading-none text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent">▼</button>
+        )}
       </td>
       {/* 품명 */}
       <td className="px-2 py-1 w-56">
@@ -2494,7 +2503,7 @@ function ItemRow({ item, catColorKey, rowNum, onUpdate, onDelete, onOpenAlt, onV
 /* ============================================================
    CATEGORY SECTION
    ============================================================ */
-function CategorySection({ category, collapsed, onToggle, onUpdateItem, onDeleteItem, onOpenAlt, search, rowOffset, onViewProduct, onViewManufacturer, customEquips }) {
+function CategorySection({ category, collapsed, onToggle, onUpdateItem, onDeleteItem, onOpenAlt, search, rowOffset, onViewProduct, onViewManufacturer, customEquips, onMoveItem, isFirstCat = true, isLastCat = true }) {
   const colors = NEUTRAL_COLORS;
   const activeCount = category.items.filter(i => !i.excluded).length;
   const filteredItems = search
@@ -2546,6 +2555,9 @@ function CategorySection({ category, collapsed, onToggle, onUpdateItem, onDelete
           onViewManufacturer={onViewManufacturer}
           catName={category.name}
           customEquips={customEquips}
+          onMove={onMoveItem && !search ? (dir => onMoveItem(category.id, item.id, dir)) : null}
+          canMoveUp={idx > 0 || !isFirstCat}
+          canMoveDown={idx < category.items.length - 1 || !isLastCat}
         />
       ))}
     </tbody>
@@ -2649,26 +2661,6 @@ function SummaryPanel({ categories, globalDiscount, setGlobalDiscount, vatInclud
             <span className="text-sm font-bold text-slate-800">최종 금액 (VAT 포함)</span>
             <div className="text-lg font-bold tnum text-blue-700">{s.finalAmt.toLocaleString('ko-KR')}원</div>
           </div>
-        </div>
-
-        {/* 카테고리별 소계 */}
-        <div>
-          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">카테고리별 소계</div>
-          {categories.map(cat => {
-            const colors = NEUTRAL_COLORS;
-            const catSum = cat.items.filter(i=>!i.excluded).reduce((sum,i)=>sum+(getNet(i)||0),0);
-            const catActive = cat.items.filter(i=>!i.excluded).length;
-            return (
-              <div key={cat.id} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                  <span className="text-xs text-slate-600">{cat.name}</span>
-                  <span className="text-xs text-slate-400">({catActive})</span>
-                </div>
-                <span className="text-xs font-medium tnum text-slate-700">{catSum.toLocaleString('ko-KR')}원</span>
-              </div>
-            );
-          })}
         </div>
 
         {/* PDF 버튼 */}
@@ -20840,6 +20832,14 @@ function SalesRepsPage({ user, onLogout, nav }) {
   );
 }
 
+// 견적서 안 구역(카테고리) 없앰 (2026-11-19 사용자): 품목은 한 목록. 구역이 여러 개인 예전 견적은 순서 그대로 하나로 합침
+//   저장 형식(categories 배열)은 그대로 — PDF·영업사원 앱 표준견적은 원래 구역 없이 한 줄로 보여줌
+const QUOTE_SECTION = { id: 'items', name: '견적 품목', colorKey: 'neutral' };
+function mergeQuoteSections(cats) {
+  const items = (cats || []).flatMap(c => c.items || []);
+  return items.length ? [{ ...QUOTE_SECTION, items }] : [];
+}
+
 function App() {
   const [shareMode] = useState(() => detectShareMode());
   const [quoteInfo, setQuoteInfo] = useState({
@@ -21008,7 +21008,7 @@ function App() {
 
   const handleLoadEntry = useCallback((entry) => {
     setQuoteInfo(entry.quoteInfo);
-    setCategories(JSON.parse(JSON.stringify(entry.categories)));
+    setCategories(mergeQuoteSections(JSON.parse(JSON.stringify(entry.categories))));
     setGlobalDiscount(entry.globalDiscount);
     setVatIncluded(entry.vatIncluded);
     setView('editor');
@@ -21026,6 +21026,31 @@ function App() {
       .map(cat => cat.id !== catId ? cat : { ...cat, items: cat.items.filter(i => i.id !== itemId) })
       .filter(cat => cat.items.length > 0)
     );
+  }, []);
+
+  // 장비 순서 바꾸기 (dir -1 위 / +1 아래). 견적서 PDF 번호는 구역 순서 → 구역 안 순서로 매겨지므로 전체를 한 줄로 보고 한 칸씩 움직임:
+  // 구역 맨 위에서 ▲ → 위 구역 마지막 줄 바로 앞, 맨 아래에서 ▼ → 아래 구역 첫 줄 바로 뒤. 비게 된 구역은 지움(삭제와 같게)
+  const moveItem = useCallback((catId, itemId, dir) => {
+    setCategories(prev => {
+      const cats = prev.map(c => ({ ...c, items: [...c.items] }));
+      const ci = cats.findIndex(c => c.id === catId);
+      if (ci < 0) return prev;
+      const ii = cats[ci].items.findIndex(i => i.id === itemId);
+      if (ii < 0) return prev;
+      const items = cats[ci].items;
+      const j = ii + dir;
+      if (j >= 0 && j < items.length) {
+        [items[ii], items[j]] = [items[j], items[ii]];
+      } else {
+        const ni = ci + dir;
+        if (ni < 0 || ni >= cats.length) return prev;
+        const [moved] = items.splice(ii, 1);
+        const target = cats[ni].items;
+        if (dir < 0) target.splice(Math.max(0, target.length - 1), 0, moved);
+        else target.splice(Math.min(1, target.length), 0, moved);
+      }
+      return cats.filter(c => c.items.length > 0);
+    });
   }, []);
 
   const handleAddEquip = useCallback(({ catId, itemName, modelName, manufacturer, price, notes, image, altModels = [] }) => {
@@ -21050,15 +21075,10 @@ function App() {
       memo: '',
       models: [primaryModel, ...altModelObjs],
     };
+    // 구역 없이 한 목록 — 새 장비는 항상 맨 아래 (2026-11-19)
     setCategories(prev => {
-      const exists = prev.some(cat => cat.id === catId);
-      if (exists) {
-        return prev.map(cat => cat.id !== catId ? cat : { ...cat, items: [...cat.items, newItem] });
-      }
-      // catId가 현재 에디터에 없으면 새 카테고리 행으로 추가
-      const catName = dynCats.find(c => c.id === catId)?.name ||
-                      customEquips.find(e => e.catId === catId)?.catName || catId;
-      return [...prev, { id: catId, name: catName, colorKey: 'neutral', items: [newItem] }];
+      const [sec] = mergeQuoteSections(prev);
+      return [sec ? { ...sec, items: [...sec.items, newItem] } : { ...QUOTE_SECTION, items: [newItem] }];
     });
     addToast(`${itemName} — ${modelName} 추가됨`, 'success');
   }, [addToast, dynCats, customEquips]);
@@ -21310,10 +21330,13 @@ function App() {
               </tr>
             </thead>
 
-            {categories.map(cat => (
+            {categories.map((cat, catIdx) => (
               <CategorySection
                 key={cat.id}
                 category={cat}
+                onMoveItem={moveItem}
+                isFirstCat={catIdx === 0}
+                isLastCat={catIdx === categories.length - 1}
                 collapsed={!!collapsed[cat.id]}
                 onToggle={() => setCollapsed(p => ({...p, [cat.id]: !p[cat.id]}))}
                 onUpdateItem={updateItem}
