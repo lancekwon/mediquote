@@ -741,13 +741,22 @@ async function statementPdfBlob(d) {
   }
 }
 
-// PDF 파일을 카톡 등으로 보내기. 휴대폰 공유창이 파일을 못 받거나 막히면 'blocked' (한 번 더 누르는 창을 띄움)
-async function sharePdfFile(file, title) {
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title }); return 'shared'; }
-    catch (e) { return e.name === 'AbortError' ? 'cancel' : 'blocked'; }
+// PDF 파일을 휴대폰 공유창(카톡 등)으로 보내기 → { result: 'shared'|'cancel'|'desktop'|'unsupported'|'failed', detail }
+//   파일만 넘김 — 제목·글자를 같이 넘기면 카톡 등이 파일 대신 글자만 받기도 함
+//   AbortError는 사람이 공유창을 닫을 때도 오지만, 1초 안에 오면 공유창이 아예 안 뜬 것으로 봄 (2026-11-20 "아무 반응 없음")
+const isMobileDevice = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+async function sharePdfFile(file) {
+  if (!isMobileDevice()) return { result: 'desktop' };
+  if (!navigator.share) return { result: 'unsupported', detail: '이 화면(브라우저)은 공유하기를 지원하지 않습니다' };
+  if (navigator.canShare && !navigator.canShare({ files: [file] })) return { result: 'unsupported', detail: '이 화면(브라우저)은 파일 공유를 지원하지 않습니다' };
+  const t0 = Date.now();
+  try {
+    await navigator.share({ files: [file] });
+    return { result: 'shared' };
+  } catch (e) {
+    if (e.name === 'AbortError' && Date.now() - t0 > 1000) return { result: 'cancel' };
+    return { result: 'failed', detail: `${e.name || '오류'}: ${e.message || ''}` };
   }
-  return 'blocked';
 }
 function downloadFile(file) {
   const url = URL.createObjectURL(file);
@@ -20408,16 +20417,21 @@ const salesStatementSummary = (s) => {
   return `${items[0].item_name || items[0].model_name || '품목'}${items.length > 1 ? ` 외 ${items.length - 1}건` : ''}`;
 };
 
-// PDF 공유가 막혔을 때 한 번 더 누르는 창 (아이폰은 PDF를 만드는 동안 공유 허락이 풀리기도 함, PC는 공유창 없음)
-function SalesPdfShareDialog({ file, title, onClose }) {
-  const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
-  const again = async () => { const r = await sharePdfFile(file, title); if (r !== 'blocked') onClose(); };
+// 공유창이 안 열렸을 때 띄우는 창 — 이유 + 다시 보내기 + 휴대폰에 저장 (저장한 PDF는 카톡 대화방 + → 파일로 보낼 수 있음)
+function SalesPdfShareDialog({ file, note, onClose }) {
+  const [again, setAgain] = useState('');
+  const retry = async () => {
+    const r = await sharePdfFile(file);
+    if (r.result === 'shared' || r.result === 'cancel') onClose();
+    else setAgain(r.detail || '다시 안 됐습니다');
+  };
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-900/60 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3">
-        <div className="text-[22px] font-bold text-slate-900">PDF가 준비됐습니다</div>
-        <div className="text-[16px] text-slate-600 break-all">{file.name}</div>
-        {canShare && <button onClick={again} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900`}>카톡으로 보내기</button>}
+        <div className="text-[22px] font-bold text-slate-900">카톡 공유창이 안 열렸습니다</div>
+        <div className="text-[16px] text-slate-700">휴대폰에 저장한 뒤 카톡 대화방에서 <b>+ → 파일</b>로 보낼 수 있습니다.</div>
+        {(again || note) && <div className="text-[14px] text-slate-500 break-all">원인: {again || note}</div>}
+        {!!navigator.share && <button onClick={retry} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900`}>카톡으로 다시 보내기</button>}
         <button onClick={() => downloadFile(file)} className={`${SALES_BTN_PLAIN} w-full`}>휴대폰에 저장</button>
         <button onClick={onClose} className={`${SALES_BTN_PLAIN} w-full`}>닫기</button>
       </div>
@@ -20425,28 +20439,28 @@ function SalesPdfShareDialog({ file, title, onClose }) {
   );
 }
 
-// "카톡으로 보내기 (PDF)" — makeFile()이 만든 PDF 파일을 휴대폰 공유창으로
-function SalesPdfShareButton({ makeFile, title, disabled }) {
-  const [busy, setBusy] = useState(false);
+// "카톡으로 보내기 (PDF)" + "저장" — file은 미리 만들어 둔 PDF (없으면 준비 중)
+function SalesPdfShareButtons({ file, preparing, prepError }) {
   const [dialog, setDialog] = useState(null);
-  const [error, setError] = useState('');
-  const go = async () => {
-    setBusy(true); setError('');
-    try {
-      const file = await makeFile();
-      if ((await sharePdfFile(file, title)) === 'blocked') setDialog(file);
-    } catch (e) {
-      console.error('pdf share', e);
-      setError('PDF를 만들지 못했습니다. 잠시 뒤 다시 눌러 주세요.');
-    } finally { setBusy(false); }
+  const [status, setStatus] = useState('');
+  const mobile = isMobileDevice();
+  const share = async () => {
+    setStatus('');
+    const r = await sharePdfFile(file);
+    if (r.result === 'desktop') {
+      downloadFile(file);
+      setStatus('PC에는 카톡 공유창이 없어 PDF를 저장했습니다. 저장된 파일을 PC 카톡 대화창에 끌어다 놓으세요.');
+    } else if (r.result === 'unsupported' || r.result === 'failed') setDialog({ note: r.detail });
   };
+  if (prepError) return <div className="text-[17px] font-bold text-rose-700">{prepError}</div>;
   return (
     <>
-      <button onClick={go} disabled={busy || disabled} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900 disabled:opacity-60`}>
-        {busy ? 'PDF 만드는 중입니다' : '카톡으로 보내기 (PDF)'}
+      <button onClick={share} disabled={!file} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900 disabled:opacity-60`}>
+        {file ? '카톡으로 보내기 (PDF)' : (preparing || 'PDF 준비 중입니다')}
       </button>
-      {error && <div className="text-[16px] font-bold text-rose-700">{error}</div>}
-      {dialog && <SalesPdfShareDialog file={dialog} title={title} onClose={() => setDialog(null)} />}
+      <button onClick={() => file && downloadFile(file)} disabled={!file} className={`${SALES_BTN_PLAIN} w-full disabled:opacity-60`}>{mobile ? '휴대폰에 저장' : 'PDF 저장'}</button>
+      {status && <div className="text-[16px] text-slate-700">{status}</div>}
+      {dialog && <SalesPdfShareDialog file={file} note={dialog.note} onClose={() => setDialog(null)} />}
     </>
   );
 }
@@ -20509,9 +20523,8 @@ function SalesInvoiceView({ id, onBack }) {
       <div className={SALES_SUB}>{salesDate(t.date)} 발행 · {salesWon(t.amount)}</div>
       {data.pdf_url ? (
         <>
-          <SalesPdfShareButton title={`${data.hospital_name} 세금계산서`} disabled={!file}
-            makeFile={async () => { if (!file) throw new Error('PDF 준비 전'); return file; }} />
-          {pdfError && <div className="text-[17px] font-bold text-rose-700">{pdfError}</div>}
+          <SalesPdfShareButtons file={file} preparing="계산서를 여는 중입니다" prepError={!file && pdfError ? pdfError : ''} />
+          {file && pdfError && <div className="text-[17px] font-bold text-rose-700">{pdfError}</div>}
           {!drawn && !pdfError && <SalesNote>계산서를 여는 중입니다</SalesNote>}
           <div ref={pagesRef} className={`bg-white border border-slate-300 rounded-xl overflow-hidden ${drawn ? '' : 'h-0 border-0'}`} />
         </>
@@ -20530,6 +20543,17 @@ function SalesStatementView({ s, onBack }) {
   const docRef = useRef(null);
   const [zoom, setZoom] = useState(false);
   const [fit, setFit] = useState({ scale: 0.45, height: 520 });
+  const [file, setFile] = useState(null);
+  const [prepError, setPrepError] = useState('');
+  // 화면 열 때 PDF를 미리 만들어 둠 → 누르자마자 공유창 (만드는 동안 기다리면 휴대폰이 공유를 막기도 함)
+  useEffect(() => {
+    let alive = true;
+    setFile(null); setPrepError('');
+    statementPdfBlob(data)
+      .then(blob => { if (alive) setFile(new File([blob], `[DW]${s.hospital_name}_거래명세서_${data.issue_date}.pdf`, { type: 'application/pdf' })); })
+      .catch(e => { console.error('statement pdf', e); if (alive) setPrepError('PDF를 만들지 못했습니다. 뒤로 갔다가 다시 열어 주세요.'); });
+    return () => { alive = false; };
+  }, [data]);
   useEffect(() => {
     const measure = () => {
       const w = boxRef.current?.clientWidth || 360;
@@ -20547,8 +20571,7 @@ function SalesStatementView({ s, onBack }) {
       <SalesBack label="뒤로" onClick={onBack} />
       <SalesTitle>거래명세서</SalesTitle>
       <div className={SALES_SUB}>납품 {salesDate(s.statement_date)} · {salesWon(s.total)}</div>
-      <SalesPdfShareButton title={`${s.hospital_name} 거래명세서`}
-        makeFile={async () => new File([await statementPdfBlob(data)], `[DW]${s.hospital_name}_거래명세서_${data.issue_date}.pdf`, { type: 'application/pdf' })} />
+      <SalesPdfShareButtons file={file} preparing="PDF 만드는 중입니다" prepError={prepError} />
       <button onClick={() => setZoom(z => !z)} className={`${SALES_BTN_PLAIN} w-full`}>{zoom ? '화면에 맞추기' : '크게 보기'}</button>
       <div ref={boxRef} className={`bg-white border border-slate-300 rounded-xl ${zoom ? 'overflow-x-auto' : 'overflow-hidden'}`} style={{ height: fit.height }}>
         <div style={{ width: 794, transform: `scale(${fit.scale})`, transformOrigin: 'top left' }}>
