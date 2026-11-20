@@ -12,6 +12,7 @@
   ],
   "rewrites": [
     { "source": "/h/:code", "destination": "/hospital.html" },
+    { "source": "/q/:token/pdf", "destination": "/api/quote?t=:token&pdf=1" },
     { "source": "/q/:token", "destination": "/api/quote?t=:token" },
     { "source": "/hospital", "destination": "/hospital.html" },
     { "source": "/preview", "destination": "/hospital_preview.html" },

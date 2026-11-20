@@ -3,6 +3,8 @@
 // 매입가(unit_price, purchase_price)·이익·매입처는 여기서 아예 조회하지 않음.
 import crypto from 'node:crypto';
 import { SUPABASE_URL, SUPABASE_KEY, getLoginEmail } from './_auth.mjs';
+import { ensureDocShares } from './_docshare.mjs';
+import { invoiceWriteDate } from '../lib/statement_doc.mjs';
 
 const enc = encodeURIComponent;
 const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
@@ -29,7 +31,7 @@ const ORDER_FIELDS = 'id,order_no,draft_id,hospital_id,hospital_name,delivery_da
 const ORDER_ITEM_FIELDS = 'id,sort,item_name,model_name,quantity,sale_price,is_discount,po_id';
 const SETTLE_FIELDS = 'id,order_id,hospital_id,buyer_name,buyer_address,buyer_reg_no,buyer_ceo,buyer_email,issue_date,supply_amount,tax_amount,total_amount,items,memo,status,reject_reason,handled_at,created_at';
 const DISCOUNT_EQUIP_CODE = 'E714'; // 범용 "할인" 장비
-const STATEMENT_FIELDS = 'id,statement_date,issued_at,hospital_name,hospital_address,supplier,items,subtotal,discount_total,total';
+const STATEMENT_FIELDS = 'id,statement_date,issue_date,issued_at,hospital_name,hospital_address,supplier,items,subtotal,discount_total,total';
 
 // 매출 세금계산서 목록 — 우리 메모의 "[병원] 납품:" 머리와 " — " 뒤 설명은 빼고 보여줌 (api/portal.mjs와 같은 기준)
 const invoiceText = (m) => String(m || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '').split(/\s+—\s+/)[0].trim();
@@ -46,8 +48,10 @@ function invoiceList(rows) {
   }
   return {
     hidden: gone.size,
+    // 날짜 = 계산서 작성일자 (승인번호 앞 8자리). 수정 재발행이면 클로브 발급일과 다름 (아이비: 작성 11/17, 발급 11/20)
     invoices: list.filter((t) => !gone.has(t.id))
-      .map((t) => ({ id: t.id, date: t.issue_date, amount: t.amt, has_pdf: !!t.pdf_path, summary: invoiceText(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서') })),
+      .map((t) => ({ id: t.id, date: invoiceWriteDate(t), amount: t.amt, has_pdf: !!t.pdf_path, summary: invoiceText(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서') }))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date))),
   };
 }
 
@@ -216,7 +220,7 @@ async function hospitalDetail(rep, id) {
     sb(`sales_notes?hospital_id=eq.${id}&select=${NOTE_FIELDS}&order=created_at.desc&limit=50`),
     sb(`service_requests?hospital_id=eq.${id}&${SERVICE_OPEN}&select=${SERVICE_FIELDS}&order=created_at.desc`),
     consumableMap(),
-    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${id}&select=id,issue_date,amount,memo,pdf_path&order=issue_date.desc&limit=300`),
+    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${id}&select=id,issue_date,clobe_ti_id,amount,memo,pdf_path&order=issue_date.desc&limit=300`),
     // 병원 포털과 같게 공개(shared)된 것만 — 관리자가 숨긴 건 옛 버전·잘못 뽑은 것
     sb(`hospital_statements?hospital_id=eq.${id}&shared=is.true&select=${STATEMENT_FIELDS}&order=statement_date.desc,issued_at.desc`),
   ]);
@@ -250,12 +254,12 @@ async function signTaxPdf(path) {
 
 async function invoiceDetail(rep, id) {
   if (!isUuid(id)) throw new HttpError(400, '계산서 정보가 잘못됐습니다.');
-  const [t] = await sb(`tax_invoices?id=eq.${id}&kind=eq.sale&select=id,issue_date,amount,memo,hospital_id,pdf_path`);
+  const [t] = await sb(`tax_invoices?id=eq.${id}&kind=eq.sale&select=id,issue_date,clobe_ti_id,amount,memo,hospital_id,pdf_path`);
   if (!t?.hospital_id) throw new HttpError(404, '계산서를 찾을 수 없습니다.');
   const hospital = await assignedHospital(rep, t.hospital_id);
   const amount = Number(t.amount) || 0;
   return {
-    invoice: { id: t.id, date: t.issue_date, amount, summary: invoiceText(t.memo) || (amount < 0 ? '수정 세금계산서' : '세금계산서') },
+    invoice: { id: t.id, date: invoiceWriteDate(t), amount, summary: invoiceText(t.memo) || (amount < 0 ? '수정 세금계산서' : '세금계산서') },
     hospital_name: hospital.name,
     pdf_url: t.pdf_path ? await signTaxPdf(t.pdf_path) : null,
   };
@@ -420,11 +424,17 @@ async function settlementForm(rep, orderId) {
   const items = order.shipping_order_items.map((i) => settleLine({
     name: i.is_discount ? '할인' : i.item_name, spec: i.model_name || '', qty: i.quantity, amount: i.quantity * i.sale_price,
   }));
+  // 발행일 기본값 = 이 발주로 뽑은 거래명세서 날짜 (사용자 2026-11-20: 계산서 날짜와 명세서 날짜를 같은 날로)
+  const poIds = [...new Set(order.shipping_order_items.map((i) => i.po_id).filter(Boolean))];
+  const [stmt] = poIds.length
+    ? await sb(`hospital_statements?hospital_id=eq.${order.hospital_id}&shared=is.true&po_ids=ov.{${poIds.join(',')}}&select=issue_date,statement_date&order=issued_at.desc&limit=1`)
+    : [];
   return {
     order: { id: order.id, order_no: order.order_no, hospital_name: order.hospital_name, sale_total: order.sale_total },
     form: {
       buyer_name: h.name || '', buyer_address: h.address || '', buyer_reg_no: (h.business_reg_no || '').replace(/\D/g, ''),
-      buyer_ceo: h.ceo_name || '', buyer_email: h.tax_email || h.contact_email || '', issue_date: todayKST(), items,
+      buyer_ceo: h.ceo_name || '', buyer_email: h.tax_email || h.contact_email || '', issue_date: stmt ? (stmt.issue_date || stmt.statement_date) : todayKST(), items,
+      issue_date_from: stmt ? 'statement' : null,
     },
   };
 }
@@ -534,7 +544,28 @@ async function saveContact(rep, body) {
   return { hospital };
 }
 
+// 카톡으로 보낼 링크 (/q/<token>)
+//   견적서: 보낼 때마다 화면 사본(html)을 저장한 새 링크
+//   세금계산서·거래명세서 (2026-11-20 사용자: "my. 문서함과 같은 주소"): 서류마다 고정 링크 하나 (api/_docshare.mjs)
+//     — 몇 번을 보내도 같은 주소, 병원 포털 문서함 단추도 같은 주소. 화면은 열 때마다 DB에서 그림 (api/quote.mjs)
 async function shareQuote(rep, body) {
+  const kind = body.kind === 'tax_invoice' || body.kind === 'statement' ? body.kind : 'quote';
+  if (kind === 'tax_invoice') {
+    if (!isUuid(body.invoice_id)) throw new HttpError(400, '계산서 정보가 잘못됐습니다.');
+    const [t] = await sb(`tax_invoices?id=eq.${body.invoice_id}&kind=eq.sale&select=id,hospital_id,pdf_path`);
+    if (!t?.hospital_id || !t.pdf_path) throw new HttpError(404, '계산서 PDF를 찾을 수 없습니다.');
+    const h = await assignedHospital(rep, t.hospital_id);
+    const links = await ensureDocShares([{ kind, id: t.id, title: `${h.name} 세금계산서`, rep_id: rep.id }]);
+    return { url: links.get(`${kind}:${t.id}`) };
+  }
+  if (kind === 'statement') {
+    if (!isUuid(body.statement_id)) throw new HttpError(400, '명세서 정보가 잘못됐습니다.');
+    const [st] = await sb(`hospital_statements?id=eq.${body.statement_id}&shared=is.true&select=id,hospital_id`);
+    if (!st) throw new HttpError(404, '명세서를 찾을 수 없습니다.');
+    const h = await assignedHospital(rep, st.hospital_id);
+    const links = await ensureDocShares([{ kind, id: st.id, title: `${h.name} 거래명세서`, rep_id: rep.id }]);
+    return { url: links.get(`${kind}:${st.id}`) };
+  }
   const html = String(body.html || '');
   if (!html.startsWith('<!DOCTYPE html>')) throw new HttpError(400, '견적서 내용이 잘못됐습니다.');
   if (html.length > MAX_SHARE_HTML) throw new HttpError(413, '견적서가 너무 큽니다.');

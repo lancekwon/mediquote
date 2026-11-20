@@ -584,124 +584,19 @@ async function dbUpdatePurchaseOrder(id, po) {
   const { error } = await sb.from('purchase_orders').update({ ...po, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
 }
-// ── 거래명세서 틀 하나 (2026-11-20 사용자: "원장님한테 PDF로 보내니 실제 서류와 똑같이 영업사원한테 떠야") ──
-//   관리자 인쇄 PDF(발주 진행 📄 거래명세서) · 영업사원 앱 화면 · 영업사원 카톡 PDF가 모두 이 함수로 그림
-//   d = { hospital_name, hospital_address, statement_date(납품일자), issue_date(발행일자), supplier, items:[{item_name, model_name, qty, unit_price}], discount_total }
-//   scope 없으면 인쇄용 문서 전체, scope='.dwstmt'면 앱 안에 넣는 조각 (CSS가 앱 화면에 번지지 않게 범위를 붙임)
-function buildStatementDoc(d, { scope = '' } = {}) {
-  const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const sup = d.supplier || {};
-  const company = {
-    name: sup.name || '주식회사 대원메디칼', business_no: sup.business_no || '347-81-02449', representative: sup.representative || '성현기',
-    address: sup.address || '서울특별시 동대문구 장한로 186, 201호', phone: sup.phone || '', fax: sup.fax || '',
-  };
-  const account = sup.account || '주식회사 대원메디칼 · 국민은행 450901-01-469947';
-  const logo = (typeof DW_LOGO_BASE64 !== 'undefined') ? DW_LOGO_BASE64 : '';
-  const seal = (typeof SEAL_BASE64 !== 'undefined') ? SEAL_BASE64 : '';
-  const discount = Number(d.discount_total) || 0;
-  let grandTotal = 0;
-  const rows = (d.items || []).map((it, i) => {
-    const qty = Number(it.qty) || 0;
-    const unit = Number(it.unit_price) || 0; // 매출가 = 부가세 포함 단가
-    const total = qty * unit;
-    grandTotal += total;
-    return `<tr>
-        <td class="c">${i+1}</td>
-        <td>${esc(it.item_name) || '-'}</td>
-        <td>${esc(it.model_name)}</td>
-        <td class="c">${qty}</td>
-        <td class="r">${unit.toLocaleString('ko-KR')}</td>
-        <td class="r">${total.toLocaleString('ko-KR')}</td>
-      </tr>`;
-  }).join('');
-  const p = scope ? `${scope} ` : '';
-  const css = `${p}*{box-sizing:border-box;margin:0;padding:0;font-family:'Noto Sans KR',sans-serif;}
-      ${scope || 'body'}{padding:20mm;font-size:11px;color:#000;${scope ? 'box-sizing:border-box;width:794px;background:#fff;' : ''}}
-      ${p}.header-row{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;font-size:11px;}
-      ${p}.title{text-align:center;font-size:32px;font-weight:900;letter-spacing:16px;padding:10px 0;margin-bottom:12px;border-top:3px double #000;border-bottom:3px double #000;}
-      ${p}.party-wrap{display:flex;gap:0;margin-bottom:12px;border:1px solid #000;}
-      ${p}.party{flex:1;padding:10px 12px;}
-      ${p}.party.supplier{border-right:1px solid #000;background:#fafafa;}
-      ${p}.party .plabel{font-size:10px;color:#666;font-weight:700;margin-bottom:6px;letter-spacing:2px;}
-      ${p}.party .cname{font-size:14px;font-weight:900;margin-bottom:6px;}
-      ${p}.header-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
-      ${p}.header-left .brand-logo{height:44px;}
-      ${p}.header-left .issue{font-size:11px;color:#000;}
-      ${p}.info-tbl{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:2px;}
-      ${p}.info-tbl td{padding:3px 0;font-size:10.5px;line-height:1.5;color:#222;vertical-align:top;}
-      ${p}.info-tbl td.lbl{width:64px;color:#444;font-weight:600;padding-right:8px;white-space:nowrap;}
-      ${p}.info-tbl td.val{color:#222;word-break:keep-all;overflow-wrap:break-word;}
-      ${p}.items-table{width:100%;border-collapse:collapse;margin-bottom:8px;}
-      ${p}.items-table th{border:1px solid #000;background:#e8e8e8;padding:5px 3px;font-size:10px;font-weight:700;text-align:center;}
-      ${p}.items-table td{border:1px solid #000;padding:4px 5px;font-size:10px;}
-      ${p}.items-table td.c{text-align:center;}${p}.items-table td.r{text-align:right;}
-      ${scope ? '' : '@media print{@page{margin:0;size:A4;}body{padding:20mm;}}'}`;
-  const body = `
-      <div class="header-row">
-        <div class="header-left">
-          ${logo ? `<img class="brand-logo" src="${logo}" alt="DW"/>` : ''}
-          <div class="issue"><strong>발행일자</strong> ${esc(d.issue_date)}</div>
-        </div>
-        <div>${esc(company.name)} 발행</div>
-      </div>
-      <div class="title">거 래 명 세 서</div>
-
-      <!-- 공급자 · 공급받는자 (좌우 배치, 라벨-값 테이블 구조) -->
-      <div class="party-wrap">
-        <div class="party supplier">
-          <div class="plabel">공급자</div>
-          <div class="cname">${esc(company.name)}</div>
-          <table class="info-tbl">
-            <tr><td class="lbl">등록번호</td><td class="val">${esc(company.business_no)}</td></tr>
-            <tr><td class="lbl">대표자</td><td class="val" style="display:flex;align-items:center;gap:8px;"><span>${esc(company.representative)}</span>${seal ? `<img src="${seal}" alt="인" style="height:34px;width:34px;object-fit:contain;"/>` : ''}</td></tr>
-            <tr><td class="lbl">주소</td><td class="val">${esc(company.address)}</td></tr>
-            ${company.phone ? `<tr><td class="lbl">전화</td><td class="val">${esc(company.phone)}${company.fax ? ' · 팩스 ' + esc(company.fax) : ''}</td></tr>` : ''}
-          </table>
-        </div>
-        <div class="party receiver">
-          <div class="plabel">공급받는자</div>
-          <div class="cname">${esc(d.hospital_name || '—')}</div>
-          <table class="info-tbl">
-            ${d.hospital_address ? `<tr><td class="lbl">주소</td><td class="val">${esc(d.hospital_address)}</td></tr>` : ''}
-            <tr><td class="lbl">납품일자</td><td class="val">${esc(d.statement_date)}</td></tr>
-          </table>
-        </div>
-      </div>
-
-      <table class="items-table">
-        <thead><tr>
-          <th style="width:30px">No</th><th>품목</th><th style="width:150px">모델명</th>
-          <th style="width:50px">수량</th><th style="width:110px">단가</th>
-          <th style="width:130px">합계금액</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          ${discount > 0 ? `
-          <tr><td colspan="5" class="r" style="padding:5px 6px;">소계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td><td class="r">${grandTotal.toLocaleString('ko-KR')}</td></tr>
-          <tr><td colspan="5" class="r" style="padding:5px 6px;color:#c00;">할인</td><td class="r" style="color:#c00;">-${discount.toLocaleString('ko-KR')}</td></tr>
-          ` : ''}
-          <tr style="background:#fef9c3;font-weight:700;">
-            <td colspan="5" class="r">총 합계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td>
-            <td class="r">${(grandTotal - discount).toLocaleString('ko-KR')}</td>
-          </tr>
-        </tfoot>
-      </table>
-      <div style="margin-top:10px;border:1px solid #000;padding:8px 12px;font-size:11px;background:#fafafa;">
-        <div style="font-weight:700;letter-spacing:2px;color:#444;margin-bottom:4px;">입 금 계 좌</div>
-        <div style="font-weight:700;">${esc(account)}</div>
-      </div>`;
-  if (scope) return `<div class="${scope.replace(/^\./, '')}"><style>${css}</style>${body}</div>`;
-  return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>[DW]${esc(d.hospital_name || '—')}_거래명세서_${esc(d.issue_date)}</title>
-      <style>${css}</style></head><body>${body}
-      </body></html>`;
-}
-
-// 저장된 거래명세서 사본(hospital_statements) → 위 틀의 입력. 발행일자 = 마지막으로 뽑은 날 (한국 시간)
-const statementDocData = (s) => ({
-  hospital_name: s.hospital_name, hospital_address: s.hospital_address, statement_date: s.statement_date,
-  issue_date: s.issued_at ? new Date(new Date(s.issued_at).getTime() + 9 * 3600e3).toISOString().slice(0, 10) : s.statement_date,
-  supplier: s.supplier, items: s.items, discount_total: s.discount_total,
-});
+// ── 거래명세서 틀 = lib/statement_doc.mjs 한 곳 (2026-11-20) ──
+//   관리자 인쇄 PDF · 영업사원 화면 · 카톡 링크 화면(api/quote.mjs, 서버)이 모두 같은 파일. index.html이 window.dwStatementDoc에 넣어 둠
+const dwDoc = () => {
+  if (!window.dwStatementDoc) throw new Error('명세서 틀을 아직 못 불러왔습니다. 잠시 뒤 다시 눌러 주세요.');
+  return window.dwStatementDoc;
+};
+const buildStatementDoc = (d, opts = {}) => dwDoc().buildStatementDoc(d, { logo: DW_LOGO_BASE64, seal: SEAL_BASE64, ...opts });
+const statementDocData = (s) => dwDoc().statementDocData(s);
+// 세금계산서 작성일자 = 승인번호 앞 8자리 (tax_invoices.issue_date는 클로브 발급일 — 수정 재발행이면 다름)
+const invoiceWriteDate = (t) => {
+  const m = /^(\d{4})(\d{2})(\d{2})-/.exec(String(t?.clobe_ti_id || ''));
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : t?.issue_date || null;
+};
 
 // 필요할 때만 불러오는 라이브러리 — PDF 만들기(html2pdf.js), PDF 그리기(pdf.js)
 const HTML2PDF_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
@@ -741,23 +636,7 @@ async function statementPdfBlob(d) {
   }
 }
 
-// PDF 파일을 휴대폰 공유창(카톡 등)으로 보내기 → { result: 'shared'|'cancel'|'desktop'|'unsupported'|'failed', detail }
-//   파일만 넘김 — 제목·글자를 같이 넘기면 카톡 등이 파일 대신 글자만 받기도 함
-//   AbortError는 사람이 공유창을 닫을 때도 오지만, 1초 안에 오면 공유창이 아예 안 뜬 것으로 봄 (2026-11-20 "아무 반응 없음")
 const isMobileDevice = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
-async function sharePdfFile(file) {
-  if (!isMobileDevice()) return { result: 'desktop' };
-  if (!navigator.share) return { result: 'unsupported', detail: '이 화면(브라우저)은 공유하기를 지원하지 않습니다' };
-  if (navigator.canShare && !navigator.canShare({ files: [file] })) return { result: 'unsupported', detail: '이 화면(브라우저)은 파일 공유를 지원하지 않습니다' };
-  const t0 = Date.now();
-  try {
-    await navigator.share({ files: [file] });
-    return { result: 'shared' };
-  } catch (e) {
-    if (e.name === 'AbortError' && Date.now() - t0 > 1000) return { result: 'cancel' };
-    return { result: 'failed', detail: `${e.name || '오류'}: ${e.message || ''}` };
-  }
-}
 function downloadFile(file) {
   const url = URL.createObjectURL(file);
   const a = document.createElement('a');
@@ -768,10 +647,22 @@ function downloadFile(file) {
 
 // 거래명세서 사본 (SQL 44 hospital_statements) — 병원 포털 문서함에서 병원이 다시 봄.
 // 같은 병원+납품일자+발주 묶음이면 덮어씀 (재출력 시 최신 내용으로)
+// 2026-11-20: 같은 병원·같은 발주 묶음(po_key)이면 날짜가 달라도 그 명세서를 고침 → 명세서 하나 = 링크 하나 (my. 문서함·카톡 링크 같은 주소)
 async function dbSaveHospitalStatement(row) {
-  const { error } = await sb.from('hospital_statements')
-    .upsert({ ...row, issued_at: new Date().toISOString() }, { onConflict: 'hospital_id,statement_date,po_key' });
+  const patch = { ...row, issued_at: new Date().toISOString() };
+  const { data: same, error: se } = await sb.from('hospital_statements').select('id,statement_date')
+    .eq('hospital_id', row.hospital_id).eq('po_key', row.po_key).order('issued_at', { ascending: false });
+  if (se) throw se;
+  if (!same?.length) {
+    const { error } = await sb.from('hospital_statements').insert(patch);
+    if (error) throw error;
+    return;
+  }
+  const keep = same.find(x => x.statement_date === row.statement_date) || same[0]; // 같은 날짜 사본이 있으면 그걸 (유일 키 충돌 피함)
+  const { error } = await sb.from('hospital_statements').update(patch).eq('id', keep.id);
   if (error) throw error;
+  const others = same.filter(x => x.id !== keep.id).map(x => x.id);
+  if (others.length) await sb.from('hospital_statements').update({ shared: false }).in('id', others); // 옛 날짜 사본은 숨김
 }
 async function dbLoadHospitalStatements(hospitalId) {
   const { data, error } = await sb.from('hospital_statements')
@@ -17900,7 +17791,20 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   const [editModal, setEditModal] = useState(null); // { po }
   const [kakaoModal, setKakaoModal] = useState(null); // { vendor, text }
   const [contactModal, setContactModal] = useState(null); // { vendor, poId, itemId }
-  const [statementModal, setStatementModal] = useState(null); // { g, deliveryDate } — 거래명세서 출력 전 납품일자 입력
+  const [statementModal, setStatementModal] = useState(null); // { g, deliveryDate, issueDate, tiNote } — 거래명세서 출력 전 날짜 입력
+  // 거래명세서 날짜 = 이 발주들에 연결된 매출 세금계산서 작성일자 (사용자 2026-11-20: 계산서 날짜와 명세서 날짜를 같은 날로, 발행일자·납품일자 둘 다)
+  const openStatementModal = async (g) => {
+    const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+    setStatementModal({ g, deliveryDate: today, issueDate: today, selectedPoIds: (g.list || []).map(p => p.id) });
+    const tiIds = [...new Set((g.list || []).flatMap(p => (p.purchase_order_items || []).map(i => i.sale_ti_id)).filter(Boolean))];
+    if (!tiIds.length) return;
+    const { data } = await sb.from('tax_invoices').select('id,issue_date,clobe_ti_id,amount').in('id', tiIds);
+    const dates = [...new Set((data || []).filter(t => Number(t.amount) > 0).map(invoiceWriteDate).filter(Boolean))].sort();
+    if (!dates.length) return;
+    const d = dates[dates.length - 1];
+    setStatementModal(p => (p && p.g === g ? { ...p, deliveryDate: d, issueDate: d,
+      tiNote: dates.length > 1 ? `연결된 세금계산서 작성일자가 여러 날입니다 (${dates.join(', ')}) — 가장 늦은 날로 맞췄습니다` : `세금계산서 작성일자(${d})로 맞췄습니다` } : p));
+  };
 
   // 품목 단위 필드 토글 (발주/입금/세금계산서/납품/중고)
   const toggleItemField = async (item, field) => {
@@ -18006,7 +17910,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
   // 병원 그룹의 발주 품목 → 거래명세서 PDF (병원용, A4 세로)
   // overrideDeliveryDate: 사용자가 모달에서 입력한 납품일자 (없으면 오늘 날짜 fallback)
   // share: 병원 포털 문서함에도 올림 (hospital_statements 사본 저장, SQL 44)
-  const handleHospitalStatementForGroup = (g, overrideDeliveryDate = null, discount = 0, share = true) => {
+  const handleHospitalStatementForGroup = (g, overrideDeliveryDate = null, discount = 0, share = true, overrideIssueDate = null) => {
     const list = g.list || [];
     if (list.length === 0) { alert('발주가 없습니다.'); return; }
     const allItems = [];
@@ -18055,7 +17959,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
     if (!win) { alert('팝업이 차단되었습니다.'); return; }
     // 영업사원 앱 화면·카톡 PDF와 같은 틀 (buildStatementDoc, 2026-11-20) — 여기선 인쇄만 덧붙임
     win.document.write(buildStatementDoc({
-      hospital_name: hospName, hospital_address: hospAddress, statement_date: overrideDeliveryDate || today, issue_date: today,
+      hospital_name: hospName, hospital_address: hospAddress, statement_date: overrideDeliveryDate || today, issue_date: overrideIssueDate || today,
       supplier, items: stmtItems, discount_total: Number(discount) || 0,
     }).replace('</body>', '<script>window.onload=function(){window.print();}<\/script></body>'));
     win.document.close();
@@ -18066,6 +17970,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       dbSaveHospitalStatement({
         hospital_id: hospId,
         statement_date: overrideDeliveryDate || today,
+        issue_date: overrideIssueDate || today, // 발행일자 (기본 = 연결된 세금계산서 작성일자)
         po_ids: poIds,
         po_key: [...poIds].sort().join(','),
         hospital_name: hospName,
@@ -18269,7 +18174,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                   </button>
                   {groupBy === 'hospital' && !viewer && (
                     <div className="flex items-center gap-1.5 shrink-0" onClick={e=>e.stopPropagation()}>
-                      <button onClick={()=>setStatementModal({ g, deliveryDate: new Date().toISOString().slice(0,10), selectedPoIds: (g.list||[]).map(p=>p.id) })}
+                      <button onClick={()=>openStatementModal(g)}
                         title="이 병원의 발주 품목으로 거래명세서 PDF 생성 (납품일자 입력)"
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 transition-colors">
                         📄 거래명세서
@@ -18537,12 +18442,21 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
               <div className="text-xs text-slate-500 mt-1">{statementModal.g?.hospName || ''}</div>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">납품일자</label>
-                <input type="date" value={statementModal.deliveryDate || ''}
-                  onChange={e => setStatementModal(p => ({ ...p, deliveryDate: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">발행일자</label>
+                  <input type="date" value={statementModal.issueDate || ''}
+                    onChange={e => setStatementModal(p => ({ ...p, issueDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">납품일자</label>
+                  <input type="date" value={statementModal.deliveryDate || ''}
+                    onChange={e => setStatementModal(p => ({ ...p, deliveryDate: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"/>
+                </div>
               </div>
+              {statementModal.tiNote && <div className="text-xs text-emerald-700 -mt-2">{statementModal.tiNote}</div>}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-semibold text-slate-600">발주(PO) 선택 <span className="text-slate-400 font-normal">({selected.length}/{groupPos.length}건)</span></label>
@@ -18576,7 +18490,7 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                 <input type="checkbox" className="mt-0.5" checked={statementModal.share !== false}
                   onChange={e => setStatementModal(p => ({ ...p, share: e.target.checked }))}/>
-                <span><b>병원 포털(my.) 문서함에도 올리기</b><br/><span className="text-slate-500">병원이 납품 내역에서 이 명세서를 금액까지 그대로 봅니다. 같은 납품일자·같은 발주로 다시 뽑으면 덮어씁니다.</span></span>
+                <span><b>병원 포털(my.) 문서함에도 올리기</b><br/><span className="text-slate-500">병원이 문서함에서 이 명세서를 금액까지 그대로 봅니다. 같은 발주로 다시 뽑으면 날짜가 달라도 그 명세서를 고칩니다 (링크 그대로).</span></span>
               </label>
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                 <input type="checkbox" className="mt-0.5" checked={statementModal.markDone !== false}
@@ -18590,9 +18504,9 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">취소</button>
               <div className="flex gap-2">
                 <button onClick={async () => {
-                    const { deliveryDate, share, markDone } = statementModal;
+                    const { deliveryDate, issueDate, share, markDone } = statementModal;
                     setStatementModal(null);
-                    handleHospitalStatementForGroup(subGroup, deliveryDate, 0, share !== false); // 팝업이라 await 전에 먼저
+                    handleHospitalStatementForGroup(subGroup, deliveryDate, 0, share !== false, issueDate || deliveryDate); // 팝업이라 await 전에 먼저
                     if (markDone !== false) {
                       const n = await markDelivered(selPos, deliveryDate);
                       if (n) showToast(`${n}건 납품완료로 옮김 (${deliveryDate})`);
@@ -20417,56 +20331,30 @@ const salesStatementSummary = (s) => {
   return `${items[0].item_name || items[0].model_name || '품목'}${items.length > 1 ? ` 외 ${items.length - 1}건` : ''}`;
 };
 
-// 공유창이 안 열렸을 때 띄우는 창 — 이유 + 다시 보내기 + 휴대폰에 저장 (저장한 PDF는 카톡 대화방 + → 파일로 보낼 수 있음)
-function SalesPdfShareDialog({ file, note, onClose }) {
-  const [again, setAgain] = useState('');
-  const retry = async () => {
-    const r = await sharePdfFile(file);
-    if (r.result === 'shared' || r.result === 'cancel') onClose();
-    else setAgain(r.detail || '다시 안 됐습니다');
-  };
-  return (
-    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-900/60 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3">
-        <div className="text-[22px] font-bold text-slate-900">카톡 공유창이 안 열렸습니다</div>
-        <div className="text-[16px] text-slate-700">휴대폰에 저장한 뒤 카톡 대화방에서 <b>+ → 파일</b>로 보낼 수 있습니다.</div>
-        {(again || note) && <div className="text-[14px] text-slate-500 break-all">원인: {again || note}</div>}
-        {!!navigator.share && <button onClick={retry} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900`}>카톡으로 다시 보내기</button>}
-        <button onClick={() => downloadFile(file)} className={`${SALES_BTN_PLAIN} w-full`}>휴대폰에 저장</button>
-        <button onClick={onClose} className={`${SALES_BTN_PLAIN} w-full`}>닫기</button>
-      </div>
-    </div>
-  );
-}
-
-// "카톡으로 보내기 (PDF)" + "저장" — file은 미리 만들어 둔 PDF (없으면 준비 중)
-function SalesPdfShareButtons({ file, preparing, prepError }) {
-  const [dialog, setDialog] = useState(null);
-  const [status, setStatus] = useState('');
-  const mobile = isMobileDevice();
-  const share = async () => {
-    setStatus('');
-    const r = await sharePdfFile(file);
-    if (r.result === 'desktop') {
-      downloadFile(file);
-      setStatus('PC에는 카톡 공유창이 없어 PDF를 저장했습니다. 저장된 파일을 PC 카톡 대화창에 끌어다 놓으세요.');
-    } else if (r.result === 'unsupported' || r.result === 'failed') setDialog({ note: r.detail });
+// 서류 카톡 보내기 = 링크 (견적서와 같은 방식, 2026-11-20 사용자) + 내 휴대폰·PC에 PDF 저장
+function SalesDocShareButtons({ onShare, file, preparing, prepError }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const send = async () => {
+    setBusy(true); setError('');
+    try { await onShare(); }
+    catch (e) { console.error('doc share', e); setError('링크를 만들지 못했습니다. 잠시 뒤 다시 눌러 주세요.'); }
+    finally { setBusy(false); }
   };
   if (prepError) return <div className="text-[17px] font-bold text-rose-700">{prepError}</div>;
   return (
     <>
-      <button onClick={share} disabled={!file} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900 disabled:opacity-60`}>
-        {file ? '카톡으로 보내기 (PDF)' : (preparing || 'PDF 준비 중입니다')}
+      <button onClick={send} disabled={!file || busy} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900 disabled:opacity-60`}>
+        {busy ? '링크 만드는 중입니다' : file ? '카톡으로 보내기' : (preparing || '준비 중입니다')}
       </button>
-      <button onClick={() => file && downloadFile(file)} disabled={!file} className={`${SALES_BTN_PLAIN} w-full disabled:opacity-60`}>{mobile ? '휴대폰에 저장' : 'PDF 저장'}</button>
-      {status && <div className="text-[16px] text-slate-700">{status}</div>}
-      {dialog && <SalesPdfShareDialog file={file} note={dialog.note} onClose={() => setDialog(null)} />}
+      <button onClick={() => file && downloadFile(file)} disabled={!file} className={`${SALES_BTN_PLAIN} w-full disabled:opacity-60`}>{isMobileDevice() ? '휴대폰에 PDF 저장' : 'PDF 저장'}</button>
+      {error && <div className="text-[16px] font-bold text-rose-700">{error}</div>}
     </>
   );
 }
 
 // 세금계산서 = 관리자가 올린 홈택스 PDF 그대로 (원장님이 받는 것과 같은 파일)
-function SalesInvoiceView({ id, onBack }) {
+function SalesInvoiceView({ id, onBack, onShareDoc }) {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
   const [file, setFile] = useState(null);
@@ -20523,7 +20411,8 @@ function SalesInvoiceView({ id, onBack }) {
       <div className={SALES_SUB}>{salesDate(t.date)} 발행 · {salesWon(t.amount)}</div>
       {data.pdf_url ? (
         <>
-          <SalesPdfShareButtons file={file} preparing="계산서를 여는 중입니다" prepError={!file && pdfError ? pdfError : ''} />
+          <SalesDocShareButtons file={file} preparing="계산서를 여는 중입니다" prepError={!file && pdfError ? pdfError : ''}
+            onShare={() => onShareDoc({ title: `${data.hospital_name} 세금계산서`, kind: 'tax_invoice', invoice_id: t.id })} />
           {file && pdfError && <div className="text-[17px] font-bold text-rose-700">{pdfError}</div>}
           {!drawn && !pdfError && <SalesNote>계산서를 여는 중입니다</SalesNote>}
           <div ref={pagesRef} className={`bg-white border border-slate-300 rounded-xl overflow-hidden ${drawn ? '' : 'h-0 border-0'}`} />
@@ -20536,7 +20425,7 @@ function SalesInvoiceView({ id, onBack }) {
 }
 
 // 거래명세서 = 관리자가 뽑은 PDF와 같은 틀(buildStatementDoc)로, 발행 당시 사본 그대로
-function SalesStatementView({ s, onBack }) {
+function SalesStatementView({ s, onBack, onShareDoc }) {
   const data = useMemo(() => statementDocData(s), [s.id]);
   const html = useMemo(() => buildStatementDoc(data, { scope: '.dwstmt' }), [data]);
   const boxRef = useRef(null);
@@ -20571,7 +20460,8 @@ function SalesStatementView({ s, onBack }) {
       <SalesBack label="뒤로" onClick={onBack} />
       <SalesTitle>거래명세서</SalesTitle>
       <div className={SALES_SUB}>납품 {salesDate(s.statement_date)} · {salesWon(s.total)}</div>
-      <SalesPdfShareButtons file={file} preparing="PDF 만드는 중입니다" prepError={prepError} />
+      <SalesDocShareButtons file={file} preparing="준비 중입니다" prepError={prepError}
+        onShare={() => onShareDoc({ title: `${s.hospital_name} 거래명세서`, kind: 'statement', statement_id: s.id })} />
       <button onClick={() => setZoom(z => !z)} className={`${SALES_BTN_PLAIN} w-full`}>{zoom ? '화면에 맞추기' : '크게 보기'}</button>
       <div ref={boxRef} className={`bg-white border border-slate-300 rounded-xl ${zoom ? 'overflow-x-auto' : 'overflow-hidden'}`} style={{ height: fit.height }}>
         <div style={{ width: 794, transform: `scale(${fit.scale})`, transformOrigin: 'top left' }}>
@@ -20582,7 +20472,7 @@ function SalesStatementView({ s, onBack }) {
   );
 }
 
-function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContactSaved, onNotesChanged, onOpenDraft }) {
+function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContactSaved, onNotesChanged, onOpenDraft, onShareDoc }) {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(startEditing);
@@ -20596,8 +20486,8 @@ function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContac
 
   if (failed) return <SalesScreen><SalesBack label="병원 목록" onClick={onBack} /><SalesRetry onRetry={firstLoad} /></SalesScreen>;
   if (!data) return <SalesScreen><SalesBack label="병원 목록" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
-  if (doc?.type === 'invoice') return <SalesInvoiceView id={doc.id} onBack={() => setDoc(null)} />;
-  if (doc?.type === 'statement') return <SalesStatementView s={doc.s} onBack={() => setDoc(null)} />;
+  if (doc?.type === 'invoice') return <SalesInvoiceView id={doc.id} onBack={() => setDoc(null)} onShareDoc={onShareDoc} />;
+  if (doc?.type === 'statement') return <SalesStatementView s={doc.s} onBack={() => setDoc(null)} onShareDoc={onShareDoc} />;
 
   const { hospital, history, drafts, notes, services, reorders, invoices = [], invoices_hidden = 0, statements = [] } = data;
   const SHOWN = 30;
@@ -20680,11 +20570,11 @@ function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContac
   );
 }
 
-function SalesHospitals({ repId, hospitals, open, setOpen, onContactSaved, onNotesChanged, onOpenDraft }) {
+function SalesHospitals({ repId, hospitals, open, setOpen, onContactSaved, onNotesChanged, onOpenDraft, onShareDoc }) {
   const [q, setQ] = useState('');
   if (open) {
     return <SalesHospitalDetail key={open.id} hospitalId={open.id} repId={repId} startEditing={open.editing} onBack={() => setOpen(null)}
-      onContactSaved={onContactSaved} onNotesChanged={onNotesChanged} onOpenDraft={onOpenDraft} />;
+      onContactSaved={onContactSaved} onNotesChanged={onNotesChanged} onOpenDraft={onOpenDraft} onShareDoc={onShareDoc} />;
   }
   const needle = salesNorm(q);
   const list = hospitals.filter(h => !needle || salesNorm(`${h.name} ${h.contact_name} ${h.address}`).includes(needle));
@@ -20853,7 +20743,7 @@ function SalesShareDialog({ data, onClose }) {
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-900/60 p-4">
       <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3">
-        <div className="text-[22px] font-bold text-slate-900">견적서 링크가 준비됐습니다</div>
+        <div className="text-[22px] font-bold text-slate-900">{data.title ? `${data.title} 링크가` : '링크가'} 준비됐습니다</div>
         <div className="text-[16px] text-slate-600 break-all">{data.url}</div>
         {canShare && <button onClick={openShare} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900`}>카톡으로 보내기</button>}
         <button onClick={copy} className={`${SALES_BTN_PLAIN} w-full`}>{copied ? '복사했습니다. 카톡에 붙여넣으세요' : '링크 복사'}</button>
@@ -21105,7 +20995,7 @@ function SalesSettlementForm({ orderId, onBack, onDone }) {
     setFailed(false);
     salesApi('settlement_form', { order_id: orderId }).then(d => {
       setData(d);
-      const { items, ...rest } = d.form;
+      const { items, issue_date_from, ...rest } = d.form;
       setF(rest);
       setLines(items.map((l, i) => ({ key: i, name: l.name, spec: l.spec, qty: l.qty, amount: String(l.supply + l.tax) })));
     }).catch(e => { setError(e.message); setFailed(true); });
@@ -21149,7 +21039,9 @@ function SalesSettlementForm({ orderId, onBack, onDone }) {
       </SalesField>
       <SalesField label="대표자 (원장)"><input value={f.buyer_ceo} onChange={set('buyer_ceo')} className={SALES_INPUT} /></SalesField>
       <SalesField label="계산서 받을 이메일"><input type="email" value={f.buyer_email} onChange={set('buyer_email')} inputMode="email" className={SALES_INPUT} /></SalesField>
-      <SalesField label="발행일"><input type="date" value={f.issue_date} onChange={set('issue_date')} className={SALES_INPUT} /></SalesField>
+      <SalesField label="발행일" hint={data.form.issue_date_from === 'statement' ? '거래명세서 날짜로 맞췄습니다. 계산서도 이 날짜로 발행하면 두 서류 날짜가 같습니다.' : null}>
+        <input type="date" value={f.issue_date} onChange={set('issue_date')} className={SALES_INPUT} />
+      </SalesField>
 
       <SalesSection>계산서에 들어갈 품목</SalesSection>
       <div className={SALES_SUB}>품명·규격은 계산서에 찍히는 대로 고쳐 주세요. 금액은 부가세 포함입니다.</div>
@@ -21227,11 +21119,13 @@ function SalesApp({ user }) {
   const openHospital = (id) => { closeSubScreens(); setTab('hospitals'); setHospitalOpen({ id, editing: false }); };
   const refreshHome = () => { reloadHome().catch(e => console.error('sales home', e)); };
 
-  // 링크를 만든 뒤 공유창 열기. 막히면 한 번 더 누르는 창을 띄움
-  const shareQuote = async (html, { name, draftId }) => {
-    const title = `${name || '의료장비'} 견적서`;
-    const { url } = await salesApi('share_quote', { html, title, draft_id: draftId || null });
+  // 링크를 만든 뒤 공유창 열기. 막히면 한 번 더 누르는 창을 띄움 — 견적서·세금계산서·거래명세서 같은 길 (2026-11-20)
+  //   서류(kind 있음)는 PC면 공유창에 카톡이 없어서 바로 "링크 복사" 창
+  const shareLink = async ({ html, title, ...extra }) => {
+    // 견적서 = 보낼 때 사본을 저장한 새 링크, 세금계산서·거래명세서 = 서류마다 고정 링크 (my. 문서함과 같은 주소)
+    const { url } = await salesApi('share_quote', { html, title, ...extra });
     const payload = { title, text: `${title}입니다.`, url };
+    if (extra.kind && !isMobileDevice()) { setShareDialog(payload); return; }
     if (navigator.share) {
       try {
         await navigator.share(payload);
@@ -21242,6 +21136,7 @@ function SalesApp({ user }) {
     }
     setShareDialog(payload);
   };
+  const shareQuote = (html, { name, draftId }) => shareLink({ html, title: `${name || '의료장비'} 견적서`, draft_id: draftId || null });
 
   if (failed || data === undefined || data === null) {
     return (
@@ -21269,7 +21164,7 @@ function SalesApp({ user }) {
   else if (tab === 'chat') screen = <SalesChat chat={chat} onOpenDraft={setViewerDraftId} />;
   else if (tab === 'hospitals') {
     screen = <SalesHospitals repId={data.rep.id} hospitals={data.hospitals} open={hospitalOpen} setOpen={setHospitalOpen}
-      onContactSaved={refreshHome} onNotesChanged={refreshHome} onOpenDraft={setDraftDetailId} />;
+      onContactSaved={refreshHome} onNotesChanged={refreshHome} onOpenDraft={setDraftDetailId} onShareDoc={shareLink} />;
   } else if (tab === 'materials') screen = <SalesMaterials share={shareQuote} />;
   else {
     screen = <SalesHome data={data} onGo={goTab} onOpenDraft={setDraftDetailId} onOpenHospital={openHospital} onLogout={logout}
@@ -21868,7 +21763,8 @@ function TaxInvoicePdfPage({ user, onLogout, nav }) {
     setLoading(true); setLoadError('');
     const [t, h] = await Promise.all([
       sb.from('tax_invoices').select('id,issue_date,amount,party_name,memo,clobe_ti_id,hospital_id,pdf_path,pdf_uploaded_at')
-        .eq('kind', 'sale').order('issue_date', { ascending: false }).limit(1000),
+        .eq('kind', 'sale').order('issue_date', { ascending: false }).limit(1000)
+        .then(r => (r.data ? { ...r, data: r.data.map(t => ({ ...t, write_date: invoiceWriteDate(t) })).sort((a, b) => String(b.write_date).localeCompare(String(a.write_date))) } : r)),
       sb.from('hospitals').select('id,assigned_rep_id,sales_reps(name)').not('assigned_rep_id', 'is', null),
     ]);
     if (t.error || h.error) { setLoadError((t.error || h.error).message); setLoading(false); return; }
@@ -21947,7 +21843,7 @@ function TaxInvoicePdfPage({ user, onLogout, nav }) {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-100 text-xs text-slate-500 z-10">
                 <tr>
-                  <th className="px-4 py-2 text-left w-28">발행일</th>
+                  <th className="px-4 py-2 text-left w-28">작성일자</th>
                   <th className="px-2 py-2 text-left">병원</th>
                   <th className="px-2 py-2 text-right w-32">금액</th>
                   <th className="px-2 py-2 text-left w-48">승인번호</th>
@@ -21958,7 +21854,7 @@ function TaxInvoicePdfPage({ user, onLogout, nav }) {
               <tbody className="divide-y divide-slate-100 bg-white">
                 {list.map(r => (
                   <tr key={r.id} className={gone.has(r.id) ? 'text-slate-400' : ''}>
-                    <td className="px-4 py-2">{r.issue_date}</td>
+                    <td className="px-4 py-2">{r.write_date}</td>
                     <td className="px-2 py-2">
                       <div className="font-medium">{r.party_name}</div>
                       <div className="text-xs text-slate-400 truncate max-w-md">{gone.has(r.id) ? '취소된 계산서 (올릴 필요 없음)' : r.memo}</div>

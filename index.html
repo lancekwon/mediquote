@@ -52,6 +52,8 @@
 <div id="root" style="height:100vh;display:flex;flex-direction:column;overflow:hidden;"></div>
 <div id="pdf-print-root"></div>
 
+<!-- 거래명세서 틀 (서버 카톡 링크 화면과 같은 파일, 2026-11-20) — app.js가 window.dwStatementDoc으로 씀 -->
+<script type="module">import * as m from "/lib/statement_doc.mjs"; window.dwStatementDoc = m;</script>
 <script src="app.js"></script>
 <script>
   // Service Worker 등록 (PWA)

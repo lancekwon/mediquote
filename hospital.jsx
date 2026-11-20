@@ -626,18 +626,40 @@ function Reorder({ data, preset, reload, pin }) {
 }
 
 /* ── 문서함 ───────────────────────────────── */
+// 서류 단추 — 영업사원이 카톡으로 보내는 것과 같은 주소(/q/…)로 열림 (2026-11-20). 링크가 아직 없는 명세서만 앱 안 화면
+function DocLinks({ r, go }) {
+  if (!r.invoice?.link && !r.statement) return null;
+  return (
+    <span style={{ display: 'inline-flex', gap: 12, flexWrap: 'wrap' }}>
+      {r.invoice?.link && <a className="stmt-link" href={r.invoice.link}><Ti n="receipt" s={14} /> 세금계산서</a>}
+      {r.statement && (r.statement.link
+        ? <a className="stmt-link" href={r.statement.link}><Ti n="file-text" s={14} /> 거래명세서</a>
+        : <button className="stmt-link" style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer' }} onClick={() => go('statement', r.statement.id)}><Ti n="file-text" s={14} /> 거래명세서</button>)}
+    </span>
+  );
+}
+
 function Docs({ data, go, initialTab }) {
+  const md = (d) => (d ? String(d).slice(5, 10).replace('-', '.') : '');
   const SECTIONS = [
-    { key: 'orders', title: '주문 내역', rows: data.documents.orders.map((d) => ({ date: d.date, title: d.summary, sub: `${d.count}개 품목` })) },
-    { key: 'deliveries', title: '납품 내역', rows: data.documents.deliveries.map((d) => ({ date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, d.count && `${d.count}개 품목`].filter(Boolean).join(' · '), statementId: d.statementId || null })) },
-    { key: 'invoices', title: '세금계산서 발행', rows: data.documents.invoices.map((d) => ({ date: d.date, title: d.summary, sub: '' })) },
+    // 주문 내역 = 세금계산서·거래명세서 한 장마다 한 줄 (사용자 2026-11-20: 주문·명세서·계산서가 같은 묶음으로)
+    { key: 'orders', title: '주문 내역', rows: data.documents.orders.map((d) => ({
+      date: d.date, title: d.summary || '주문',
+      sub: [d.count > 0 && `${d.count}개 품목`, d.invoice && `계산서 ${md(d.invoice.date)}`, d.statement && `명세서 ${md(d.statement.date)}`, d.pending && '진행 중'].filter(Boolean).join(' · '),
+      invoice: d.invoice, statement: d.statement,
+    })) },
+    { key: 'deliveries', title: '납품 내역', rows: data.documents.deliveries.map((d) => ({
+      date: d.date, title: d.summary || '납품', sub: [d.docNo && `명세서 ${d.docNo}`, d.count && `${d.count}개 품목`].filter(Boolean).join(' · '),
+      statement: d.statementId ? { id: d.statementId, link: d.link || null } : null,
+    })) },
+    { key: 'invoices', title: '세금계산서 발행', rows: data.documents.invoices.map((d) => ({ date: d.date, title: d.summary, sub: d.link ? '' : 'PDF 준비 중', invoice: d.link ? { link: d.link } : null })) },
   ];
   const [tab, setTabRaw] = useState(initialTab || memo.docsTab || SECTIONS.find((s) => s.rows.length)?.key || 'orders');
   const setTab = (k) => { memo.docsTab = k; setTabRaw(k); };
   const sec = SECTIONS.find((s) => s.key === tab);
   return (
     <div className="page">
-      <PageHead title="문서함" desc="주문·납품·세금계산서 기록입니다. 거래명세서는 납품 내역에서 눌러서 보실 수 있습니다." />
+      <PageHead title="문서함" desc="주문 내역은 세금계산서·거래명세서 한 장마다 한 줄로 묶었습니다. 서류는 눌러서 보고 PDF로 저장하실 수 있습니다." />
       <div className="seg">
         {SECTIONS.map((s) => (
           <button key={s.key} className={tab === s.key ? 'on' : ''} onClick={() => setTab(s.key)}>{s.title} <span className="chip-n">{s.rows.length}</span></button>
@@ -646,17 +668,19 @@ function Docs({ data, go, initialTab }) {
       <div className="table">
         <div className="tr th doc-cols"><div>날짜</div><div>내용</div><div className="hide-sm">비고</div></div>
         {sec.rows.length === 0 && <div className="empty">기록이 없습니다.</div>}
-        {sec.rows.map((r, i) => r.statementId ? (
-          <button key={i} className="tr doc-cols clickable" onClick={() => go('statement', r.statementId)}>
-            <div className="t2">{fmtDate(r.date)}</div>
-            <div className="t1 wrap">{r.title}<div className="show-sm"><span className="stmt-link"><Ti n="file-text" s={13} /> 거래명세서 보기</span></div></div>
-            <div className="hide-sm"><span className="stmt-link"><Ti n="file-text" s={14} /> 거래명세서 보기</span></div>
-          </button>
-        ) : (
+        {sec.rows.map((r, i) => (
           <div key={i} className="tr doc-cols">
             <div className="t2">{fmtDate(r.date)}</div>
-            <div className="t1 wrap">{r.title}{r.sub && <div className="t3 show-sm">{r.sub}</div>}</div>
-            <div className="t2 hide-sm">{r.sub || '—'}</div>
+            <div className="t1 wrap">
+              {r.title}
+              {r.sub && <div className="t3 show-sm">{r.sub}</div>}
+              <div className="show-sm"><DocLinks r={r} go={go} /></div>
+            </div>
+            <div className="t2 hide-sm">
+              {r.sub && <div>{r.sub}</div>}
+              <DocLinks r={r} go={go} />
+              {!r.sub && !r.invoice?.link && !r.statement && '—'}
+            </div>
           </div>
         ))}
         <div className="tfoot">총 {sec.rows.length}건</div>

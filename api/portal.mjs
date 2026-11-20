@@ -15,6 +15,9 @@
 //   order   { token, pin, items:[{name, model, quantity}], note, contact } → 재주문 요청 (order_requests, 관리자 "발주 요청")
 //   location { token, pin, key, allocations:[{location, qty}] }          → 장비 설치 위치 저장 (hospital_equipment_locations, SQL 43)
 
+import { ensureDocShares } from './_docshare.mjs';
+import { invoiceWriteDate } from '../lib/statement_doc.mjs';
+
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://nbgubiywavozgigiwkpr.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || 'sb_publishable_L4FVvZBPaNF9BQtoadoPRw_3HeNlPRL';
 
@@ -103,14 +106,14 @@ async function loadBundle(h) {
   const [deliveries, pos, invoices, services, orders, locRows, statements] = await Promise.all([
     sb(`deliveries?hospital_id=eq.${h.id}&select=id,delivered_date,doc_no,notes,delivery_items(item_name,model_name,spec,quantity)&order=delivered_date.desc`),
     sb(`purchase_orders?hospital_id=eq.${h.id}&status=neq.${enc('취소')}` +
-      `&select=id,po_no,ordered_at,created_at,status,delivery_date,tracking_delivered,tracking_delivered_at,owner,deal_type,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at)` +
+      `&select=id,po_no,ordered_at,created_at,status,delivery_date,tracking_delivered,tracking_delivered_at,owner,deal_type,purchase_order_items(item_name,model_name,quantity,equipment_id,delivered,delivered_at,sale_ti_id)` +
       `&order=po_no.desc`),
-    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=id,issue_date,amount,memo&order=issue_date.desc`),
+    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${h.id}&select=id,issue_date,clobe_ti_id,amount,memo,pdf_path&order=issue_date.desc`),
     sb(`service_requests?hospital_id=eq.${h.id}&select=id,equipment_name,model_name,issue,status,requested_at,engineer,created_at&order=created_at.desc`),
     sb(`order_requests?site=eq.${enc(h.name)}&requester=eq.${enc('병원 포털')}&select=id,model_name,quantity,status,created_at&order=created_at.desc&limit=100`),
     sb(`hospital_equipment_locations?hospital_id=eq.${h.id}&select=equip_key,allocations`),
     sb(`hospital_statements?hospital_id=eq.${h.id}&shared=is.true` +
-      `&select=id,statement_date,issued_at,po_ids,hospital_name,hospital_address,supplier,items,subtotal,discount_total,total&order=statement_date.desc,issued_at.desc`),
+      `&select=id,statement_date,issue_date,issued_at,po_ids,hospital_name,hospital_address,supplier,items,subtotal,discount_total,total&order=statement_date.desc,issued_at.desc`),
   ]);
   const locByKey = new Map(locRows.map((r) => [r.equip_key, r.allocations]));
 
@@ -174,6 +177,7 @@ async function loadBundle(h) {
         eta: String(p.delivery_date || '').slice(0, 10) || null, // 도착 예정일 (발주의 예상납품일)
         poId: p.id, poNo: p.po_no,
         owner: p.owner || null,
+        saleTiId: it.sale_ti_id || null, // 이 품목이 들어간 매출 세금계산서 (문서함 거래 묶음)
       });
     }
   }
@@ -247,7 +251,8 @@ async function loadBundle(h) {
   };
   // 세금계산서 — 취소된 원본과 그 취소(마이너스) 계산서는 짝지어 빼고, 우리 메모의 " — " 뒤 설명(재발행 사연·할인 금액 등)은 안 보여 줌
   // (2026-11-16 에제르·바루다: "원본 — 같은 날 취소 후 …", "원본 취소 (기재사항 착오정정)", "… 할인 후 5,652,400원" 이 병원에 그대로 보였음)
-  const invoiceRows = (() => {
+  // 날짜 = 계산서 작성일자 (승인번호 앞 8자리 — 수정 재발행이면 클로브 발급일과 다름: 아이비 작성 11/17·발급 11/20, 2026-11-20 사용자 지적)
+  const visibleInvoices = (() => {
     const list = invoices.map((t) => ({ ...t, amt: Number(t.amount) || 0 }));
     const gone = new Set();
     for (const neg of list.filter((t) => t.amt < 0)) {
@@ -259,13 +264,18 @@ async function loadBundle(h) {
     }
     const text = (m) => String(m || '').replace(/^\s*\[[^\]]*\]\s*/, '').replace(/^납품\s*:\s*/, '').split(/\s+—\s+/)[0].trim();
     return list.filter((t) => !gone.has(t.id))
-      .map((t) => ({ date: t.issue_date, summary: text(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서 발행') }));
+      .map((t) => ({ id: t.id, date: invoiceWriteDate(t), summary: text(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서 발행'), hasPdf: !!t.pdf_path }))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   })();
-  const orderByDate = new Map();
-  for (const ev of events.filter((e) => e.type === '주문')) {
-    if (!orderByDate.has(ev.date)) orderByDate.set(ev.date, []);
-    orderByDate.get(ev.date).push(ev);
-  }
+  // 서류 고정 링크 = 영업사원이 카톡으로 보내는 것과 같은 주소 (2026-11-20). 세금계산서는 관리자가 PDF를 올린 것만
+  const links = await ensureDocShares([
+    ...visibleInvoices.filter((t) => t.hasPdf).map((t) => ({ kind: 'tax_invoice', id: t.id, title: `${h.name} 세금계산서` })),
+    ...statements.map((s) => ({ kind: 'statement', id: s.id, title: `${h.name} 거래명세서` })),
+  ]).catch((e) => { console.error('[portal] 서류 링크', e); return new Map(); });
+  const invLink = (id) => links.get(`tax_invoice:${id}`) || null;
+  const stLink = (id) => links.get(`statement:${id}`) || null;
+  const stDate = (s) => s.issue_date || s.statement_date; // 명세서 발행일자 (2026-11-20~ 계산서 작성일자로 맞춤)
+  const invoiceRows = visibleInvoices.map((t) => ({ date: t.date, summary: t.summary, link: invLink(t.id) }));
   // 납품 내역 = ① 거래명세서(발행 사본, 금액 포함 — 눌러서 봄) ② 명세서 없는 납품 기록(deliveries)
   //            ③ 명세서도 납품 기록도 없는 "납품 완료" 발주 (납품일별로 묶음). 같은 발주가 두 번 나오지 않게 발주 id로 거름
   const poIdByNo = new Map(pos.map((p) => [p.po_no, p.id]));
@@ -286,7 +296,7 @@ async function loadBundle(h) {
   const deliveryRows = [
     ...statements.map((s) => {
       const items = (s.items || []).filter((i) => !notEquip(i)).map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.qty) || 1 }));
-      return { date: s.statement_date, summary: summary(items), count: items.length, statementId: s.id };
+      return { date: stDate(s), summary: summary(items), count: items.length, statementId: s.id, link: stLink(s.id) };
     }),
     ...deliveries.filter((d) => {
       const ids = poIdsIn(d.notes).filter((id) => !commissionPoIds.has(id));
@@ -299,14 +309,60 @@ async function loadBundle(h) {
     ...[...deliveredByDate.entries()].map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
   ].filter((r) => r.count > 0 || r.statementId).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
+  // 주문 내역 = 거래 단위 (사용자 2026-11-20: "계산서랑 거래명세서 기준으로 묶여 있어야" — 아이비 주문 2줄인데 계산서·명세서는 1장씩)
+  //   ① 세금계산서 한 장 = 그 계산서에 연결된 주문 품목(sale_ti_id) + 같은 발주로 뽑은 거래명세서
+  //   ② 계산서 없이 명세서만 → 명세서 한 장 = 그 명세서 발주의 품목
+  //   ③ 같은 발주의 나머지 품목은 그 거래에 붙임, 그래도 남은 주문은 주문 날짜별로 (계산서·명세서 전)
+  //   ④ 품목 연결이 없는 예전 계산서도 한 줄 (품목 없이 계산서 내용으로)
+  const orderEvents = events.filter((e) => e.type === '주문');
+  const invById = new Map(visibleInvoices.map((t) => [t.id, t]));
+  const deals = new Map();
+  const dealFor = (key, init = {}) => {
+    if (!deals.has(key)) deals.set(key, { key, items: [], poIds: new Set(), invoice: null, statement: null, ...init });
+    return deals.get(key);
+  };
+  const assigned = new Set();
+  const put = (d, ev) => { d.items.push(ev); d.poIds.add(ev.poId); assigned.add(ev); };
+  for (const ev of orderEvents) if (ev.saleTiId && invById.has(ev.saleTiId)) put(dealFor(`ti:${ev.saleTiId}`, { invoice: invById.get(ev.saleTiId) }), ev);
+  for (const s of [...statements].sort((a, b) => String(b.issued_at).localeCompare(String(a.issued_at)))) {
+    const ids = new Set(s.po_ids || []);
+    let best = null; let bestN = 0;
+    for (const d of deals.values()) {
+      if (!d.invoice || d.statement) continue;
+      const n = [...d.poIds].filter((x) => ids.has(x)).length;
+      if (n > bestN) { best = d; bestN = n; }
+    }
+    const d = best || dealFor(`st:${s.id}`);
+    d.statement = s;
+    if (!best) for (const ev of orderEvents) if (!assigned.has(ev) && ids.has(ev.poId)) put(d, ev);
+  }
+  for (const ev of orderEvents) {
+    if (assigned.has(ev)) continue;
+    const d = [...deals.values()].find((x) => (x.invoice || x.statement) && x.poIds.has(ev.poId));
+    put(d || dealFor(`ord:${ev.date}`, { orderDate: ev.date }), ev);
+  }
+  for (const t of visibleInvoices) if (!deals.has(`ti:${t.id}`)) dealFor(`ti:${t.id}`, { invoice: t });
+  const dealRows = [...deals.values()].map((d) => {
+    const st = d.statement;
+    const stItems = st ? (st.items || []).filter((i) => !notEquip(i)).map((i) => ({ name: i.item_name || i.model_name, qty: Number(i.qty) || 1 })) : [];
+    return {
+      date: d.invoice?.date || (st && stDate(st)) || d.orderDate || null,
+      summary: d.items.length ? summary(d.items) : (stItems.length ? summary(stItems) : (d.invoice?.summary || '')),
+      count: d.items.length || stItems.length,
+      invoice: d.invoice ? { date: d.invoice.date, link: invLink(d.invoice.id) } : null,
+      statement: st ? { date: stDate(st), link: stLink(st.id), id: st.id } : null,
+      pending: !d.invoice && !st && d.items.some((e) => !e.delivered),
+    };
+  }).filter((r) => r.count > 0 || r.invoice || r.statement).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
   const documents = {
-    orders: [...orderByDate.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([date, items]) => ({ date, summary: summary(items), count: items.length })),
+    orders: dealRows,
     deliveries: deliveryRows,
     // 거래명세서 본문 (금액 포함) — 발행 당시 사본 그대로
     statements: statements.map((s) => ({
       id: s.id,
       date: s.statement_date,
-      issuedAt: String(s.issued_at || '').slice(0, 10),
+      issuedAt: s.issue_date || String(s.issued_at || '').slice(0, 10),
       hospitalName: s.hospital_name || h.name,
       hospitalAddress: s.hospital_address || h.address || '',
       supplier: s.supplier || {},

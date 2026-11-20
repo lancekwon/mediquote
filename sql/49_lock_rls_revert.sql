@@ -54,4 +54,9 @@ create policy tax_invoices_pdf_insert on storage.objects for insert with check (
 create policy tax_invoices_pdf_update on storage.objects for update using (bucket_id = 'tax-invoices') with check (bucket_id = 'tax-invoices');
 create policy tax_invoices_pdf_delete on storage.objects for delete using (bucket_id = 'tax-invoices');
 
+-- 카톡 링크용 거래명세서 PDF (sql/52)
+drop policy if exists admin_all_doc_shares on storage.objects;
+create policy doc_shares_select on storage.objects for select using (bucket_id = 'doc-shares');
+create policy doc_shares_insert on storage.objects for insert with check (bucket_id = 'doc-shares');
+
 drop function if exists public.is_admin();

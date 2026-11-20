@@ -5,6 +5,7 @@ const path = require('path');
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript',
+  '.mjs': 'application/javascript', // lib/statement_doc.mjs (index.html 모듈)
   '.css': 'text/css',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -44,6 +45,8 @@ function runApi(name, req, res, query = {}) {
 http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
   if (url.startsWith('/api/')) { runApi(url.slice(5), req, res); return; }
+  const pdfLink = url.match(/^\/q\/([^/]+)\/pdf$/); // /q/<token>/pdf = 카톡 링크 서류의 PDF 저장 (vercel.json과 같게)
+  if (pdfLink) { runApi('quote', req, res, { t: pdfLink[1], pdf: '1' }); return; }
   if (url.startsWith('/q/')) { runApi('quote', req, res, { t: url.slice(3) }); return; } // vercel.json 리라이트와 같게
   if (url === '/') url = '/index.html';
   if (/^\/h\/[0-9a-fA-F]{8}\/?$/.test(url)) url = '/hospital.html'; // 병원 포털 짧은 링크 (vercel.json 리라이트와 같게)

@@ -43,3 +43,9 @@ drop policy if exists tax_invoices_pdf_update on storage.objects;
 drop policy if exists tax_invoices_pdf_delete on storage.objects;
 create policy admin_all_tax_invoices_pdf on storage.objects for all to authenticated
   using (bucket_id = 'tax-invoices' and public.is_admin()) with check (bucket_id = 'tax-invoices' and public.is_admin());
+
+-- 카톡 링크용 거래명세서 PDF (sql/52): 서버(비밀 키)만 올리고 꺼냄 → 정책은 관리자만
+drop policy if exists doc_shares_select on storage.objects;
+drop policy if exists doc_shares_insert on storage.objects;
+create policy admin_all_doc_shares on storage.objects for all to authenticated
+  using (bucket_id = 'doc-shares' and public.is_admin()) with check (bucket_id = 'doc-shares' and public.is_admin());
