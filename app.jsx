@@ -20310,10 +20310,119 @@ function SalesNotes({ notes, repId, target, onChanged }) {
   );
 }
 
+// ── 영업사원: 담당 병원의 세금계산서·거래명세서 보기 (2026-11-20) — 매출 금액만, 매입가 없음 ──
+const salesStatementSummary = (s) => {
+  const items = Array.isArray(s.items) ? s.items : [];
+  if (!items.length) return '품목 없음';
+  return `${items[0].item_name || items[0].model_name || '품목'}${items.length > 1 ? ` 외 ${items.length - 1}건` : ''}`;
+};
+
+function SalesInvoiceView({ id, onBack }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const load = () => { setFailed(false); salesApi('invoice', { id }).then(setData).catch(() => setFailed(true)); };
+  useEffect(load, [id]);
+  if (failed) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesRetry onRetry={load} /></SalesScreen>;
+  if (!data) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  const { invoice: t, lines, from, buyer } = data;
+  const linesSum = lines.reduce((s, l) => s + (l.amount || 0), 0);
+  return (
+    <SalesScreen>
+      <SalesBack label="뒤로" onClick={onBack} />
+      <SalesTitle>세금계산서</SalesTitle>
+      <div className={`${SALES_CARD} space-y-1`}>
+        <div className={SALES_SUB}>{salesDate(t.date)} 발행 · 매출</div>
+        <div className="text-[19px] font-bold text-slate-900 leading-snug">{t.summary}</div>
+        <div className={`text-[24px] font-bold ${t.amount < 0 ? 'text-rose-700' : 'text-blue-700'}`}>{salesWon(t.amount)}</div>
+        <div className="text-[17px] text-slate-700">공급가액 {salesWon(t.supply)} · 세액 {salesWon(t.tax)}</div>
+      </div>
+      {buyer && (
+        <div className={`${SALES_CARD} space-y-1 text-[17px] text-slate-800`}>
+          <div className="font-bold">{buyer.buyer_name}</div>
+          <div>사업자번호 {buyer.buyer_reg_no} · 대표 {buyer.buyer_ceo}</div>
+          <div className="break-words">{buyer.buyer_address}</div>
+          <div className="break-all">{buyer.buyer_email}</div>
+        </div>
+      )}
+      <SalesSection>들어간 품목</SalesSection>
+      {lines.length === 0 ? <SalesNote>이 계산서에 연결된 품목 정보가 없습니다</SalesNote> : (
+        <>
+          {lines.map((l, i) => (
+            <SalesInfoCard key={i} title={l.name || '품목'} sub={[l.spec, `${l.qty}개`].filter(Boolean).join(' · ')}
+              strong={salesWon(l.amount)} danger={l.amount < 0} />
+          ))}
+          <div className={SALES_SUB}>
+            {from === 'settlement' ? '매출정산서에 적은 계산서 품목입니다.' : '이 계산서에 연결된 발주 품목입니다 (금액은 부가세 포함 판매가).'}
+            {linesSum !== t.amount && ` 계산서 금액과 품목 합계(${salesWon(linesSum)})가 다릅니다 (할인·서비스 등).`}
+          </div>
+        </>
+      )}
+    </SalesScreen>
+  );
+}
+
+// 거래명세서 — 관리자가 발행한 사본 그대로 (휴대폰에서 읽기 쉽게 세로로)
+function SalesStatementView({ s, onBack }) {
+  const sup = s.supplier || {};
+  const items = Array.isArray(s.items) ? s.items : [];
+  const discount = Number(s.discount_total) || 0;
+  return (
+    <SalesScreen>
+      <SalesBack label="뒤로" onClick={onBack} />
+      <div className="bg-white rounded-2xl border border-slate-300 p-4 space-y-4 text-slate-900">
+        <div className="text-center text-[26px] font-black tracking-[0.5em] border-y-4 border-double border-slate-900 py-2">거래명세서</div>
+        <div className="flex justify-between text-[16px] text-slate-700">
+          <span>납품일자 {s.statement_date}</span>
+          <span>발행 {String(s.issued_at || '').slice(0, 10)}</span>
+        </div>
+        <div className="border border-slate-400 rounded-lg p-3 space-y-1">
+          <div className="text-[14px] font-bold text-slate-500 tracking-widest">공급받는자</div>
+          <div className="text-[20px] font-black">{s.hospital_name}</div>
+          {s.hospital_address && <div className="text-[16px] text-slate-700 break-words">{s.hospital_address}</div>}
+        </div>
+        <div className="border border-slate-400 rounded-lg p-3 space-y-1 bg-slate-50">
+          <div className="text-[14px] font-bold text-slate-500 tracking-widest">공급자</div>
+          <div className="text-[18px] font-black">{sup.name || '주식회사 대원메디칼'}</div>
+          <div className="text-[15px] text-slate-700">등록번호 {sup.business_no || ''} · 대표 {sup.representative || ''}</div>
+          {sup.address && <div className="text-[15px] text-slate-700 break-words">{sup.address}</div>}
+          {sup.phone && <div className="text-[15px] text-slate-700">전화 {sup.phone}{sup.fax ? ` · 팩스 ${sup.fax}` : ''}</div>}
+        </div>
+        <div className="divide-y divide-slate-200 border-y border-slate-400">
+          {items.map((it, i) => {
+            const qty = Number(it.qty) || 0, unit = Number(it.unit_price) || 0;
+            return (
+              <div key={i} className="py-2">
+                <div className="text-[17px] font-bold leading-snug">{i + 1}. {it.item_name || '-'}</div>
+                {it.model_name && <div className="text-[15px] text-slate-600 break-words">{it.model_name}</div>}
+                <div className="flex justify-between items-baseline text-[16px]">
+                  <span className="text-slate-700">{qty}개 × {unit.toLocaleString('ko-KR')}</span>
+                  <span className="font-bold">{(qty * unit).toLocaleString('ko-KR')}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="space-y-1 text-[17px]">
+          {discount > 0 && <div className="flex justify-between"><span>소계</span><span>{salesWon(s.subtotal)}</span></div>}
+          {discount > 0 && <div className="flex justify-between text-rose-700"><span>할인</span><span>-{salesWon(discount)}</span></div>}
+          <div className="flex justify-between items-baseline bg-yellow-100 rounded-lg px-2 py-1">
+            <span className="font-bold">총 합계 <span className="text-[14px] font-normal text-slate-600">(부가세 포함)</span></span>
+            <span className="text-[21px] font-black">{salesWon(s.total)}</span>
+          </div>
+        </div>
+        {sup.account && <div className="text-[15px] border border-slate-400 rounded-lg p-2 bg-slate-50"><span className="font-bold">입금 계좌</span> {sup.account}</div>}
+      </div>
+    </SalesScreen>
+  );
+}
+
 function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContactSaved, onNotesChanged, onOpenDraft }) {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(startEditing);
+  const [doc, setDoc] = useState(null); // { type: 'invoice', id } | { type: 'statement', s } — 계산서·명세서 보기
+  const [allInvoices, setAllInvoices] = useState(false);
+  useSalesBackLayer(!!doc, () => setDoc(null));
 
   const load = () => salesApi('hospital', { id: hospitalId }).then(setData);
   const firstLoad = () => { setFailed(false); load().catch(() => setFailed(true)); };
@@ -20321,8 +20430,10 @@ function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContac
 
   if (failed) return <SalesScreen><SalesBack label="병원 목록" onClick={onBack} /><SalesRetry onRetry={firstLoad} /></SalesScreen>;
   if (!data) return <SalesScreen><SalesBack label="병원 목록" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  if (doc?.type === 'invoice') return <SalesInvoiceView id={doc.id} onBack={() => setDoc(null)} />;
+  if (doc?.type === 'statement') return <SalesStatementView s={doc.s} onBack={() => setDoc(null)} />;
 
-  const { hospital, history, drafts, notes, services, reorders } = data;
+  const { hospital, history, drafts, notes, services, reorders, invoices = [], invoices_hidden = 0, statements = [] } = data;
   const SHOWN = 30;
   const total = history.reduce((s, r) => s + (r.amount || 0), 0);
   return (
@@ -20359,6 +20470,22 @@ function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContac
 
       {drafts.length > 0 && <SalesSection>내 견적서</SalesSection>}
       {drafts.map(d => <SalesDraftCard key={d.id} draft={d} onOpen={onOpenDraft} />)}
+
+      <SalesSection>세금계산서</SalesSection>
+      {invoices.length === 0 ? <SalesNote>발행한 세금계산서가 없습니다</SalesNote>
+        : (allInvoices ? invoices : invoices.slice(0, 5)).map(t => (
+          <SalesInfoCard key={t.id} title={t.summary} sub={`${salesDate(t.date)} 발행`} strong={salesWon(t.amount)} danger={t.amount < 0}
+            onClick={() => setDoc({ type: 'invoice', id: t.id })} />
+        ))}
+      {!allInvoices && invoices.length > 5 && <button onClick={() => setAllInvoices(true)} className={`${SALES_BTN_PLAIN} w-full`}>세금계산서 {invoices.length}장 모두 보기</button>}
+      {invoices_hidden > 0 && <div className={SALES_SUB}>취소하고 다시 발행한 계산서 {invoices_hidden}장은 목록에서 뺐습니다</div>}
+
+      <SalesSection>거래명세서</SalesSection>
+      {statements.length === 0 ? <SalesNote>발행한 거래명세서가 없습니다</SalesNote>
+        : statements.map(st => (
+          <SalesInfoCard key={st.id} title={`납품 ${salesDate(st.statement_date)}`} sub={salesStatementSummary(st)} strong={salesWon(st.total)}
+            onClick={() => setDoc({ type: 'statement', s: st })} />
+        ))}
 
       <SalesSection>납품 · 주문 내역</SalesSection>
       {history.length === 0 ? <SalesNote>납품 내역이 없습니다</SalesNote> : (
