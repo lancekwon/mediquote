@@ -584,6 +584,179 @@ async function dbUpdatePurchaseOrder(id, po) {
   const { error } = await sb.from('purchase_orders').update({ ...po, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
 }
+// ── 거래명세서 틀 하나 (2026-11-20 사용자: "원장님한테 PDF로 보내니 실제 서류와 똑같이 영업사원한테 떠야") ──
+//   관리자 인쇄 PDF(발주 진행 📄 거래명세서) · 영업사원 앱 화면 · 영업사원 카톡 PDF가 모두 이 함수로 그림
+//   d = { hospital_name, hospital_address, statement_date(납품일자), issue_date(발행일자), supplier, items:[{item_name, model_name, qty, unit_price}], discount_total }
+//   scope 없으면 인쇄용 문서 전체, scope='.dwstmt'면 앱 안에 넣는 조각 (CSS가 앱 화면에 번지지 않게 범위를 붙임)
+function buildStatementDoc(d, { scope = '' } = {}) {
+  const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const sup = d.supplier || {};
+  const company = {
+    name: sup.name || '주식회사 대원메디칼', business_no: sup.business_no || '347-81-02449', representative: sup.representative || '성현기',
+    address: sup.address || '서울특별시 동대문구 장한로 186, 201호', phone: sup.phone || '', fax: sup.fax || '',
+  };
+  const account = sup.account || '주식회사 대원메디칼 · 국민은행 450901-01-469947';
+  const logo = (typeof DW_LOGO_BASE64 !== 'undefined') ? DW_LOGO_BASE64 : '';
+  const seal = (typeof SEAL_BASE64 !== 'undefined') ? SEAL_BASE64 : '';
+  const discount = Number(d.discount_total) || 0;
+  let grandTotal = 0;
+  const rows = (d.items || []).map((it, i) => {
+    const qty = Number(it.qty) || 0;
+    const unit = Number(it.unit_price) || 0; // 매출가 = 부가세 포함 단가
+    const total = qty * unit;
+    grandTotal += total;
+    return `<tr>
+        <td class="c">${i+1}</td>
+        <td>${esc(it.item_name) || '-'}</td>
+        <td>${esc(it.model_name)}</td>
+        <td class="c">${qty}</td>
+        <td class="r">${unit.toLocaleString('ko-KR')}</td>
+        <td class="r">${total.toLocaleString('ko-KR')}</td>
+      </tr>`;
+  }).join('');
+  const p = scope ? `${scope} ` : '';
+  const css = `${p}*{box-sizing:border-box;margin:0;padding:0;font-family:'Noto Sans KR',sans-serif;}
+      ${scope || 'body'}{padding:20mm;font-size:11px;color:#000;${scope ? 'box-sizing:border-box;width:794px;background:#fff;' : ''}}
+      ${p}.header-row{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;font-size:11px;}
+      ${p}.title{text-align:center;font-size:32px;font-weight:900;letter-spacing:16px;padding:10px 0;margin-bottom:12px;border-top:3px double #000;border-bottom:3px double #000;}
+      ${p}.party-wrap{display:flex;gap:0;margin-bottom:12px;border:1px solid #000;}
+      ${p}.party{flex:1;padding:10px 12px;}
+      ${p}.party.supplier{border-right:1px solid #000;background:#fafafa;}
+      ${p}.party .plabel{font-size:10px;color:#666;font-weight:700;margin-bottom:6px;letter-spacing:2px;}
+      ${p}.party .cname{font-size:14px;font-weight:900;margin-bottom:6px;}
+      ${p}.header-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
+      ${p}.header-left .brand-logo{height:44px;}
+      ${p}.header-left .issue{font-size:11px;color:#000;}
+      ${p}.info-tbl{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:2px;}
+      ${p}.info-tbl td{padding:3px 0;font-size:10.5px;line-height:1.5;color:#222;vertical-align:top;}
+      ${p}.info-tbl td.lbl{width:64px;color:#444;font-weight:600;padding-right:8px;white-space:nowrap;}
+      ${p}.info-tbl td.val{color:#222;word-break:keep-all;overflow-wrap:break-word;}
+      ${p}.items-table{width:100%;border-collapse:collapse;margin-bottom:8px;}
+      ${p}.items-table th{border:1px solid #000;background:#e8e8e8;padding:5px 3px;font-size:10px;font-weight:700;text-align:center;}
+      ${p}.items-table td{border:1px solid #000;padding:4px 5px;font-size:10px;}
+      ${p}.items-table td.c{text-align:center;}${p}.items-table td.r{text-align:right;}
+      ${scope ? '' : '@media print{@page{margin:0;size:A4;}body{padding:20mm;}}'}`;
+  const body = `
+      <div class="header-row">
+        <div class="header-left">
+          ${logo ? `<img class="brand-logo" src="${logo}" alt="DW"/>` : ''}
+          <div class="issue"><strong>발행일자</strong> ${esc(d.issue_date)}</div>
+        </div>
+        <div>${esc(company.name)} 발행</div>
+      </div>
+      <div class="title">거 래 명 세 서</div>
+
+      <!-- 공급자 · 공급받는자 (좌우 배치, 라벨-값 테이블 구조) -->
+      <div class="party-wrap">
+        <div class="party supplier">
+          <div class="plabel">공급자</div>
+          <div class="cname">${esc(company.name)}</div>
+          <table class="info-tbl">
+            <tr><td class="lbl">등록번호</td><td class="val">${esc(company.business_no)}</td></tr>
+            <tr><td class="lbl">대표자</td><td class="val" style="display:flex;align-items:center;gap:8px;"><span>${esc(company.representative)}</span>${seal ? `<img src="${seal}" alt="인" style="height:34px;width:34px;object-fit:contain;"/>` : ''}</td></tr>
+            <tr><td class="lbl">주소</td><td class="val">${esc(company.address)}</td></tr>
+            ${company.phone ? `<tr><td class="lbl">전화</td><td class="val">${esc(company.phone)}${company.fax ? ' · 팩스 ' + esc(company.fax) : ''}</td></tr>` : ''}
+          </table>
+        </div>
+        <div class="party receiver">
+          <div class="plabel">공급받는자</div>
+          <div class="cname">${esc(d.hospital_name || '—')}</div>
+          <table class="info-tbl">
+            ${d.hospital_address ? `<tr><td class="lbl">주소</td><td class="val">${esc(d.hospital_address)}</td></tr>` : ''}
+            <tr><td class="lbl">납품일자</td><td class="val">${esc(d.statement_date)}</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <table class="items-table">
+        <thead><tr>
+          <th style="width:30px">No</th><th>품목</th><th style="width:150px">모델명</th>
+          <th style="width:50px">수량</th><th style="width:110px">단가</th>
+          <th style="width:130px">합계금액</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          ${discount > 0 ? `
+          <tr><td colspan="5" class="r" style="padding:5px 6px;">소계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td><td class="r">${grandTotal.toLocaleString('ko-KR')}</td></tr>
+          <tr><td colspan="5" class="r" style="padding:5px 6px;color:#c00;">할인</td><td class="r" style="color:#c00;">-${discount.toLocaleString('ko-KR')}</td></tr>
+          ` : ''}
+          <tr style="background:#fef9c3;font-weight:700;">
+            <td colspan="5" class="r">총 합계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td>
+            <td class="r">${(grandTotal - discount).toLocaleString('ko-KR')}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div style="margin-top:10px;border:1px solid #000;padding:8px 12px;font-size:11px;background:#fafafa;">
+        <div style="font-weight:700;letter-spacing:2px;color:#444;margin-bottom:4px;">입 금 계 좌</div>
+        <div style="font-weight:700;">${esc(account)}</div>
+      </div>`;
+  if (scope) return `<div class="${scope.replace(/^\./, '')}"><style>${css}</style>${body}</div>`;
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>[DW]${esc(d.hospital_name || '—')}_거래명세서_${esc(d.issue_date)}</title>
+      <style>${css}</style></head><body>${body}
+      </body></html>`;
+}
+
+// 저장된 거래명세서 사본(hospital_statements) → 위 틀의 입력. 발행일자 = 마지막으로 뽑은 날 (한국 시간)
+const statementDocData = (s) => ({
+  hospital_name: s.hospital_name, hospital_address: s.hospital_address, statement_date: s.statement_date,
+  issue_date: s.issued_at ? new Date(new Date(s.issued_at).getTime() + 9 * 3600e3).toISOString().slice(0, 10) : s.statement_date,
+  supplier: s.supplier, items: s.items, discount_total: s.discount_total,
+});
+
+// 필요할 때만 불러오는 라이브러리 — PDF 만들기(html2pdf.js), PDF 그리기(pdf.js)
+const HTML2PDF_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+const PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const loadedScripts = {};
+function loadScriptOnce(src) {
+  if (!loadedScripts[src]) {
+    loadedScripts[src] = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src;
+      el.onload = resolve;
+      el.onerror = () => { delete loadedScripts[src]; reject(new Error('불러오지 못했습니다')); };
+      document.head.appendChild(el);
+    });
+  }
+  return loadedScripts[src];
+}
+
+// 거래명세서 → PDF 파일 (A4, 화면·인쇄와 같은 틀). 줄이 쪽 사이에서 잘리지 않게
+async function statementPdfBlob(d) {
+  await loadScriptOnce(HTML2PDF_SRC);
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-10000px;top:0;';
+  holder.innerHTML = buildStatementDoc(d, { scope: '.dwstmt' });
+  document.body.appendChild(holder);
+  try {
+    return await window.html2pdf().set({
+      margin: 0,
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.header-row', '.party-wrap'] },
+    }).from(holder.querySelector('.dwstmt')).outputPdf('blob');
+  } finally {
+    holder.remove();
+  }
+}
+
+// PDF 파일을 카톡 등으로 보내기. 휴대폰 공유창이 파일을 못 받거나 막히면 'blocked' (한 번 더 누르는 창을 띄움)
+async function sharePdfFile(file, title) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title }); return 'shared'; }
+    catch (e) { return e.name === 'AbortError' ? 'cancel' : 'blocked'; }
+  }
+  return 'blocked';
+}
+function downloadFile(file) {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url; a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 // 거래명세서 사본 (SQL 44 hospital_statements) — 병원 포털 문서함에서 병원이 다시 봄.
 // 같은 병원+납품일자+발주 묶음이면 덮어씀 (재출력 시 최신 내용으로)
 async function dbSaveHospitalStatement(row) {
@@ -1531,6 +1704,7 @@ function adminMenuItems(h, pendingReqs = 0, isAdmin = false, ship = {}) {
     { section:'병원',   label:'병원 요청함',   onClick: h.requests,   icon: MENU_ICONS.inbox, badge: pendingReqs },
     { section:'돈',     label:'매입매출 관리', onClick: h.payables,   icon: MENU_ICONS.money },
     { section:'돈',     label:'매출정산서',   onClick: h.settlements, icon: MENU_ICONS.bill, badge: ship.settlements },
+    { section:'돈',     label:'세금계산서 PDF', onClick: h.taxPdfs, icon: MENU_ICONS.bill },
     { section:'기준정보', label:'장비·거래처', onClick: h.manage,     icon: MENU_ICONS.manage },
   ];
   if (isAdmin) {
@@ -1558,7 +1732,7 @@ function AdminMenuList({ items, onPicked }) {
   ));
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, onSalesReps, onAiMonitor, onShippingOrders, onSettlements, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, onSalesReps, onAiMonitor, onShippingOrders, onSettlements, onTaxPdfs, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1574,7 +1748,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
   const menuItems = adminMenuItems({
     home: onDashboard, poTracking: onPoTracking, editor: onHome, list: onLoad,
     hospitals: onHospitals, requests: onOrderRequests, manage: onManage, payables: onPayables,
-    salesReps: onSalesReps, aiMonitor: onAiMonitor, shippingOrders: onShippingOrders, settlements: onSettlements,
+    salesReps: onSalesReps, aiMonitor: onAiMonitor, shippingOrders: onShippingOrders, settlements: onSettlements, taxPdfs: onTaxPdfs,
   }, pendingReqs, isAdminEmail(user?.email), shipPending);
 
   const textFields = [
@@ -1666,7 +1840,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
   const menuItems = adminMenuItems({
     home: nav?.home, poTracking: nav?.poTracking, editor: nav?.editor, list: nav?.list,
     hospitals: nav?.hospitals, requests: nav?.orderRequests, manage: nav?.manage, payables: nav?.payables,
-    salesReps: nav?.salesReps, aiMonitor: nav?.aiMonitor, shippingOrders: nav?.shippingOrders, settlements: nav?.settlements,
+    salesReps: nav?.salesReps, aiMonitor: nav?.aiMonitor, shippingOrders: nav?.shippingOrders, settlements: nav?.settlements, taxPdfs: nav?.taxPdfs,
   }, pendingReqs, isAdminEmail(user?.email), shipPending);
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
@@ -17857,100 +18031,24 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
       const tb = (Number(b.it.quantity)||0) * (Number(b.it.sale_price)||0);
       return tb - ta; // 그룹 내부는 총액 내림차순
     });
-    let grandTotal = 0;
-    const rows = allItems.map(({ po, it }, i) => {
-      const qty = Number(it.quantity)||0;
-      const unit = Number(it.sale_price)||0; // 매출가 = 부가세 포함 단가
-      const total = qty * unit;
-      grandTotal += total;
-      return `<tr>
-        <td class="c">${i+1}</td>
-        <td>${it.item_name || '-'}</td>
-        <td>${it.model_name || ''}</td>
-        <td class="c">${qty}</td>
-        <td class="r">${unit.toLocaleString('ko-KR')}</td>
-        <td class="r">${total.toLocaleString('ko-KR')}</td>
-      </tr>`;
-    }).join('');
+    // 품목 줄 = 위에서 정렬한 순서 그대로 (포털·영업사원 사본도 이 순서·값)
+    const stmtItems = allItems.map(({ it }) => ({ item_name: it.item_name || '', model_name: it.model_name || '', qty: Number(it.quantity) || 0, unit_price: Number(it.sale_price) || 0 }));
+    const grandTotal = stmtItems.reduce((sum, i) => sum + i.qty * i.unit_price, 0);
+    const supplier = {
+      name: company.name || '주식회사 대원메디칼',
+      business_no: company.business_no || '347-81-02449',
+      representative: company.representative || '성현기',
+      address: company.address || '서울특별시 동대문구 장한로 186, 201호',
+      phone: company.phone || '', fax: company.fax || '',
+      account: '주식회사 대원메디칼 · 국민은행 450901-01-469947', // 명세서 PDF 하단 입금계좌
+    };
     const win = window.open('', '_blank', 'width=900,height=1100');
     if (!win) { alert('팝업이 차단되었습니다.'); return; }
-    win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>[DW]${hospName}_거래명세서_${today}</title>
-      <style>*{box-sizing:border-box;margin:0;padding:0;font-family:'Noto Sans KR',sans-serif;}
-      body{padding:20mm;font-size:11px;color:#000;}
-      .header-row{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px;font-size:11px;}
-      .title{text-align:center;font-size:32px;font-weight:900;letter-spacing:16px;padding:10px 0;margin-bottom:12px;border-top:3px double #000;border-bottom:3px double #000;}
-      .party-wrap{display:flex;gap:0;margin-bottom:12px;border:1px solid #000;}
-      .party{flex:1;padding:10px 12px;}
-      .party.supplier{border-right:1px solid #000;background:#fafafa;}
-      .party .plabel{font-size:10px;color:#666;font-weight:700;margin-bottom:6px;letter-spacing:2px;}
-      .party .cname{font-size:14px;font-weight:900;margin-bottom:6px;}
-      .header-left{display:flex;flex-direction:column;align-items:flex-start;gap:6px;}
-      .header-left .brand-logo{height:44px;}
-      .header-left .issue{font-size:11px;color:#000;}
-      .info-tbl{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:2px;}
-      .info-tbl td{padding:3px 0;font-size:10.5px;line-height:1.5;color:#222;vertical-align:top;}
-      .info-tbl td.lbl{width:64px;color:#444;font-weight:600;padding-right:8px;white-space:nowrap;}
-      .info-tbl td.val{color:#222;word-break:keep-all;overflow-wrap:break-word;}
-      .items-table{width:100%;border-collapse:collapse;margin-bottom:8px;}
-      .items-table th{border:1px solid #000;background:#e8e8e8;padding:5px 3px;font-size:10px;font-weight:700;text-align:center;}
-      .items-table td{border:1px solid #000;padding:4px 5px;font-size:10px;}
-      .items-table td.c{text-align:center;}.items-table td.r{text-align:right;}
-      @media print{@page{margin:0;size:A4;}body{padding:20mm;}}</style></head><body>
-      <div class="header-row">
-        <div class="header-left">
-          ${logo ? `<img class="brand-logo" src="${logo}" alt="DW"/>` : ''}
-          <div class="issue"><strong>발행일자</strong> ${today}</div>
-        </div>
-        <div>${company.name || '주식회사 대원메디칼'} 발행</div>
-      </div>
-      <div class="title">거 래 명 세 서</div>
-
-      <!-- 공급자 · 공급받는자 (좌우 배치, 라벨-값 테이블 구조) -->
-      <div class="party-wrap">
-        <div class="party supplier">
-          <div class="plabel">공급자</div>
-          <div class="cname">${company.name || '주식회사 대원메디칼'}</div>
-          <table class="info-tbl">
-            <tr><td class="lbl">등록번호</td><td class="val">${company.business_no || '347-81-02449'}</td></tr>
-            <tr><td class="lbl">대표자</td><td class="val" style="display:flex;align-items:center;gap:8px;"><span>${company.representative || '성현기'}</span>${seal ? `<img src="${seal}" alt="인" style="height:34px;width:34px;object-fit:contain;"/>` : ''}</td></tr>
-            <tr><td class="lbl">주소</td><td class="val">${company.address || '서울특별시 동대문구 장한로 186, 201호'}</td></tr>
-            ${company.phone ? `<tr><td class="lbl">전화</td><td class="val">${company.phone}${company.fax ? ' · 팩스 ' + company.fax : ''}</td></tr>` : ''}
-          </table>
-        </div>
-        <div class="party receiver">
-          <div class="plabel">공급받는자</div>
-          <div class="cname">${hospName}</div>
-          <table class="info-tbl">
-            ${hospAddress ? `<tr><td class="lbl">주소</td><td class="val">${hospAddress}</td></tr>` : ''}
-            <tr><td class="lbl">납품일자</td><td class="val">${overrideDeliveryDate || today}</td></tr>
-          </table>
-        </div>
-      </div>
-
-      <table class="items-table">
-        <thead><tr>
-          <th style="width:30px">No</th><th>품목</th><th style="width:150px">모델명</th>
-          <th style="width:50px">수량</th><th style="width:110px">단가</th>
-          <th style="width:130px">합계금액</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot>
-          ${(Number(discount)||0) > 0 ? `
-          <tr><td colspan="5" class="r" style="padding:5px 6px;">소계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td><td class="r">${grandTotal.toLocaleString('ko-KR')}</td></tr>
-          <tr><td colspan="5" class="r" style="padding:5px 6px;color:#c00;">할인</td><td class="r" style="color:#c00;">-${Number(discount).toLocaleString('ko-KR')}</td></tr>
-          ` : ''}
-          <tr style="background:#fef9c3;font-weight:700;">
-            <td colspan="5" class="r">총 합계 <span style="font-weight:400;font-size:10px;color:#666;">(부가세 포함)</span></td>
-            <td class="r">${(grandTotal - (Number(discount)||0)).toLocaleString('ko-KR')}</td>
-          </tr>
-        </tfoot>
-      </table>
-      <div style="margin-top:10px;border:1px solid #000;padding:8px 12px;font-size:11px;background:#fafafa;">
-        <div style="font-weight:700;letter-spacing:2px;color:#444;margin-bottom:4px;">입 금 계 좌</div>
-        <div style="font-weight:700;">주식회사 대원메디칼 · 국민은행 450901-01-469947</div>
-      </div>
-      <script>window.onload=function(){window.print();}<\/script>
-      </body></html>`);
+    // 영업사원 앱 화면·카톡 PDF와 같은 틀 (buildStatementDoc, 2026-11-20) — 여기선 인쇄만 덧붙임
+    win.document.write(buildStatementDoc({
+      hospital_name: hospName, hospital_address: hospAddress, statement_date: overrideDeliveryDate || today, issue_date: today,
+      supplier, items: stmtItems, discount_total: Number(discount) || 0,
+    }).replace('</body>', '<script>window.onload=function(){window.print();}<\/script></body>'));
     win.document.close();
 
     // 병원 포털(my.) 문서함 > 납품 내역에서 병원이 같은 명세서를 다시 볼 수 있게 사본 저장
@@ -17963,15 +18061,8 @@ function PurchaseOrderTrackingPage({ onBack, user, onLogout, nav, viewer = false
         po_key: [...poIds].sort().join(','),
         hospital_name: hospName,
         hospital_address: hospAddress || null,
-        supplier: {
-          name: company.name || '주식회사 대원메디칼',
-          business_no: company.business_no || '347-81-02449',
-          representative: company.representative || '성현기',
-          address: company.address || '서울특별시 동대문구 장한로 186, 201호',
-          phone: company.phone || '', fax: company.fax || '',
-          account: '주식회사 대원메디칼 · 국민은행 450901-01-469947', // 명세서 PDF 하단 입금계좌와 같게
-        },
-        items: allItems.map(({ it }) => ({ item_name: it.item_name || '', model_name: it.model_name || '', qty: Number(it.quantity) || 0, unit_price: Number(it.sale_price) || 0 })),
+        supplier,
+        items: stmtItems,
         subtotal: grandTotal,
         discount_total: Number(discount) || 0,
         total: grandTotal - (Number(discount) || 0),
@@ -20317,100 +20408,152 @@ const salesStatementSummary = (s) => {
   return `${items[0].item_name || items[0].model_name || '품목'}${items.length > 1 ? ` 외 ${items.length - 1}건` : ''}`;
 };
 
+// PDF 공유가 막혔을 때 한 번 더 누르는 창 (아이폰은 PDF를 만드는 동안 공유 허락이 풀리기도 함, PC는 공유창 없음)
+function SalesPdfShareDialog({ file, title, onClose }) {
+  const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  const again = async () => { const r = await sharePdfFile(file, title); if (r !== 'blocked') onClose(); };
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-900/60 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3">
+        <div className="text-[22px] font-bold text-slate-900">PDF가 준비됐습니다</div>
+        <div className="text-[16px] text-slate-600 break-all">{file.name}</div>
+        {canShare && <button onClick={again} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900`}>카톡으로 보내기</button>}
+        <button onClick={() => downloadFile(file)} className={`${SALES_BTN_PLAIN} w-full`}>휴대폰에 저장</button>
+        <button onClick={onClose} className={`${SALES_BTN_PLAIN} w-full`}>닫기</button>
+      </div>
+    </div>
+  );
+}
+
+// "카톡으로 보내기 (PDF)" — makeFile()이 만든 PDF 파일을 휴대폰 공유창으로
+function SalesPdfShareButton({ makeFile, title, disabled }) {
+  const [busy, setBusy] = useState(false);
+  const [dialog, setDialog] = useState(null);
+  const [error, setError] = useState('');
+  const go = async () => {
+    setBusy(true); setError('');
+    try {
+      const file = await makeFile();
+      if ((await sharePdfFile(file, title)) === 'blocked') setDialog(file);
+    } catch (e) {
+      console.error('pdf share', e);
+      setError('PDF를 만들지 못했습니다. 잠시 뒤 다시 눌러 주세요.');
+    } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <button onClick={go} disabled={busy || disabled} className={`${SALES_BTN} w-full bg-yellow-400 text-slate-900 disabled:opacity-60`}>
+        {busy ? 'PDF 만드는 중입니다' : '카톡으로 보내기 (PDF)'}
+      </button>
+      {error && <div className="text-[16px] font-bold text-rose-700">{error}</div>}
+      {dialog && <SalesPdfShareDialog file={dialog} title={title} onClose={() => setDialog(null)} />}
+    </>
+  );
+}
+
+// 세금계산서 = 관리자가 올린 홈택스 PDF 그대로 (원장님이 받는 것과 같은 파일)
 function SalesInvoiceView({ id, onBack }) {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
+  const [file, setFile] = useState(null);
+  const [drawn, setDrawn] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+  const pagesRef = useRef(null);
   const load = () => { setFailed(false); salesApi('invoice', { id }).then(setData).catch(() => setFailed(true)); };
   useEffect(load, [id]);
+  useEffect(() => {
+    if (!data?.pdf_url) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(data.pdf_url);
+        if (!r.ok) throw new Error(`PDF ${r.status}`);
+        const blob = await r.blob();
+        if (!alive) return;
+        setFile(new File([blob], `[DW]${data.hospital_name}_세금계산서_${data.invoice.date}.pdf`, { type: 'application/pdf' }));
+        await loadScriptOnce(PDFJS_SRC);
+        const lib = window.pdfjsLib;
+        lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
+        const doc = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+        const box = pagesRef.current;
+        if (!alive || !box) return;
+        box.innerHTML = '';
+        const width = box.clientWidth || 360;
+        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+        for (let n = 1; n <= doc.numPages; n++) {
+          const page = await doc.getPage(n);
+          const viewport = page.getViewport({ scale: (width * dpr) / page.getViewport({ scale: 1 }).width });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width; canvas.height = viewport.height;
+          canvas.style.cssText = 'width:100%;display:block;' + (n > 1 ? 'border-top:1px solid #cbd5e1;' : '');
+          box.appendChild(canvas);
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+          if (!alive) return;
+        }
+        setDrawn(true);
+      } catch (e) {
+        console.error('invoice pdf', e);
+        if (alive) setPdfError('PDF를 열지 못했습니다. 뒤로 갔다가 다시 열어 주세요.');
+      }
+    })();
+    return () => { alive = false; };
+  }, [data?.pdf_url]);
+
   if (failed) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesRetry onRetry={load} /></SalesScreen>;
   if (!data) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
-  const { invoice: t, lines, from, buyer } = data;
-  const linesSum = lines.reduce((s, l) => s + (l.amount || 0), 0);
+  const t = data.invoice;
   return (
     <SalesScreen>
       <SalesBack label="뒤로" onClick={onBack} />
       <SalesTitle>세금계산서</SalesTitle>
-      <div className={`${SALES_CARD} space-y-1`}>
-        <div className={SALES_SUB}>{salesDate(t.date)} 발행 · 매출</div>
-        <div className="text-[19px] font-bold text-slate-900 leading-snug">{t.summary}</div>
-        <div className={`text-[24px] font-bold ${t.amount < 0 ? 'text-rose-700' : 'text-blue-700'}`}>{salesWon(t.amount)}</div>
-        <div className="text-[17px] text-slate-700">공급가액 {salesWon(t.supply)} · 세액 {salesWon(t.tax)}</div>
-      </div>
-      {buyer && (
-        <div className={`${SALES_CARD} space-y-1 text-[17px] text-slate-800`}>
-          <div className="font-bold">{buyer.buyer_name}</div>
-          <div>사업자번호 {buyer.buyer_reg_no} · 대표 {buyer.buyer_ceo}</div>
-          <div className="break-words">{buyer.buyer_address}</div>
-          <div className="break-all">{buyer.buyer_email}</div>
-        </div>
-      )}
-      <SalesSection>들어간 품목</SalesSection>
-      {lines.length === 0 ? <SalesNote>이 계산서에 연결된 품목 정보가 없습니다</SalesNote> : (
+      <div className={SALES_SUB}>{salesDate(t.date)} 발행 · {salesWon(t.amount)}</div>
+      {data.pdf_url ? (
         <>
-          {lines.map((l, i) => (
-            <SalesInfoCard key={i} title={l.name || '품목'} sub={[l.spec, `${l.qty}개`].filter(Boolean).join(' · ')}
-              strong={salesWon(l.amount)} danger={l.amount < 0} />
-          ))}
-          <div className={SALES_SUB}>
-            {from === 'settlement' ? '매출정산서에 적은 계산서 품목입니다.' : '이 계산서에 연결된 발주 품목입니다 (금액은 부가세 포함 판매가).'}
-            {linesSum !== t.amount && ` 계산서 금액과 품목 합계(${salesWon(linesSum)})가 다릅니다 (할인·서비스 등).`}
-          </div>
+          <SalesPdfShareButton title={`${data.hospital_name} 세금계산서`} disabled={!file}
+            makeFile={async () => { if (!file) throw new Error('PDF 준비 전'); return file; }} />
+          {pdfError && <div className="text-[17px] font-bold text-rose-700">{pdfError}</div>}
+          {!drawn && !pdfError && <SalesNote>계산서를 여는 중입니다</SalesNote>}
+          <div ref={pagesRef} className={`bg-white border border-slate-300 rounded-xl overflow-hidden ${drawn ? '' : 'h-0 border-0'}`} />
         </>
+      ) : (
+        <SalesNote>이 계산서의 PDF가 아직 안 올라왔습니다.<br />관리자가 올리면 여기서 보고 카톡으로 보낼 수 있습니다.</SalesNote>
       )}
     </SalesScreen>
   );
 }
 
-// 거래명세서 — 관리자가 발행한 사본 그대로 (휴대폰에서 읽기 쉽게 세로로)
+// 거래명세서 = 관리자가 뽑은 PDF와 같은 틀(buildStatementDoc)로, 발행 당시 사본 그대로
 function SalesStatementView({ s, onBack }) {
-  const sup = s.supplier || {};
-  const items = Array.isArray(s.items) ? s.items : [];
-  const discount = Number(s.discount_total) || 0;
+  const data = useMemo(() => statementDocData(s), [s.id]);
+  const html = useMemo(() => buildStatementDoc(data, { scope: '.dwstmt' }), [data]);
+  const boxRef = useRef(null);
+  const docRef = useRef(null);
+  const [zoom, setZoom] = useState(false);
+  const [fit, setFit] = useState({ scale: 0.45, height: 520 });
+  useEffect(() => {
+    const measure = () => {
+      const w = boxRef.current?.clientWidth || 360;
+      const scale = zoom ? 1 : Math.min(1, w / 794);
+      setFit({ scale, height: (docRef.current?.offsetHeight || 1123) * scale });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (docRef.current) ro.observe(docRef.current);
+    if (boxRef.current) ro.observe(boxRef.current);
+    return () => ro.disconnect();
+  }, [html, zoom]);
   return (
     <SalesScreen>
       <SalesBack label="뒤로" onClick={onBack} />
-      <div className="bg-white rounded-2xl border border-slate-300 p-4 space-y-4 text-slate-900">
-        <div className="text-center text-[26px] font-black tracking-[0.5em] border-y-4 border-double border-slate-900 py-2">거래명세서</div>
-        <div className="flex justify-between text-[16px] text-slate-700">
-          <span>납품일자 {s.statement_date}</span>
-          <span>발행 {String(s.issued_at || '').slice(0, 10)}</span>
+      <SalesTitle>거래명세서</SalesTitle>
+      <div className={SALES_SUB}>납품 {salesDate(s.statement_date)} · {salesWon(s.total)}</div>
+      <SalesPdfShareButton title={`${s.hospital_name} 거래명세서`}
+        makeFile={async () => new File([await statementPdfBlob(data)], `[DW]${s.hospital_name}_거래명세서_${data.issue_date}.pdf`, { type: 'application/pdf' })} />
+      <button onClick={() => setZoom(z => !z)} className={`${SALES_BTN_PLAIN} w-full`}>{zoom ? '화면에 맞추기' : '크게 보기'}</button>
+      <div ref={boxRef} className={`bg-white border border-slate-300 rounded-xl ${zoom ? 'overflow-x-auto' : 'overflow-hidden'}`} style={{ height: fit.height }}>
+        <div style={{ width: 794, transform: `scale(${fit.scale})`, transformOrigin: 'top left' }}>
+          <div ref={docRef} dangerouslySetInnerHTML={{ __html: html }} />
         </div>
-        <div className="border border-slate-400 rounded-lg p-3 space-y-1">
-          <div className="text-[14px] font-bold text-slate-500 tracking-widest">공급받는자</div>
-          <div className="text-[20px] font-black">{s.hospital_name}</div>
-          {s.hospital_address && <div className="text-[16px] text-slate-700 break-words">{s.hospital_address}</div>}
-        </div>
-        <div className="border border-slate-400 rounded-lg p-3 space-y-1 bg-slate-50">
-          <div className="text-[14px] font-bold text-slate-500 tracking-widest">공급자</div>
-          <div className="text-[18px] font-black">{sup.name || '주식회사 대원메디칼'}</div>
-          <div className="text-[15px] text-slate-700">등록번호 {sup.business_no || ''} · 대표 {sup.representative || ''}</div>
-          {sup.address && <div className="text-[15px] text-slate-700 break-words">{sup.address}</div>}
-          {sup.phone && <div className="text-[15px] text-slate-700">전화 {sup.phone}{sup.fax ? ` · 팩스 ${sup.fax}` : ''}</div>}
-        </div>
-        <div className="divide-y divide-slate-200 border-y border-slate-400">
-          {items.map((it, i) => {
-            const qty = Number(it.qty) || 0, unit = Number(it.unit_price) || 0;
-            return (
-              <div key={i} className="py-2">
-                <div className="text-[17px] font-bold leading-snug">{i + 1}. {it.item_name || '-'}</div>
-                {it.model_name && <div className="text-[15px] text-slate-600 break-words">{it.model_name}</div>}
-                <div className="flex justify-between items-baseline text-[16px]">
-                  <span className="text-slate-700">{qty}개 × {unit.toLocaleString('ko-KR')}</span>
-                  <span className="font-bold">{(qty * unit).toLocaleString('ko-KR')}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="space-y-1 text-[17px]">
-          {discount > 0 && <div className="flex justify-between"><span>소계</span><span>{salesWon(s.subtotal)}</span></div>}
-          {discount > 0 && <div className="flex justify-between text-rose-700"><span>할인</span><span>-{salesWon(discount)}</span></div>}
-          <div className="flex justify-between items-baseline bg-yellow-100 rounded-lg px-2 py-1">
-            <span className="font-bold">총 합계 <span className="text-[14px] font-normal text-slate-600">(부가세 포함)</span></span>
-            <span className="text-[21px] font-black">{salesWon(s.total)}</span>
-          </div>
-        </div>
-        {sup.account && <div className="text-[15px] border border-slate-400 rounded-lg p-2 bg-slate-50"><span className="font-bold">입금 계좌</span> {sup.account}</div>}
       </div>
     </SalesScreen>
   );
@@ -20474,7 +20617,7 @@ function SalesHospitalDetail({ hospitalId, repId, startEditing, onBack, onContac
       <SalesSection>세금계산서</SalesSection>
       {invoices.length === 0 ? <SalesNote>발행한 세금계산서가 없습니다</SalesNote>
         : (allInvoices ? invoices : invoices.slice(0, 5)).map(t => (
-          <SalesInfoCard key={t.id} title={t.summary} sub={`${salesDate(t.date)} 발행`} strong={salesWon(t.amount)} danger={t.amount < 0}
+          <SalesInfoCard key={t.id} title={t.summary} sub={`${salesDate(t.date)} 발행 · ${t.has_pdf ? 'PDF 있음' : 'PDF 아직 없음'}`} strong={salesWon(t.amount)} danger={t.amount < 0}
             onClick={() => setDoc({ type: 'invoice', id: t.id })} />
         ))}
       {!allInvoices && invoices.length > 5 && <button onClick={() => setAllInvoices(true)} className={`${SALES_BTN_PLAIN} w-full`}>세금계산서 {invoices.length}장 모두 보기</button>}
@@ -21671,6 +21814,155 @@ function SalesSettlementDetail({ s, user, onChanged }) {
   );
 }
 
+// ── 어드민: 세금계산서 PDF 올리기 (2026-11-20) — 홈택스에서 받은 매출 계산서 PDF를 계산서마다 올림
+//    → 영업사원 앱 병원 화면에 그 PDF가 그대로 뜨고 카톡으로 PDF 공유. 파일: storage tax-invoices/<계산서 id>.pdf (sql/51)
+const TAX_PDF_BUCKET = 'tax-invoices';
+// 취소된 원본 + 그 취소(마이너스) 계산서 짝 — 올릴 필요 없음 (api/sales.mjs invoiceList와 같은 기준)
+function cancelledInvoiceIds(list) {
+  const gone = new Set();
+  for (const neg of list.filter(t => Number(t.amount) < 0)) {
+    const cands = list.filter(t => Number(t.amount) === -Number(neg.amount) && t.hospital_id === neg.hospital_id && !gone.has(t.id));
+    if (!cands.length) continue;
+    const orig = cands.find(t => /^\s*(\[[^\]]*\]\s*)?원본/.test(t.memo || ''))
+      || [...cands].sort((a, b) => String(a.issue_date).localeCompare(String(b.issue_date)))[0];
+    gone.add(neg.id); gone.add(orig.id);
+  }
+  return gone;
+}
+
+function TaxInvoicePdfPage({ user, onLogout, nav }) {
+  const [rows, setRows] = useState([]);
+  const [repHosp, setRepHosp] = useState(new Map()); // hospital_id → 관리 담당 이름
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [filter, setFilter] = useState('none'); // none | has | all
+  const [onlyRep, setOnlyRep] = useState(true);
+  const [q, setQ] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [msg, setMsg] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setLoadError('');
+    const [t, h] = await Promise.all([
+      sb.from('tax_invoices').select('id,issue_date,amount,party_name,memo,clobe_ti_id,hospital_id,pdf_path,pdf_uploaded_at')
+        .eq('kind', 'sale').order('issue_date', { ascending: false }).limit(1000),
+      sb.from('hospitals').select('id,assigned_rep_id,sales_reps(name)').not('assigned_rep_id', 'is', null),
+    ]);
+    if (t.error || h.error) { setLoadError((t.error || h.error).message); setLoading(false); return; }
+    setRows(t.data);
+    setRepHosp(new Map(h.data.map(x => [x.id, x.sales_reps?.name || '담당 있음'])));
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const gone = useMemo(() => cancelledInvoiceIds(rows), [rows]);
+  const needle = q.trim().toLowerCase();
+  const base = rows.filter(r => (!onlyRep || repHosp.has(r.hospital_id)) && (!needle || String(r.party_name || '').toLowerCase().includes(needle)));
+  const missing = base.filter(r => !r.pdf_path && !gone.has(r.id));
+  const list = filter === 'none' ? missing : filter === 'has' ? base.filter(r => r.pdf_path) : base;
+
+  const upload = async (row, f) => {
+    if (!f) return;
+    if (f.type && f.type !== 'application/pdf') { setMsg('PDF 파일만 올릴 수 있습니다.'); return; }
+    setBusyId(row.id); setMsg('');
+    try {
+      const path = `${row.id}.pdf`;
+      const { error: ue } = await sb.storage.from(TAX_PDF_BUCKET).upload(path, f, { upsert: true, contentType: 'application/pdf' });
+      if (ue) throw ue;
+      const at = new Date().toISOString();
+      const { error: de } = await sb.from('tax_invoices').update({ pdf_path: path, pdf_uploaded_at: at }).eq('id', row.id);
+      if (de) throw de;
+      setRows(p => p.map(r => (r.id === row.id ? { ...r, pdf_path: path, pdf_uploaded_at: at } : r)));
+      setMsg(`올렸습니다: ${row.party_name} ${row.issue_date} ${Number(row.amount).toLocaleString('ko-KR')}원`);
+    } catch (e) { console.error(e); setMsg('올리기 실패: ' + (e.message || e)); }
+    finally { setBusyId(null); }
+  };
+  const view = async (row) => {
+    const { data, error } = await sb.storage.from(TAX_PDF_BUCKET).createSignedUrl(row.pdf_path, 600);
+    if (error) { setMsg('열기 실패: ' + error.message); return; }
+    window.open(data.signedUrl, '_blank');
+  };
+  const remove = async (row) => {
+    if (!confirm(`${row.party_name} ${row.issue_date} 계산서 PDF를 지울까요? 영업사원 화면에서도 사라집니다.`)) return;
+    setBusyId(row.id); setMsg('');
+    try {
+      const { error: se } = await sb.storage.from(TAX_PDF_BUCKET).remove([row.pdf_path]);
+      if (se) throw se;
+      const { error: de } = await sb.from('tax_invoices').update({ pdf_path: null, pdf_uploaded_at: null }).eq('id', row.id);
+      if (de) throw de;
+      setRows(p => p.map(r => (r.id === row.id ? { ...r, pdf_path: null, pdf_uploaded_at: null } : r)));
+    } catch (e) { console.error(e); setMsg('지우기 실패: ' + (e.message || e)); }
+    finally { setBusyId(null); }
+  };
+
+  const tab = (key, label, n) => (
+    <button onClick={() => setFilter(key)} className={`px-3 py-1.5 rounded-lg text-sm ${filter === key ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-700'}`}>
+      {label} <span className={filter === key ? 'text-slate-300' : 'text-slate-400'}>{n}</span>
+    </button>
+  );
+  return (
+    <div style={{ height: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <AppHeader title="세금계산서 PDF" badge={missing.length ? `안 올린 것 ${missing.length}장` : null} onLogoClick={nav?.home} user={user} onLogout={onLogout} nav={nav} />
+      <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-2 flex-wrap shrink-0">
+        {tab('none', 'PDF 안 올림', missing.length)}
+        {tab('has', 'PDF 있음', base.filter(r => r.pdf_path).length)}
+        {tab('all', '전체', base.length)}
+        <label className="flex items-center gap-1.5 text-sm text-slate-700 ml-2">
+          <input type="checkbox" checked={onlyRep} onChange={e => setOnlyRep(e.target.checked)} />영업사원 담당 병원만
+        </label>
+        <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="병원 이름" className="border border-slate-300 rounded px-2 py-1.5 text-sm w-48 ml-auto" />
+      </div>
+      <div className="px-4 py-2 text-xs text-slate-500 shrink-0">
+        홈택스에서 발행한 매출 세금계산서를 PDF로 받아 해당 줄에 올리세요. 영업사원 앱 병원 화면에 그대로 뜨고 카톡으로 PDF를 보낼 수 있습니다. 취소된 원본·취소 계산서 짝은 "PDF 안 올림"에서 뺐습니다.
+        {msg && <span className={`ml-2 font-semibold ${/실패/.test(msg) ? 'text-rose-600' : 'text-emerald-700'}`}>{msg}</span>}
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {loading ? <div className="p-6 text-sm text-slate-400">불러오는 중...</div>
+          : loadError ? <div className="p-6 text-sm text-rose-600">불러오기 실패: {loadError}</div>
+          : list.length === 0 ? <div className="p-6 text-sm text-slate-400">없습니다</div>
+          : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-100 text-xs text-slate-500 z-10">
+                <tr>
+                  <th className="px-4 py-2 text-left w-28">발행일</th>
+                  <th className="px-2 py-2 text-left">병원</th>
+                  <th className="px-2 py-2 text-right w-32">금액</th>
+                  <th className="px-2 py-2 text-left w-48">승인번호</th>
+                  <th className="px-2 py-2 text-left w-24">관리 담당</th>
+                  <th className="px-4 py-2 text-right w-64">PDF</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {list.map(r => (
+                  <tr key={r.id} className={gone.has(r.id) ? 'text-slate-400' : ''}>
+                    <td className="px-4 py-2">{r.issue_date}</td>
+                    <td className="px-2 py-2">
+                      <div className="font-medium">{r.party_name}</div>
+                      <div className="text-xs text-slate-400 truncate max-w-md">{gone.has(r.id) ? '취소된 계산서 (올릴 필요 없음)' : r.memo}</div>
+                    </td>
+                    <td className={`px-2 py-2 text-right tnum ${Number(r.amount) < 0 ? 'text-rose-600' : ''}`}>{Number(r.amount).toLocaleString('ko-KR')}원</td>
+                    <td className="px-2 py-2 font-mono text-xs text-slate-500">{r.clobe_ti_id || '-'}</td>
+                    <td className="px-2 py-2 text-xs text-slate-600">{repHosp.get(r.hospital_id) || '-'}</td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {r.pdf_path && <button onClick={() => view(r)} className="text-xs text-blue-600 hover:text-blue-800">보기</button>}
+                        {r.pdf_path && <button disabled={busyId === r.id} onClick={() => remove(r)} className="text-xs text-slate-400 hover:text-rose-600">지우기</button>}
+                        <label className={`px-3 py-1 rounded text-xs font-semibold cursor-pointer ${r.pdf_path ? 'border border-slate-300 text-slate-600 hover:bg-slate-50' : 'bg-blue-600 text-white hover:bg-blue-700'} ${busyId === r.id ? 'opacity-50 pointer-events-none' : ''}`}>
+                          {busyId === r.id ? '올리는 중...' : r.pdf_path ? '바꾸기' : 'PDF 올리기'}
+                          <input type="file" accept="application/pdf" className="hidden" onChange={e => { upload(r, e.target.files?.[0]); e.target.value = ''; }} />
+                        </label>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+    </div>
+  );
+}
+
 // 어드민: 영업사원 명단 + 병원 담당 지정
 function SalesRepsPage({ user, onLogout, nav }) {
   const [reps, setReps] = useState([]);
@@ -22154,6 +22446,7 @@ function App() {
     salesReps: () => setView('sales-reps'),
     shippingOrders: () => setView('shipping-orders'),
     settlements: () => setView('settlements'),
+    taxPdfs: () => setView('tax-pdfs'),
   };
 
   if (view === 'home') {
@@ -22164,6 +22457,9 @@ function App() {
   }
   if (view === 'shipping-orders') {
     return <ShippingOrdersPage user={user} onLogout={handleLogout} nav={nav} />;
+  }
+  if (view === 'tax-pdfs') {
+    return <TaxInvoicePdfPage user={user} onLogout={handleLogout} nav={nav} />;
   }
   if (view === 'settlements') {
     return <SalesSettlementsPage user={user} onLogout={handleLogout} nav={nav} />;
@@ -22323,7 +22619,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} onSalesReps={() => setView('sales-reps')} onShippingOrders={() => setView('shipping-orders')} onSettlements={() => setView('settlements')} onAiMonitor={() => setView('ai-monitor')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} onSalesReps={() => setView('sales-reps')} onShippingOrders={() => setView('shipping-orders')} onSettlements={() => setView('settlements')} onTaxPdfs={() => setView('tax-pdfs')} onAiMonitor={() => setView('ai-monitor')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>

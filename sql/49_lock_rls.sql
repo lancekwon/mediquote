@@ -35,3 +35,11 @@ drop policy if exists public_delete_equipment on storage.objects;
 create policy admin_insert_equipment on storage.objects for insert to authenticated with check (bucket_id = 'equipment' and public.is_admin());
 create policy admin_update_equipment on storage.objects for update to authenticated using (bucket_id = 'equipment' and public.is_admin()) with check (bucket_id = 'equipment' and public.is_admin());
 create policy admin_delete_equipment on storage.objects for delete to authenticated using (bucket_id = 'equipment' and public.is_admin());
+
+-- 세금계산서 PDF (sql/51): 관리자만. 영업사원은 서버(비밀 키)가 만든 서명 링크로만 봄
+drop policy if exists tax_invoices_pdf_select on storage.objects;
+drop policy if exists tax_invoices_pdf_insert on storage.objects;
+drop policy if exists tax_invoices_pdf_update on storage.objects;
+drop policy if exists tax_invoices_pdf_delete on storage.objects;
+create policy admin_all_tax_invoices_pdf on storage.objects for all to authenticated
+  using (bucket_id = 'tax-invoices' and public.is_admin()) with check (bucket_id = 'tax-invoices' and public.is_admin());

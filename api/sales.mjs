@@ -47,7 +47,7 @@ function invoiceList(rows) {
   return {
     hidden: gone.size,
     invoices: list.filter((t) => !gone.has(t.id))
-      .map((t) => ({ id: t.id, date: t.issue_date, amount: t.amt, summary: invoiceText(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서') })),
+      .map((t) => ({ id: t.id, date: t.issue_date, amount: t.amt, has_pdf: !!t.pdf_path, summary: invoiceText(t.memo) || (t.amt < 0 ? '수정 세금계산서' : '세금계산서') })),
   };
 }
 
@@ -216,7 +216,7 @@ async function hospitalDetail(rep, id) {
     sb(`sales_notes?hospital_id=eq.${id}&select=${NOTE_FIELDS}&order=created_at.desc&limit=50`),
     sb(`service_requests?hospital_id=eq.${id}&${SERVICE_OPEN}&select=${SERVICE_FIELDS}&order=created_at.desc`),
     consumableMap(),
-    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${id}&select=id,issue_date,amount,memo&order=issue_date.desc&limit=300`),
+    sb(`tax_invoices?kind=eq.sale&hospital_id=eq.${id}&select=id,issue_date,amount,memo,pdf_path&order=issue_date.desc&limit=300`),
     // 병원 포털과 같게 공개(shared)된 것만 — 관리자가 숨긴 건 옛 버전·잘못 뽑은 것
     sb(`hospital_statements?hospital_id=eq.${id}&shared=is.true&select=${STATEMENT_FIELDS}&order=statement_date.desc,issued_at.desc`),
   ]);
@@ -234,26 +234,30 @@ async function hospitalDetail(rep, id) {
   };
 }
 
-// 세금계산서 한 장 — 품목은 매출정산서(계산서용 품명 그대로)가 있으면 그것, 없으면 이 계산서에 연결된 발주 품목(매출가만)
+// 세금계산서 한 장 = 관리자가 올린 홈택스 PDF 그대로 (2026-11-20 사용자: 원장님이 받는 것과 똑같이).
+// PDF는 비공개 보관함(tax-invoices)에 있고, 담당 병원 계산서일 때만 10분짜리 서명 링크를 줌
+const TAX_PDF_BUCKET = 'tax-invoices';
+async function signTaxPdf(path) {
+  const r = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${TAX_PDF_BUCKET}/${String(path).split('/').map(enc).join('/')}`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn: 600 }),
+  });
+  if (!r.ok) throw new Error(`storage sign ${r.status}: ${await r.text()}`);
+  const { signedURL } = await r.json();
+  return `${SUPABASE_URL}/storage/v1${signedURL}`;
+}
+
 async function invoiceDetail(rep, id) {
   if (!isUuid(id)) throw new HttpError(400, '계산서 정보가 잘못됐습니다.');
-  const [t] = await sb(`tax_invoices?id=eq.${id}&kind=eq.sale&select=id,issue_date,amount,memo,hospital_id`);
+  const [t] = await sb(`tax_invoices?id=eq.${id}&kind=eq.sale&select=id,issue_date,amount,memo,hospital_id,pdf_path`);
   if (!t?.hospital_id) throw new HttpError(404, '계산서를 찾을 수 없습니다.');
-  await assignedHospital(rep, t.hospital_id);
-  const [settles, items] = await Promise.all([
-    sb(`sales_settlements?tax_invoice_id=eq.${id}&select=items,buyer_name,buyer_address,buyer_reg_no,buyer_ceo,buyer_email&limit=1`),
-    sb(`purchase_order_items?sale_ti_id=eq.${id}&select=item_name,model_name,quantity,sale_price&order=created_at`),
-  ]);
+  const hospital = await assignedHospital(rep, t.hospital_id);
   const amount = Number(t.amount) || 0;
-  const supply = Math.round(amount / 1.1);
-  const s = settles[0] || null;
-  const lines = s
-    ? (s.items || []).map((l) => ({ name: l.name, spec: l.spec || '', qty: l.qty, amount: (Number(l.supply) || 0) + (Number(l.tax) || 0) }))
-    : items.map((i) => ({ name: i.item_name || '', spec: i.model_name || '', qty: Number(i.quantity) || 0, amount: (Number(i.sale_price) || 0) * (Number(i.quantity) || 0) }));
-  const { items: _drop, ...buyer } = s || {};
   return {
-    invoice: { id: t.id, date: t.issue_date, amount, supply, tax: amount - supply, summary: invoiceText(t.memo) || (amount < 0 ? '수정 세금계산서' : '세금계산서') },
-    lines, from: s ? 'settlement' : items.length ? 'orders' : null, buyer: s ? buyer : null,
+    invoice: { id: t.id, date: t.issue_date, amount, summary: invoiceText(t.memo) || (amount < 0 ? '수정 세금계산서' : '세금계산서') },
+    hospital_name: hospital.name,
+    pdf_url: t.pdf_path ? await signTaxPdf(t.pdf_path) : null,
   };
 }
 

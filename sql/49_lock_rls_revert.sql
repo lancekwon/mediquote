@@ -13,7 +13,8 @@ begin
     ('order_requests', 'order_requests_all'), ('payable_transactions', 'payable_tx_all'), ('po_checklist_items', 'po_checklist_all'),
     ('po_notes', 'po_notes_all'), ('purchase_order_items', 'all'), ('purchase_orders', 'all'), ('quote_shares', 'all'),
     ('quotes', 'all'), ('quotes_ai_draft', 'quotes_ai_draft_all'), ('receivable_transactions', 'receivable_tx_all'),
-    ('sales_notes', 'all'), ('sales_reps', 'all'), ('service_requests', 'all'), ('tax_invoices', 'tax_invoices_all')
+    ('sales_notes', 'all'), ('sales_reps', 'all'), ('service_requests', 'all'), ('tax_invoices', 'tax_invoices_all'),
+    ('shipping_orders', 'all'), ('shipping_order_items', 'all'), ('sales_settlements', 'all') -- sql/50
   ) v(tbl, pol) loop
     execute format('drop policy if exists admin_all on public.%I', r.tbl);
     execute format('drop policy if exists %I on public.%I', r.pol, r.tbl);
@@ -45,5 +46,12 @@ drop policy if exists public_delete_equipment on storage.objects;
 create policy public_insert_equipment on storage.objects for insert with check (bucket_id = 'equipment');
 create policy public_update_equipment on storage.objects for update using (bucket_id = 'equipment') with check (bucket_id = 'equipment');
 create policy public_delete_equipment on storage.objects for delete using (bucket_id = 'equipment');
+
+-- 세금계산서 PDF (sql/51)
+drop policy if exists admin_all_tax_invoices_pdf on storage.objects;
+create policy tax_invoices_pdf_select on storage.objects for select using (bucket_id = 'tax-invoices');
+create policy tax_invoices_pdf_insert on storage.objects for insert with check (bucket_id = 'tax-invoices');
+create policy tax_invoices_pdf_update on storage.objects for update using (bucket_id = 'tax-invoices') with check (bucket_id = 'tax-invoices');
+create policy tax_invoices_pdf_delete on storage.objects for delete using (bucket_id = 'tax-invoices');
 
 drop function if exists public.is_admin();
