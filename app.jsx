@@ -1515,18 +1515,22 @@ const MENU_ICONS = {
   hosp: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
   inbox: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4',
   manage: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
+  ship: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+  bill: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
   money: 'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z',
 };
 // 2단계(2026-11-12): 일하는 순서대로 묶음 — 견적 → 발주·납품 → 병원 → 돈 → 기준정보 → 영업사원(어드민)
-function adminMenuItems(h, pendingReqs = 0, isAdmin = false) {
+function adminMenuItems(h, pendingReqs = 0, isAdmin = false, ship = {}) {
   const items = [
     { label:'홈',             onClick: h.home,       icon: MENU_ICONS.home },
     { section:'견적',   label:'견적서 작성',   onClick: h.editor,     icon: MENU_ICONS.plus },
     { section:'견적',   label:'견적서 목록',   onClick: h.list,       icon: MENU_ICONS.list },
     { section:'발주·납품', label:'발주 진행', onClick: h.poTracking, icon: MENU_ICONS.po },
+    { section:'발주·납품', label:'출고지시서', onClick: h.shippingOrders, icon: MENU_ICONS.ship, badge: ship.orders },
     { section:'병원',   label:'병원 관리',     onClick: h.hospitals,  icon: MENU_ICONS.hosp },
     { section:'병원',   label:'병원 요청함',   onClick: h.requests,   icon: MENU_ICONS.inbox, badge: pendingReqs },
     { section:'돈',     label:'매입매출 관리', onClick: h.payables,   icon: MENU_ICONS.money },
+    { section:'돈',     label:'매출정산서',   onClick: h.settlements, icon: MENU_ICONS.bill, badge: ship.settlements },
     { section:'기준정보', label:'장비·거래처', onClick: h.manage,     icon: MENU_ICONS.manage },
   ];
   if (isAdmin) {
@@ -1554,7 +1558,7 @@ function AdminMenuList({ items, onPicked }) {
   ));
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, onSalesReps, onAiMonitor, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, onSalesReps, onAiMonitor, onShippingOrders, onSettlements, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1566,11 +1570,12 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
   }, []);
 
   const pendingReqs = useOrderRequestPending();
+  const shipPending = useShippingPending();
   const menuItems = adminMenuItems({
     home: onDashboard, poTracking: onPoTracking, editor: onHome, list: onLoad,
     hospitals: onHospitals, requests: onOrderRequests, manage: onManage, payables: onPayables,
-    salesReps: onSalesReps, aiMonitor: onAiMonitor,
-  }, pendingReqs, isAdminEmail(user?.email));
+    salesReps: onSalesReps, aiMonitor: onAiMonitor, shippingOrders: onShippingOrders, settlements: onSettlements,
+  }, pendingReqs, isAdminEmail(user?.email), shipPending);
 
   const textFields = [
     { key:'hospital', label:'병원명', w:'w-36' },
@@ -1657,11 +1662,12 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
     return () => document.removeEventListener('mousedown', handler);
   }, []);
   const pendingReqs = useOrderRequestPending();
+  const shipPending = useShippingPending();
   const menuItems = adminMenuItems({
     home: nav?.home, poTracking: nav?.poTracking, editor: nav?.editor, list: nav?.list,
     hospitals: nav?.hospitals, requests: nav?.orderRequests, manage: nav?.manage, payables: nav?.payables,
-    salesReps: nav?.salesReps, aiMonitor: nav?.aiMonitor,
-  }, pendingReqs, isAdminEmail(user?.email));
+    salesReps: nav?.salesReps, aiMonitor: nav?.aiMonitor, shippingOrders: nav?.shippingOrders, settlements: nav?.settlements,
+  }, pendingReqs, isAdminEmail(user?.email), shipPending);
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
       {/* 로고 = 항상 홈 (2026-11-12 — 전엔 화면마다 견적 작성/견적서 목록/홈으로 제각각) */}
@@ -19122,22 +19128,26 @@ function HomePage({ user, onLogout, nav }) {
   const [todo, setTodo] = useState([]);
   const [reqs, setReqs] = useState([]);
   const [svcs, setSvcs] = useState([]);
+  const [ship, setShip] = useState({ orders: 0, settlements: 0 });
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [poData, src, rq, sv] = await Promise.all([
+      const [poData, src, rq, sv, shipO, shipS] = await Promise.all([
         sb.from('purchase_orders').select('id, status, tracking_delivered').neq('status', '취소').then(r => r.data || []),
         loadTodoSources(),
         sb.from('order_requests').select('id, created_at, site, requester, model_name, quantity, content').eq('status', '대기')
           .order('created_at', { ascending: false }).then(r => r.data || []),
         sb.from('service_requests').select('id, created_at, requested_at, hospital_name, equipment_name, model_name, issue, status, notes')
           .in('status', ['접수', '처리중']).order('created_at', { ascending: false }).then(r => r.data || []),
+        sb.from('shipping_orders').select('id', { count: 'exact', head: true }).eq('status', '요청').then(r => r.count || 0),
+        sb.from('sales_settlements').select('id', { count: 'exact', head: true }).eq('status', '요청').then(r => r.count || 0),
       ]);
       setPos(poData);
       setTodo(buildTodoGroups(src.pos, src.purchaseTax, src.saleTax));
       setReqs(rq);
       setSvcs(sv);
+      setShip({ orders: shipO, settlements: shipS });
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { reload(); }, [reload]);
@@ -19160,6 +19170,8 @@ function HomePage({ user, onLogout, nav }) {
     { label: '매입 계산서 대기', sub: '발주는 있는데 계산서 아직', n: todoN.purchase_wait, unit: '곳', c: 'text-amber-600', go: () => nav?.payables?.('todo', 'purchase_wait') },
     { label: '매입 금액 차이', sub: '계산서와 발주 매입가 다름', n: todoN.mismatch, unit: '곳', c: 'text-rose-600', go: () => nav?.payables?.('todo', 'mismatch') },
     { label: '매출 계산서 대기', sub: '발주 매출보다 덜 발행', n: todoN.sale_wait, unit: '곳', c: 'text-violet-600', go: () => nav?.payables?.('todo', 'sale_wait') },
+    { label: '출고지시서 승인', sub: '영업사원 요청 — 매입가 넣고 승인', n: ship.orders, unit: '건', c: 'text-orange-600', go: () => nav?.shippingOrders?.() },
+    { label: '계산서 발행 요청', sub: '영업사원 매출정산서', n: ship.settlements, unit: '건', c: 'text-cyan-600', go: () => nav?.settlements?.() },
     { label: '병원 요청', sub: '재주문·점검수리 새로 들어옴', n: reqs.length + newSvcs.length, unit: '건', c: 'text-emerald-600', go: () => nav?.orderRequests?.() },
   ];
 
@@ -19177,7 +19189,7 @@ function HomePage({ user, onLogout, nav }) {
         {/* 오늘 확인할 것 — 누르면 걸러진 화면으로 */}
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-slate-700 mb-2">오늘 확인할 것</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
             {cards.map(card => (
               <button key={card.label} onClick={card.go}
                 className="bg-white rounded-xl border border-slate-200 p-4 text-left hover:border-blue-300 transition-colors">
@@ -20069,8 +20081,8 @@ function SalesInfoCard({ title, sub, strong, danger, onClick }) {
 
 const salesReorderText = (r) => `주문한 지 ${r.days_since}일${r.cycle_days ? ` · 보통 ${r.cycle_days}일마다` : ''}`;
 
-function SalesHome({ data, onMakeQuote, onGo, onFindEquipment, onShowDrafts, onOpenDraft, onOpenHospital, onFollowupDone, onLogout }) {
-  const { rep, followups, services, reorders, drafts, upcoming } = data;
+function SalesHome({ data, onOpenOrder, onShowOrders, onMakeQuote, onGo, onFindEquipment, onShowDrafts, onOpenDraft, onOpenHospital, onFollowupDone, onLogout }) {
+  const { rep, followups, services, reorders, drafts, upcoming, orders = [] } = data;
   const today = salesKstDate();
   const lateDays = (d) => Math.round((new Date(today) - new Date(d)) / 86400000);
   const openFollowup = (n) => (n.hospital_id ? onOpenHospital(n.hospital_id) : onOpenDraft(n.draft_id));
@@ -20120,6 +20132,10 @@ function SalesHome({ data, onMakeQuote, onGo, onFindEquipment, onShowDrafts, onO
       {drafts.length === 0 ? <SalesNote>아직 만든 견적서가 없습니다</SalesNote>
         : drafts.map(d => <SalesDraftCard key={d.id} draft={d} onOpen={onOpenDraft} />)}
       {drafts.length > 0 && <button onClick={onShowDrafts} className={`${SALES_BTN_PLAIN} w-full`}>견적서 전체 보기</button>}
+
+      {orders.length > 0 && <SalesSection>진행 중인 출고</SalesSection>}
+      {orders.map(o => <SalesOrderCard key={o.id} order={o} onOpen={onOpenOrder} />)}
+      <button onClick={onShowOrders} className={`${SALES_BTN_PLAIN} w-full`}>출고지시서 전체 보기</button>
 
       {upcoming.length > 0 && <SalesSection>일주일 안에 납품</SalesSection>}
       {upcoming.map(p => <SalesInfoCard key={p.id} title={p.hospital_name} sub={p.summary} strong={salesDate(p.delivery_date)} onClick={() => onOpenHospital(p.hospital_id)} />)}
@@ -20415,7 +20431,7 @@ function SalesDrafts({ onBack, onOpen }) {
   );
 }
 
-function SalesDraftDetail({ id, repId, onBack, onView, onNotesChanged }) {
+function SalesDraftDetail({ id, repId, onBack, onView, onNotesChanged, onMakeOrder, onOpenOrder }) {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
   const load = () => salesApi('draft', { id }).then(setData);
@@ -20425,7 +20441,7 @@ function SalesDraftDetail({ id, repId, onBack, onView, onNotesChanged }) {
   if (failed) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesRetry onRetry={firstLoad} /></SalesScreen>;
   if (!data) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
 
-  const { draft, notes } = data;
+  const { draft, notes, order } = data;
   const items = Array.isArray(draft.items) ? draft.items : [];
   return (
     <SalesScreen>
@@ -20436,6 +20452,9 @@ function SalesDraftDetail({ id, repId, onBack, onView, onNotesChanged }) {
         <span className="text-[22px] font-bold text-blue-700">{salesWon(draft.total_amount)}</span>
       </div>
       <button onClick={() => onView(draft.id)} className={`${SALES_BTN_PRIMARY} w-full`}><SalesIcon name="doc" />견적서 보기 · 카톡 보내기</button>
+      {order && (order.status === '요청' || order.status === '승인')
+        ? <button onClick={() => onOpenOrder(order.id)} className={`${SALES_BTN_PLAIN} w-full`}>출고지시서 {order.order_no} 보기</button>
+        : <button onClick={() => onMakeOrder(draft.id)} className={`${SALES_BTN_PLAIN} w-full`}><SalesIcon name="doc" />출고지시서 만들기</button>}
 
       <SalesSection>방문 메모</SalesSection>
       <SalesNotes notes={notes} repId={repId} target={{ draft_id: draft.id }} onChanged={async () => { await load(); onNotesChanged(); }} />
@@ -20551,6 +20570,321 @@ function SalesShareDialog({ data, onClose }) {
   );
 }
 
+// ── 출고지시서·매출정산서 (영업사원 앱, 2026-11-20) — 매입가·거래처는 서버가 아예 안 보내줌 ──
+const SALES_STAGE = {
+  requested: { label: '승인 기다리는 중', tone: 'text-amber-700' },
+  rejected: { label: '반려됨', tone: 'text-rose-700' },
+  cancelled: { label: '취소함', tone: 'text-slate-500' },
+  ordered: { label: '발주됨 · 납품 기다리는 중', tone: 'text-blue-700' },
+  delivered: { label: '납품완료 · 계산서 요청하세요', tone: 'text-emerald-700' },
+  settle_requested: { label: '계산서 발행 요청함', tone: 'text-blue-700' },
+  invoiced: { label: '계산서 발행됨', tone: 'text-slate-600' },
+};
+const salesStageText = (o) => (o.stage === 'ordered' && o.po_count > 1
+  ? `발주됨 · 납품 ${o.delivered_count}/${o.po_count}곳 끝남` : (SALES_STAGE[o.stage]?.label || o.status));
+const salesOrderSummary = (o) => {
+  const items = (o.shipping_order_items || []).filter(i => !i.is_discount);
+  if (!items.length) return '품목 없음';
+  return `${items[0].item_name} ${items[0].quantity}개${items.length > 1 ? ` 외 ${items.length - 1}건` : ''}`;
+};
+// 금액(부가세 포함) → 공급가액·세액·공급가 단가 (api/sales.mjs settleLine과 같은 계산)
+const salesSettleCalc = (l) => {
+  const qty = Math.max(1, Math.round(Number(l.qty) || 1));
+  const amount = Math.round(Number(String(l.amount).replace(/[^\d-]/g, '')) || 0);
+  const supply = Math.round(amount / 1.1);
+  return { qty, amount, supply, tax: amount - supply, unit_price: Math.round(supply / qty) };
+};
+
+function SalesOrderCard({ order, onOpen }) {
+  const st = SALES_STAGE[order.stage] || {};
+  return (
+    <button onClick={() => onOpen(order.id)} className={`${SALES_CARD} w-full text-left active:opacity-70`}>
+      <div className="text-[19px] font-bold text-slate-900 leading-snug">{order.hospital_name}</div>
+      <div className={SALES_SUB}>{salesOrderSummary(order)}</div>
+      <div className={`text-[18px] font-bold mt-1 ${st.tone || 'text-blue-700'}`}>{salesStageText(order)}</div>
+      <div className="flex justify-between items-baseline">
+        <span className="text-[17px] font-bold text-slate-800">{salesWon(order.sale_total)}</span>
+        <span className={SALES_SUB}>{salesDate(order.created_at)}</span>
+      </div>
+    </button>
+  );
+}
+
+function SalesOrderLines({ items }) {
+  return items.map(i => (
+    <SalesInfoCard key={i.id || `${i.sort}${i.item_name}`} title={i.is_discount ? '할인' : i.item_name}
+      sub={i.is_discount ? '견적서 전체 할인' : [i.model_name, `${i.quantity}개`].filter(Boolean).join(' · ')}
+      strong={salesWon(i.quantity * i.sale_price)} danger={i.is_discount} />
+  ));
+}
+
+function SalesField({ label, children, hint }) {
+  return (
+    <label className="block">
+      <span className="block text-[17px] font-bold text-slate-900 mb-1">{label}</span>
+      {children}
+      {hint && <span className="block text-[15px] text-slate-500 mt-1">{hint}</span>}
+    </label>
+  );
+}
+
+// 견적서 → 출고지시서 요청
+function SalesOrderCreate({ draftId, onBack, onCreated, onOpenOrder }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [hospitalId, setHospitalId] = useState('');
+  const [date, setDate] = useState('');
+  const [place, setPlace] = useState('');
+  const [placeTouched, setPlaceTouched] = useState(false);
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const load = () => {
+    setFailed(false);
+    salesApi('order_form', { draft_id: draftId }).then(d => {
+      setData(d);
+      setHospitalId(d.hospital_id || '');
+      setPlace(d.hospitals.find(h => h.id === d.hospital_id)?.address || '');
+    }).catch(() => setFailed(true));
+  };
+  useEffect(load, [draftId]);
+  const pickHospital = (id) => {
+    setHospitalId(id);
+    if (!placeTouched) setPlace(data.hospitals.find(h => h.id === id)?.address || '');
+  };
+  const submit = async () => {
+    if (!hospitalId) { setError('병원을 골라 주세요.'); return; }
+    setSaving(true); setError('');
+    try {
+      const r = await salesApi('create_order', { draft_id: draftId, hospital_id: hospitalId, delivery_date: date, delivery_place: place, memo });
+      onCreated(r.order.id);
+    } catch (e) { setError(e.message); setSaving(false); }
+  };
+
+  if (failed) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesRetry onRetry={load} /></SalesScreen>;
+  if (!data) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  return (
+    <SalesScreen>
+      <SalesBack label="뒤로" onClick={onBack} />
+      <SalesTitle>출고지시서 만들기</SalesTitle>
+      {data.open ? (
+        <>
+          <SalesNote>이 견적서로 낸 출고지시서가 이미 있습니다 ({data.open.order_no})</SalesNote>
+          <button onClick={() => onOpenOrder(data.open.id)} className={`${SALES_BTN_PRIMARY} w-full`}>출고지시서 보기</button>
+        </>
+      ) : (
+        <>
+          <div className={`${SALES_SUB}`}>견적서의 장비·수량·금액이 그대로 들어갑니다. 관리자가 확인하고 승인하면 발주가 나갑니다.</div>
+          {data.hospitals.length === 0 ? (
+            <SalesNote>담당 병원이 없습니다.<br />관리자에게 병원 등록과 담당 지정을 부탁해 주세요.</SalesNote>
+          ) : (
+            <SalesField label="병원" hint={!data.hospital_id && data.draft.hospital_name ? `견적서 병원 "${data.draft.hospital_name}"이(가) 내 담당 병원 목록에 없습니다. 목록에 없으면 관리자에게 등록을 부탁해 주세요.` : null}>
+              <select value={hospitalId} onChange={e => pickHospital(e.target.value)} className={SALES_INPUT}>
+                <option value="">병원을 고르세요</option>
+                {data.hospitals.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+              </select>
+            </SalesField>
+          )}
+          <SalesField label="납품 희망일">
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={SALES_INPUT} />
+          </SalesField>
+          <SalesField label="설치 장소">
+            <input value={place} onChange={e => { setPlace(e.target.value); setPlaceTouched(true); }} placeholder="주소, 층, 방 등" className={SALES_INPUT} />
+          </SalesField>
+          <SalesField label="메모">
+            <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={3} placeholder="관리자에게 전할 말 (선택)" className={SALES_INPUT} />
+          </SalesField>
+
+          <SalesSection>들어가는 장비</SalesSection>
+          <SalesOrderLines items={data.lines} />
+          <div className={`${SALES_CARD} flex justify-between items-baseline`}>
+            <span className="text-[18px] text-slate-700">합계 (부가세 포함)</span>
+            <span className="text-[22px] font-bold text-blue-700">{salesWon(data.total)}</span>
+          </div>
+          {error && <div className="text-[17px] font-bold text-rose-700">{error}</div>}
+          <button onClick={submit} disabled={saving || data.hospitals.length === 0} className={`${SALES_BTN_PRIMARY} w-full disabled:opacity-50`}>
+            {saving ? '보내는 중입니다' : '출고지시서 요청하기'}
+          </button>
+        </>
+      )}
+    </SalesScreen>
+  );
+}
+
+function SalesOrders({ onBack, onOpen }) {
+  const [orders, setOrders] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const load = () => { setFailed(false); salesApi('orders').then(r => setOrders(r.orders)).catch(() => setFailed(true)); };
+  useEffect(load, []);
+  return (
+    <SalesScreen>
+      <SalesBack label="홈으로" onClick={onBack} />
+      <SalesTitle>내 출고지시서</SalesTitle>
+      {failed ? <SalesRetry onRetry={load} />
+        : orders === null ? <SalesNote>불러오는 중입니다</SalesNote>
+        : orders.length === 0 ? <SalesNote>아직 낸 출고지시서가 없습니다.<br />견적서 화면에서 만들 수 있습니다.</SalesNote>
+        : orders.map(o => <SalesOrderCard key={o.id} order={o} onOpen={onOpen} />)}
+    </SalesScreen>
+  );
+}
+
+function SalesOrderDetail({ id, onBack, onSettle, onChanged }) {
+  const [order, setOrder] = useState(null);
+  const [settle, setSettle] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = () => salesApi('order', { id }).then(async r => {
+    setOrder(r.order);
+    setSettle(r.order.settlement ? (await salesApi('settlement', { id: r.order.settlement.id })).settlement : null);
+  });
+  const firstLoad = () => { setFailed(false); load().catch(() => setFailed(true)); };
+  useEffect(firstLoad, [id]);
+  const act = async (action, body, question) => {
+    if (!confirm(question)) return;
+    setBusy(true);
+    try { await salesApi(action, body); await load(); onChanged(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  };
+
+  if (failed) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesRetry onRetry={firstLoad} /></SalesScreen>;
+  if (!order) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  const st = SALES_STAGE[order.stage] || {};
+  return (
+    <SalesScreen>
+      <SalesBack label="뒤로" onClick={onBack} />
+      <SalesTitle>{order.hospital_name}</SalesTitle>
+      <div className={`${SALES_CARD} space-y-1`}>
+        <div className={SALES_SUB}>출고지시서 {order.order_no} · {salesDate(order.created_at)}</div>
+        <div className={`text-[21px] font-bold ${st.tone || 'text-blue-700'}`}>{salesStageText(order)}</div>
+        {order.stage === 'rejected' && order.reject_reason && <div className="text-[17px] text-rose-700 whitespace-pre-wrap">반려 이유: {order.reject_reason}</div>}
+        {order.approved_at && <div className={SALES_SUB}>승인 {order.approved_by || ''} · {salesDate(order.approved_at)}</div>}
+      </div>
+      {order.stage === 'delivered' && (
+        <button onClick={() => onSettle(order.id)} className={`${SALES_BTN_PRIMARY} w-full`}><SalesIcon name="doc" />계산서 발행 요청하기</button>
+      )}
+      {order.stage === 'requested' && (
+        <button disabled={busy} onClick={() => act('cancel_order', { id: order.id }, '출고지시서 요청을 취소할까요?')} className={`${SALES_BTN_PLAIN} w-full`}>요청 취소</button>
+      )}
+
+      {settle && (
+        <>
+          <SalesSection>계산서 발행 요청</SalesSection>
+          <div className={`${SALES_CARD} space-y-1`}>
+            <div className={`text-[19px] font-bold ${settle.status === '발행완료' ? 'text-slate-700' : 'text-blue-700'}`}>{settle.status === '발행완료' ? '발행됨' : '발행 기다리는 중'}</div>
+            <div className="text-[17px] text-slate-800">{settle.buyer_name} · 발행일 {salesDate(settle.issue_date)}</div>
+            <div className="text-[20px] font-bold text-blue-700">{salesWon(settle.total_amount)}</div>
+            <div className={SALES_SUB}>공급가액 {salesWon(settle.supply_amount)} · 세액 {salesWon(settle.tax_amount)}</div>
+          </div>
+          {settle.status === '요청' && (
+            <button disabled={busy} onClick={() => act('cancel_settlement', { id: settle.id }, '계산서 발행 요청을 취소할까요? 취소하면 다시 요청할 수 있습니다.')} className={`${SALES_BTN_PLAIN} w-full`}>계산서 요청 취소</button>
+          )}
+        </>
+      )}
+
+      <SalesSection>납품 정보</SalesSection>
+      <div className={`${SALES_CARD} space-y-1 text-[17px] text-slate-800`}>
+        <div>납품 희망일: {order.delivery_date ? salesDate(order.delivery_date) : '안 적음'}</div>
+        <div className="break-words">설치 장소: {order.delivery_place || '안 적음'}</div>
+        {order.memo && <div className="whitespace-pre-wrap break-words">메모: {order.memo}</div>}
+      </div>
+
+      <SalesSection>들어가는 장비</SalesSection>
+      <SalesOrderLines items={order.shipping_order_items} />
+      <div className={`${SALES_CARD} flex justify-between items-baseline`}>
+        <span className="text-[18px] text-slate-700">합계 (부가세 포함)</span>
+        <span className="text-[22px] font-bold text-blue-700">{salesWon(order.sale_total)}</span>
+      </div>
+    </SalesScreen>
+  );
+}
+
+// 매출정산서 = 세금계산서 발행 요청 (납품완료 후)
+function SalesSettlementForm({ orderId, onBack, onDone }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [f, setF] = useState(null);
+  const [lines, setLines] = useState([]);
+  const [memo, setMemo] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const load = () => {
+    setFailed(false);
+    salesApi('settlement_form', { order_id: orderId }).then(d => {
+      setData(d);
+      const { items, ...rest } = d.form;
+      setF(rest);
+      setLines(items.map((l, i) => ({ key: i, name: l.name, spec: l.spec, qty: l.qty, amount: String(l.supply + l.tax) })));
+    }).catch(e => { setError(e.message); setFailed(true); });
+  };
+  useEffect(load, [orderId]);
+  const set = (k) => (e) => setF(p => ({ ...p, [k]: e.target.value }));
+  const setLine = (key, k, v) => setLines(p => p.map(l => (l.key === key ? { ...l, [k]: v } : l)));
+  const calc = lines.map(l => ({ ...l, ...salesSettleCalc(l) }));
+  const live = calc.filter(l => l.amount !== 0);
+  const total = live.reduce((s, l) => s + l.amount, 0);
+  const supply = live.reduce((s, l) => s + l.supply, 0);
+
+  const submit = async () => {
+    const reg = String(f.buyer_reg_no || '').replace(/\D/g, '');
+    const missing = [
+      !f.buyer_name.trim() && '병원 이름', !f.buyer_address.trim() && '주소', reg.length !== 10 && '사업자번호 10자리',
+      !f.buyer_ceo.trim() && '대표자(원장)', !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.buyer_email.trim()) && '이메일', !f.issue_date && '발행일',
+      live.some(l => !String(l.name).trim()) && '품목 이름', total <= 0 && '발행금액',
+    ].filter(Boolean);
+    if (missing.length) { setError(`${missing.join(', ')}을(를) 확인해 주세요.`); return; }
+    setSaving(true); setError('');
+    try {
+      await salesApi('create_settlement', { order_id: orderId, ...f, buyer_reg_no: reg, memo, items: live.map(l => ({ name: l.name, spec: l.spec, qty: l.qty, amount: l.amount })) });
+      onDone(orderId);
+    } catch (e) { setError(e.message); setSaving(false); }
+  };
+
+  if (failed) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} />{error ? <SalesNote>{error}</SalesNote> : <SalesRetry onRetry={load} />}</SalesScreen>;
+  if (!data || !f) return <SalesScreen><SalesBack label="뒤로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  return (
+    <SalesScreen>
+      <SalesBack label="뒤로" onClick={onBack} />
+      <SalesTitle>계산서 발행 요청</SalesTitle>
+      <div className={SALES_SUB}>매출정산서 · 출고지시서 {data.order.order_no}. 모든 칸을 채워야 보낼 수 있습니다.</div>
+
+      <SalesSection>받는 병원</SalesSection>
+      <SalesField label="병원 이름 (상호)"><input value={f.buyer_name} onChange={set('buyer_name')} className={SALES_INPUT} /></SalesField>
+      <SalesField label="주소"><input value={f.buyer_address} onChange={set('buyer_address')} className={SALES_INPUT} /></SalesField>
+      <SalesField label="사업자번호" hint="숫자 10자리">
+        <input value={f.buyer_reg_no} onChange={set('buyer_reg_no')} inputMode="numeric" placeholder="1234567890" className={SALES_INPUT} />
+      </SalesField>
+      <SalesField label="대표자 (원장)"><input value={f.buyer_ceo} onChange={set('buyer_ceo')} className={SALES_INPUT} /></SalesField>
+      <SalesField label="계산서 받을 이메일"><input type="email" value={f.buyer_email} onChange={set('buyer_email')} inputMode="email" className={SALES_INPUT} /></SalesField>
+      <SalesField label="발행일"><input type="date" value={f.issue_date} onChange={set('issue_date')} className={SALES_INPUT} /></SalesField>
+
+      <SalesSection>계산서에 들어갈 품목</SalesSection>
+      <div className={SALES_SUB}>품명·규격은 계산서에 찍히는 대로 고쳐 주세요. 금액은 부가세 포함입니다.</div>
+      {calc.map(l => (
+        <div key={l.key} className={`${SALES_CARD} space-y-2`}>
+          <input value={l.name} onChange={e => setLine(l.key, 'name', e.target.value)} placeholder="품명" className={SALES_INPUT} />
+          <input value={l.spec} onChange={e => setLine(l.key, 'spec', e.target.value)} placeholder="규격 (모델명)" className={SALES_INPUT} />
+          <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
+            <span className="text-[17px] font-bold text-slate-800">{l.qty}개</span>
+            <input value={l.amount} onChange={e => setLine(l.key, 'amount', e.target.value)} inputMode="numeric" className={`${SALES_INPUT} text-right`} />
+          </div>
+          <div className={SALES_SUB}>단가 {salesWon(l.unit_price)} · 공급가액 {salesWon(l.supply)} · 세액 {salesWon(l.tax)}</div>
+          <button onClick={() => setLine(l.key, 'amount', '0')} className="text-[16px] text-slate-600 underline min-h-[40px]">이 줄 빼기 (0원)</button>
+        </div>
+      ))}
+      <div className={`${SALES_CARD} space-y-1`}>
+        <div className="flex justify-between text-[17px] text-slate-700"><span>공급가액</span><span>{salesWon(supply)}</span></div>
+        <div className="flex justify-between text-[17px] text-slate-700"><span>세액</span><span>{salesWon(total - supply)}</span></div>
+        <div className="flex justify-between items-baseline"><span className="text-[18px] font-bold text-slate-900">발행금액</span><span className="text-[22px] font-bold text-blue-700">{salesWon(total)}</span></div>
+        {total !== data.order.sale_total && <div className="text-[16px] font-bold text-amber-700">출고지시서 금액 {salesWon(data.order.sale_total)}과 다릅니다</div>}
+      </div>
+      <SalesField label="메모"><textarea value={memo} onChange={e => setMemo(e.target.value)} rows={2} placeholder="관리자에게 전할 말 (선택)" className={SALES_INPUT} /></SalesField>
+      {error && <div className="text-[17px] font-bold text-rose-700">{error}</div>}
+      <button onClick={submit} disabled={saving} className={`${SALES_BTN_PRIMARY} w-full disabled:opacity-50`}>{saving ? '보내는 중입니다' : '계산서 발행 요청 보내기'}</button>
+    </SalesScreen>
+  );
+}
+
 const SALES_TABS = [
   { key: 'home', label: '홈', icon: 'home' },
   { key: 'chat', label: 'AI비서', icon: 'chat' },
@@ -20568,6 +20902,11 @@ function SalesApp({ user }) {
   const [showDrafts, setShowDrafts] = useState(false);
   const [draftDetailId, setDraftDetailId] = useState(null);
   const [viewerDraftId, setViewerDraftId] = useState(null);
+  // 출고지시서 만들기·보기는 한 층: { kind: 'create', id: 견적서 id } | { kind: 'detail', id: 출고지시서 id }
+  // 만들기 → 보기를 같은 층에서 바꿔야 휴대폰 뒤로가기 기록이 안 어긋남 (닫기+열기를 한 번에 하면 한 칸 더 뒤로 감)
+  const [orderScreen, setOrderScreen] = useState(null);
+  const [settleOrderId, setSettleOrderId] = useState(null); // 매출정산서(계산서 발행 요청) 쓰기
+  const [showOrders, setShowOrders] = useState(false);
   const [shareDialog, setShareDialog] = useState(null);
   const chat = useSalesChat();
 
@@ -20577,6 +20916,9 @@ function SalesApp({ user }) {
   useSalesBackLayer(showDrafts, () => setShowDrafts(false));
   useSalesBackLayer(!!draftDetailId, () => setDraftDetailId(null));
   useSalesBackLayer(!!viewerDraftId, () => setViewerDraftId(null));
+  useSalesBackLayer(showOrders, () => setShowOrders(false));
+  useSalesBackLayer(!!orderScreen, () => setOrderScreen(null));
+  useSalesBackLayer(!!settleOrderId, () => setSettleOrderId(null));
 
   const reloadHome = () => salesApi('home').then(setData);
   const load = () => {
@@ -20586,7 +20928,8 @@ function SalesApp({ user }) {
   useEffect(load, [email]);
 
   const logout = () => sb.auth.signOut();
-  const closeSubScreens = () => { setFindingEquipment(false); setShowDrafts(false); setDraftDetailId(null); };
+  const closeSubScreens = () => { setFindingEquipment(false); setShowDrafts(false); setDraftDetailId(null); setShowOrders(false); setOrderScreen(null); setSettleOrderId(null); };
+  const openOrder = (id) => setOrderScreen({ kind: 'detail', id });
   const goTab = (key) => { closeSubScreens(); setHospitalOpen(null); setTab(key); };
   const openHospital = (id) => { closeSubScreens(); setTab('hospitals'); setHospitalOpen({ id, editing: false }); };
   const refreshHome = () => { reloadHome().catch(e => console.error('sales home', e)); };
@@ -20621,7 +20964,13 @@ function SalesApp({ user }) {
   }
 
   let screen;
-  if (draftDetailId) screen = <SalesDraftDetail key={draftDetailId} id={draftDetailId} repId={data.rep.id} onBack={() => setDraftDetailId(null)} onView={setViewerDraftId} onNotesChanged={refreshHome} />;
+  if (settleOrderId) screen = <SalesSettlementForm key={settleOrderId} orderId={settleOrderId} onBack={() => setSettleOrderId(null)} onDone={() => { setSettleOrderId(null); refreshHome(); }} />;
+  else if (orderScreen?.kind === 'detail') screen = <SalesOrderDetail key={orderScreen.id} id={orderScreen.id} onBack={() => setOrderScreen(null)} onSettle={setSettleOrderId} onChanged={refreshHome} />;
+  else if (orderScreen?.kind === 'create') {
+    screen = <SalesOrderCreate key={orderScreen.id} draftId={orderScreen.id} onBack={() => setOrderScreen(null)}
+      onCreated={(id) => { openOrder(id); refreshHome(); }} onOpenOrder={openOrder} />;
+  } else if (draftDetailId) screen = <SalesDraftDetail key={draftDetailId} id={draftDetailId} repId={data.rep.id} onBack={() => setDraftDetailId(null)} onView={setViewerDraftId} onNotesChanged={refreshHome} onMakeOrder={(id) => setOrderScreen({ kind: 'create', id })} onOpenOrder={openOrder} />;
+  else if (showOrders) screen = <SalesOrders onBack={() => setShowOrders(false)} onOpen={openOrder} />;
   else if (showDrafts) screen = <SalesDrafts onBack={() => setShowDrafts(false)} onOpen={setDraftDetailId} />;
   else if (findingEquipment) screen = <SalesEquipment onBack={() => setFindingEquipment(false)} />;
   else if (tab === 'chat') screen = <SalesChat chat={chat} onOpenDraft={setViewerDraftId} />;
@@ -20633,10 +20982,11 @@ function SalesApp({ user }) {
     screen = <SalesHome data={data} onGo={goTab} onOpenDraft={setDraftDetailId} onOpenHospital={openHospital} onLogout={logout}
       onFindEquipment={() => setFindingEquipment(true)} onShowDrafts={() => setShowDrafts(true)}
       onFollowupDone={(id) => salesApi('done_note', { id }).then(refreshHome).catch(e => console.error('done_note', e))}
+      onOpenOrder={openOrder} onShowOrders={() => setShowOrders(true)}
       onMakeQuote={() => { chat.guide(SALES_CHAT_GUIDES.quote); goTab('chat'); }} />;
   }
 
-  const onSubScreen = findingEquipment || showDrafts || !!draftDetailId;
+  const onSubScreen = findingEquipment || showDrafts || !!draftDetailId || showOrders || !!orderScreen || !!settleOrderId;
   return (
     <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900">
       <div className="flex-1 min-h-0 w-full max-w-lg mx-auto flex flex-col">{screen}</div>
@@ -20660,6 +21010,536 @@ function SalesApp({ user }) {
           onShare={(html, draft) => shareQuote(html, { name: draft.hospital_name, draftId: draft.id })} />
       )}
       {shareDialog && <SalesShareDialog data={shareDialog} onClose={() => setShareDialog(null)} />}
+    </div>
+  );
+}
+
+// ── 어드민: 출고지시서 (영업사원 요청 → 거래처·매입가 넣고 승인 = 거래처별 발주 생성) 2026-11-20 ──
+const SHIP_STATUS_TONE = { 요청: 'bg-amber-100 text-amber-800', 승인: 'bg-blue-100 text-blue-800', 반려: 'bg-rose-100 text-rose-700', 취소: 'bg-slate-100 text-slate-500' };
+const shipWon = (n) => (n == null ? '-' : `${Number(n).toLocaleString('ko-KR')}원`);
+const shipDay = (s) => (s ? String(s).slice(0, 10) : '');
+const shipToday = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const shipPoDone = (p) => !!p.tracking_delivered || p.status === '납품완료' || !!p.delivered;
+
+// 승인한 사람 표시 이름: 영업사원 명단에 있으면 이름, 없으면 이메일 앞부분
+async function shipAdminName(email) {
+  const { data } = await sb.from('sales_reps').select('name').eq('email', (email || '').toLowerCase()).maybeSingle();
+  return data?.name || (email || '').split('@')[0] || '관리자';
+}
+
+function useShippingPending() {
+  const [n, setN] = useState({ orders: 0, settlements: 0 });
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [o, s] = await Promise.all([
+          sb.from('shipping_orders').select('id', { count: 'exact', head: true }).eq('status', '요청'),
+          sb.from('sales_settlements').select('id', { count: 'exact', head: true }).eq('status', '요청'),
+        ]);
+        if (alive) setN({ orders: o.count || 0, settlements: s.count || 0 });
+      } catch (_) {}
+    })();
+    return () => { alive = false; };
+  }, []);
+  return n;
+}
+
+function ShippingOrdersPage({ user, onLogout, nav }) {
+  const [orders, setOrders] = useState([]);
+  const [mfrs, setMfrs] = useState([]);
+  const [pos, setPos] = useState({});
+  const [settles, setSettles] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [filter, setFilter] = useState('요청');
+  const [selId, setSelId] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setLoadError('');
+    const [o, m, s] = await Promise.all([
+      sb.from('shipping_orders').select('*, shipping_order_items(*)').order('created_at', { ascending: false }).limit(300),
+      sb.from('manufacturers').select('id,name,vendor_code').order('name'),
+      sb.from('sales_settlements').select('id,order_id,status,total_amount').in('status', ['요청', '발행완료']),
+    ]);
+    const err = o.error || m.error || s.error;
+    if (err) { setLoadError(err.message); setLoading(false); return; }
+    const poIds = [...new Set(o.data.flatMap(x => x.shipping_order_items.map(i => i.po_id)).filter(Boolean))];
+    const p = poIds.length ? await sb.from('purchase_orders').select('id,po_no,status,tracking_delivered,delivered,manufacturer_name,total_amount,sale_amount').in('id', poIds) : { data: [] };
+    setOrders(o.data.map(x => ({ ...x, shipping_order_items: [...x.shipping_order_items].sort((a, b) => a.sort - b.sort) })));
+    setMfrs(m.data);
+    setPos(Object.fromEntries((p.data || []).map(r => [r.id, r])));
+    setSettles(Object.fromEntries(s.data.map(r => [r.order_id, r])));
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const counts = useMemo(() => orders.reduce((a, o) => ({ ...a, [o.status]: (a[o.status] || 0) + 1 }), {}), [orders]);
+  const list = orders.filter(o => filter === '전체' || o.status === filter);
+  const sel = orders.find(o => o.id === selId) || null;
+
+  return (
+    <div style={{ height: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <AppHeader title="출고지시서" badge={counts['요청'] ? `승인 대기 ${counts['요청']}건` : null} onLogoClick={nav?.home} user={user} onLogout={onLogout} nav={nav} />
+      <div className="flex-1 flex overflow-hidden">
+        <aside className="w-96 bg-white border-r border-slate-200 flex flex-col shrink-0">
+          <div className="p-3 border-b border-slate-200 flex gap-1 flex-wrap">
+            {['요청', '승인', '반려', '취소', '전체'].map(k => (
+              <button key={k} onClick={() => setFilter(k)} className={`px-3 py-1.5 rounded-lg text-sm ${filter === k ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-700'}`}>
+                {k === '요청' ? '승인 대기' : k} <span className={filter === k ? 'text-slate-300' : 'text-slate-400'}>{k === '전체' ? orders.length : (counts[k] || 0)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+            {loading ? <div className="p-6 text-sm text-slate-400">불러오는 중...</div>
+              : loadError ? <div className="p-6 text-sm text-rose-600">불러오기 실패: {loadError}</div>
+              : list.length === 0 ? <div className="p-6 text-sm text-slate-400">없습니다</div>
+              : list.map(o => {
+                const poList = [...new Set(o.shipping_order_items.map(i => i.po_id).filter(Boolean))].map(id => pos[id]).filter(p => p && p.status !== '취소');
+                const done = poList.filter(shipPoDone).length;
+                const st = settles[o.id];
+                return (
+                  <button key={o.id} onClick={() => setSelId(o.id)} className={`w-full text-left px-4 py-3 hover:bg-slate-50 ${selId === o.id ? 'bg-blue-50' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 ${SHIP_STATUS_TONE[o.status] || ''}`}>{o.status === '요청' ? '승인 대기' : o.status}</span>
+                      <span className="text-sm font-semibold text-slate-800 truncate">{o.hospital_name}</span>
+                      <span className="ml-auto text-xs text-slate-400 shrink-0">{shipDay(o.created_at).slice(5).replace('-', '/')}</span>
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5 truncate">{o.order_no} · {o.rep_name} · {shipWon(o.sale_total)}</div>
+                    {o.status === '승인' && (
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        발주 {poList.length}건 · 납품 {done}/{poList.length}{st ? ` · 계산서 ${st.status === '발행완료' ? '발행됨' : '발행 요청'}` : ''}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+        </aside>
+        <main className="flex-1 overflow-y-auto">
+          {sel ? <ShippingOrderDetail key={sel.id} order={sel} mfrs={mfrs} pos={pos} settlement={settles[sel.id]} user={user} nav={nav} onChanged={load} />
+            : <div className="p-10 text-sm text-slate-400">왼쪽에서 출고지시서를 고르세요</div>}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function ShippingOrderDetail({ order, mfrs, pos, settlement, user, nav, onChanged }) {
+  const editable = order.status === '요청';
+  const mfrById = useMemo(() => Object.fromEntries(mfrs.map(m => [m.id, m])), [mfrs]);
+  const mfrByName = useMemo(() => Object.fromEntries(mfrs.map(m => [m.name, m])), [mfrs]);
+  // 줄 편집 상태: { [itemId]: { mfrName, price, hint } }
+  const [edit, setEdit] = useState(() => Object.fromEntries(order.shipping_order_items.map(i => [i.id, {
+    mfrName: i.manufacturer_id ? (mfrById[i.manufacturer_id]?.name || '') : '',
+    price: i.purchase_price != null ? String(i.purchase_price) : '',
+    hint: '',
+  }])));
+  const [adminMemo, setAdminMemo] = useState(order.admin_memo || '');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // 비어 있는 거래처·매입가 채우기: 장비 관리(매입가·거래처) → 같은 장비 최근 발주
+  useEffect(() => {
+    if (!editable) return;
+    const eqIds = [...new Set(order.shipping_order_items.filter(i => i.equipment_id && !i.is_discount).map(i => i.equipment_id))];
+    if (!eqIds.length) return;
+    let alive = true;
+    (async () => {
+      const [eq, recent] = await Promise.all([
+        sb.from('equipment').select('id,purchase_price,vendor,manufacturer').in('id', eqIds),
+        sb.from('purchase_order_items').select('equipment_id,unit_price,created_at,purchase_orders(po_no,manufacturer_id,manufacturer_name,status)')
+          .in('equipment_id', eqIds).gt('unit_price', 0).order('created_at', { ascending: false }).limit(500),
+      ]);
+      if (!alive) return;
+      setEdit(prev => {
+        const next = { ...prev };
+        for (const it of order.shipping_order_items) {
+          if (it.is_discount || !it.equipment_id) continue;
+          const cur = next[it.id];
+          const e = (eq.data || []).find(x => x.id === it.equipment_id);
+          const r = (recent.data || []).find(x => x.equipment_id === it.equipment_id && x.purchase_orders && x.purchase_orders.status !== '취소');
+          const hints = [];
+          let mfrName = cur.mfrName, price = cur.price;
+          if (!mfrName) {
+            const byEq = e?.vendor && mfrs.find(m => m.name === e.vendor || salesNorm(m.name) === salesNorm(e.vendor));
+            const byPo = r?.purchase_orders?.manufacturer_id && mfrById[r.purchase_orders.manufacturer_id];
+            const m = byEq || byPo;
+            if (m) { mfrName = m.name; hints.push(`거래처: ${byEq ? '장비 관리' : `최근 발주 ${r.purchase_orders.po_no}`}`); }
+          }
+          if (price === '') {
+            if (e?.purchase_price > 0) { price = String(e.purchase_price); hints.push('매입가: 장비 관리'); }
+            else if (r) { price = String(r.unit_price); hints.push(`매입가: 최근 발주 ${r.purchase_orders.po_no}`); }
+          }
+          next[it.id] = { mfrName, price, hint: hints.join(' · ') };
+        }
+        return next;
+      });
+    })();
+    return () => { alive = false; };
+  }, [order.id]);
+
+  const items = order.shipping_order_items;
+  const lineMfr = (it) => mfrByName[(edit[it.id]?.mfrName || '').trim()] || null;
+  const linePrice = (it) => (it.is_discount ? 0 : (edit[it.id]?.price === '' ? null : Math.round(Number(String(edit[it.id]?.price).replace(/[^\d]/g, '')) || 0)));
+  const vendorsInOrder = [...new Map(items.filter(i => !i.is_discount).map(lineMfr).filter(Boolean).map(m => [m.id, m])).values()];
+  const purchaseSum = items.reduce((s, it) => s + (linePrice(it) || 0) * it.quantity, 0);
+  const blankPrices = items.filter(it => !it.is_discount && linePrice(it) == null).length;
+  // 이익 합계는 매입가 아는 줄만 (빈칸을 0원으로 치면 이익이 부풀려 보임) + 할인 줄
+  const profitSum = items.reduce((s, it) => s + (it.is_discount ? it.sale_price * it.quantity : linePrice(it) == null ? 0 : (it.sale_price - linePrice(it)) * it.quantity), 0);
+  const setLine = (id, k, v) => setEdit(p => ({ ...p, [id]: { ...p[id], [k]: v } }));
+
+  const saveLines = async () => {
+    for (const it of items) {
+      const m = lineMfr(it);
+      const patch = { manufacturer_id: m?.id || null, purchase_price: it.is_discount ? 0 : linePrice(it) };
+      if (patch.manufacturer_id === it.manufacturer_id && patch.purchase_price === it.purchase_price) continue;
+      const { error } = await sb.from('shipping_order_items').update(patch).eq('id', it.id);
+      if (error) throw error;
+    }
+    const { error } = await sb.from('shipping_orders').update({ admin_memo: adminMemo || null, updated_at: new Date().toISOString() }).eq('id', order.id);
+    if (error) throw error;
+  };
+
+  const run = async (fn) => { setBusy(true); setMsg(''); try { await fn(); } catch (e) { console.error(e); setMsg('실패: ' + (e.message || e)); } finally { setBusy(false); } };
+
+  const onSave = () => run(async () => { await saveLines(); setMsg('저장했습니다'); await onChanged(); });
+
+  const onReject = () => run(async () => {
+    const reason = prompt('반려 이유 (영업사원에게 보입니다)');
+    if (reason == null) return;
+    const { error } = await sb.from('shipping_orders').update({ status: '반려', reject_reason: reason.trim() || null, admin_memo: adminMemo || null, updated_at: new Date().toISOString() }).eq('id', order.id).eq('status', '요청');
+    if (error) throw error;
+    await onChanged();
+  });
+
+  // 승인 = 서명: 거래처별로 발주(진행중) 만들고 출고지시서 줄에 발주 연결. 중간에 실패해도 다시 누르면 이미 만든 발주는 건너뜀
+  const onApprove = () => run(async () => {
+    const noMfr = items.filter(it => !it.is_discount && !lineMfr(it));
+    if (noMfr.length) { setMsg(`거래처를 고르세요: ${noMfr.map(i => i.item_name).join(', ')}`); return; }
+    const badDisc = items.filter(it => it.is_discount && !vendorsInOrder.some(m => m.id === lineMfr(it)?.id));
+    if (badDisc.length) { setMsg('할인 줄을 넣을 발주(거래처)를 고르세요'); return; }
+    const groups = vendorsInOrder.map(m => ({ m, lines: items.filter(it => lineMfr(it)?.id === m.id) }));
+    const q = `승인하면 발주 ${groups.length}건이 만들어집니다 (${groups.map(g => g.m.name).join(', ')}).`
+      + (blankPrices ? `\n매입가 빈칸 ${blankPrices}줄은 비운 채로 발주됩니다 (계산서 오면 채움).` : '') + '\n승인할까요?';
+    if (!confirm(q)) return;
+    await saveLines();
+    const by = await shipAdminName(user?.email);
+    const today = shipToday();
+    for (const { m, lines } of groups) {
+      if (lines.every(it => it.po_id)) continue;
+      const poNo = await dbGeneratePoNo();
+      const { data: po, error: pe } = await sb.from('purchase_orders').insert({
+        po_no: poNo, hospital_id: order.hospital_id, hospital_name: order.hospital_name,
+        manufacturer_id: m.id, manufacturer_name: m.name, vendor_name: m.name,
+        status: '진행중', ordered_at: today, delivery_date: order.delivery_date || null,
+        total_amount: lines.reduce((s, it) => s + (linePrice(it) || 0) * it.quantity, 0),
+        sale_amount: lines.reduce((s, it) => s + it.sale_price * it.quantity, 0),
+        owner: order.rep_name, source: 'shipping_order', notes: `출고지시서 ${order.order_no}`,
+        revision: 0, is_active: true, updated_at: new Date().toISOString(),
+      }).select('id').single();
+      if (pe) throw pe;
+      const { data: rows, error: ie } = await sb.from('purchase_order_items').insert(lines.map(it => ({
+        po_id: po.id, equipment_id: it.equipment_id || null, item_name: it.item_name, model_name: it.model_name || null,
+        quantity: it.quantity, unit_price: linePrice(it), amount: (linePrice(it) || 0) * it.quantity, sale_price: it.sale_price,
+      }))).select('id');
+      if (ie) throw ie;
+      for (let k = 0; k < lines.length; k++) {
+        const { error } = await sb.from('shipping_order_items').update({ po_id: po.id, po_item_id: rows[k]?.id || null }).eq('id', lines[k].id);
+        if (error) throw error;
+      }
+    }
+    const { error } = await sb.from('shipping_orders').update({ status: '승인', approved_by: by, approved_at: new Date().toISOString(), admin_memo: adminMemo || null, updated_at: new Date().toISOString() }).eq('id', order.id);
+    if (error) throw error;
+    await onChanged();
+    setMsg('승인했습니다. 발주 진행에서 확인하세요.');
+  });
+
+  const orderPos = [...new Set(items.map(i => i.po_id).filter(Boolean))].map(id => pos[id]).filter(Boolean);
+  const inputCls = 'border border-slate-300 rounded px-2 py-1 text-sm w-full';
+
+  return (
+    <div className="p-6 max-w-6xl space-y-4">
+      <div className="flex items-start gap-3 flex-wrap">
+        <div>
+          <div className="text-xs text-slate-500">{order.order_no} · 요청 {shipDay(order.created_at)} · 영업사원 {order.rep_name}</div>
+          <div className="text-xl font-bold text-slate-900">{order.hospital_name}</div>
+        </div>
+        <span className={`text-xs font-semibold rounded px-2 py-1 ${SHIP_STATUS_TONE[order.status] || ''}`}>{order.status === '요청' ? '승인 대기' : order.status}</span>
+        {order.approved_at && <span className="text-xs text-slate-500 self-center">승인(서명) {order.approved_by} · {new Date(order.approved_at).toLocaleString('ko-KR')}</span>}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-3 gap-4 text-sm">
+        <div><div className="text-xs text-slate-400">납품 희망일</div>{order.delivery_date || '-'}</div>
+        <div className="col-span-2"><div className="text-xs text-slate-400">설치 장소</div>{order.delivery_place || '-'}</div>
+        {order.memo && <div className="col-span-3"><div className="text-xs text-slate-400">영업사원 메모</div><div className="whitespace-pre-wrap">{order.memo}</div></div>}
+        {order.reject_reason && <div className="col-span-3 text-rose-700"><div className="text-xs">반려 이유</div>{order.reject_reason}</div>}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs text-slate-500">
+            <tr>
+              <th className="px-3 py-2 text-left">품목</th>
+              <th className="px-2 py-2 w-14 text-right">수량</th>
+              <th className="px-2 py-2 w-28 text-right">매출 단가</th>
+              <th className="px-2 py-2 w-56 text-left">거래처</th>
+              <th className="px-2 py-2 w-32 text-right">매입 단가</th>
+              <th className="px-3 py-2 w-28 text-right">이익</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {items.map(it => {
+              const e = edit[it.id] || {};
+              const m = lineMfr(it);
+              const price = linePrice(it);
+              const profit = it.is_discount ? it.sale_price * it.quantity : (price == null ? null : (it.sale_price - price) * it.quantity);
+              return (
+                <tr key={it.id} className={it.is_discount ? 'bg-rose-50/40' : ''}>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-slate-800">{it.item_name}</div>
+                    {it.model_name && <div className="text-xs text-slate-500">{it.model_name}</div>}
+                    {e.hint && <div className="text-[11px] text-blue-600">{e.hint}</div>}
+                    {it.po_id && pos[it.po_id] && <div className="text-[11px] text-slate-500">→ {pos[it.po_id].po_no}</div>}
+                  </td>
+                  <td className="px-2 py-2 text-right">{it.quantity}</td>
+                  <td className="px-2 py-2 text-right tnum">{shipWon(it.sale_price)}</td>
+                  <td className="px-2 py-2">
+                    {!editable ? (m?.name || '-')
+                      : it.is_discount ? (
+                        <select value={m?.name || ''} onChange={ev => setLine(it.id, 'mfrName', ev.target.value)} className={inputCls}>
+                          <option value="">넣을 발주 고르기</option>
+                          {vendorsInOrder.map(v => <option key={v.id} value={v.name}>{v.name} 발주에</option>)}
+                        </select>
+                      ) : (
+                        <input list="ship-mfr-list" value={e.mfrName || ''} onChange={ev => setLine(it.id, 'mfrName', ev.target.value)} placeholder="거래처 이름"
+                          className={`${inputCls} ${e.mfrName && !m ? 'border-rose-400 bg-rose-50' : ''}`} />
+                      )}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {it.is_discount ? <span className="text-xs text-slate-400">할인 줄</span>
+                      : !editable ? shipWon(it.purchase_price)
+                      : <input value={e.price ?? ''} onChange={ev => setLine(it.id, 'price', ev.target.value)} inputMode="numeric" placeholder="빈칸 = 나중에" className={`${inputCls} text-right`} />}
+                  </td>
+                  <td className={`px-3 py-2 text-right tnum ${profit != null && profit < 0 ? 'text-rose-600' : 'text-slate-700'}`}>{profit == null ? '-' : shipWon(profit)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot className="bg-slate-50 text-sm font-semibold">
+            <tr>
+              <td className="px-3 py-2" colSpan={2}>합계</td>
+              <td className="px-2 py-2 text-right" colSpan={1}>{shipWon(order.sale_total)}</td>
+              <td className="px-2 py-2 text-right text-xs font-normal text-slate-500">{blankPrices ? `매입가 빈칸 ${blankPrices}줄` : ''}</td>
+              <td className="px-2 py-2 text-right">{shipWon(purchaseSum)}</td>
+              <td className="px-3 py-2 text-right">{shipWon(profitSum)}{blankPrices ? <div className="text-[10px] font-normal text-slate-400">빈칸 줄 빼고</div> : null}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <datalist id="ship-mfr-list">{mfrs.map(m => <option key={m.id} value={m.name}>{m.vendor_code || ''}</option>)}</datalist>
+      </div>
+      <div className="text-xs text-slate-400">금액은 모두 부가세 포함. 승인하면 거래처별로 발주(진행중)가 만들어지고 판매 담당은 {order.rep_name}입니다.</div>
+
+      <div>
+        <div className="text-xs text-slate-500 mb-1">관리자 메모 (영업사원에게 안 보임)</div>
+        <textarea value={adminMemo} onChange={e => setAdminMemo(e.target.value)} disabled={!editable} rows={2} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" />
+      </div>
+
+      {editable && (
+        <div className="flex items-center gap-2">
+          <button disabled={busy} onClick={onSave} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-semibold hover:bg-slate-50">저장 (나중에 승인)</button>
+          <button disabled={busy} onClick={onReject} className="px-4 py-2 rounded-lg border border-rose-300 bg-white text-sm font-semibold text-rose-700 hover:bg-rose-50">반려</button>
+          <button disabled={busy} onClick={onApprove} className="ml-auto px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:bg-slate-300">승인(서명)하고 발주 만들기</button>
+        </div>
+      )}
+      {msg && <div className={`text-sm ${msg.startsWith('실패') || msg.startsWith('거래처') || msg.startsWith('할인') ? 'text-rose-600' : 'text-emerald-700'}`}>{msg}</div>}
+
+      {orderPos.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1">
+          <div className="text-sm font-semibold text-slate-700 flex items-center">만들어진 발주
+            <button onClick={() => nav?.poTracking?.()} className="ml-auto text-xs text-blue-600 hover:text-blue-800">발주 진행 →</button>
+          </div>
+          {orderPos.map(p => (
+            <div key={p.id} className="text-sm flex gap-3">
+              <span className="font-mono text-xs text-slate-500 w-28">{p.po_no}</span>
+              <span className="flex-1">{p.manufacturer_name}</span>
+              <span className="text-slate-500">매입 {shipWon(p.total_amount)} · 매출 {shipWon(p.sale_amount)}</span>
+              <span className={shipPoDone(p) ? 'text-emerald-700' : 'text-slate-500'}>{p.status === '취소' ? '취소' : shipPoDone(p) ? '납품완료' : p.status}</span>
+            </div>
+          ))}
+          {settlement && <div className="text-sm text-blue-700 pt-1">계산서 {settlement.status === '발행완료' ? '발행됨' : '발행 요청 들어옴'} · {shipWon(settlement.total_amount)} <button onClick={() => nav?.settlements?.()} className="text-xs underline ml-1">매출정산서 →</button></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 어드민: 매출정산서 (영업사원 세금계산서 발행 요청) ──
+function SalesSettlementsPage({ user, onLogout, nav }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [filter, setFilter] = useState('요청');
+  const [selId, setSelId] = useState(null);
+  const load = useCallback(async () => {
+    setLoading(true); setLoadError('');
+    const { data, error } = await sb.from('sales_settlements')
+      .select('*, shipping_orders(order_no,sale_total,shipping_order_items(po_id)), hospitals(name,business_reg_no,address,ceo_name)')
+      .order('created_at', { ascending: false }).limit(300);
+    if (error) { setLoadError(error.message); setLoading(false); return; }
+    setRows(data); setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const counts = useMemo(() => rows.reduce((a, r) => ({ ...a, [r.status]: (a[r.status] || 0) + 1 }), {}), [rows]);
+  const list = rows.filter(r => filter === '전체' || r.status === filter || (filter === '반려·취소' && (r.status === '반려' || r.status === '취소')));
+  const sel = rows.find(r => r.id === selId) || null;
+  return (
+    <div style={{ height: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <AppHeader title="매출정산서" badge={counts['요청'] ? `발행 요청 ${counts['요청']}건` : null} onLogoClick={nav?.home} user={user} onLogout={onLogout} nav={nav} />
+      <div className="flex-1 flex overflow-hidden">
+        <aside className="w-96 bg-white border-r border-slate-200 flex flex-col shrink-0">
+          <div className="p-3 border-b border-slate-200 flex gap-1 flex-wrap">
+            {['요청', '발행완료', '반려·취소', '전체'].map(k => (
+              <button key={k} onClick={() => setFilter(k)} className={`px-3 py-1.5 rounded-lg text-sm ${filter === k ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-700'}`}>
+                {k === '요청' ? '발행 요청' : k} <span className={filter === k ? 'text-slate-300' : 'text-slate-400'}>{k === '전체' ? rows.length : k === '반려·취소' ? (counts['반려'] || 0) + (counts['취소'] || 0) : (counts[k] || 0)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+            {loading ? <div className="p-6 text-sm text-slate-400">불러오는 중...</div>
+              : loadError ? <div className="p-6 text-sm text-rose-600">불러오기 실패: {loadError}</div>
+              : list.length === 0 ? <div className="p-6 text-sm text-slate-400">없습니다</div>
+              : list.map(r => (
+                <button key={r.id} onClick={() => setSelId(r.id)} className={`w-full text-left px-4 py-3 hover:bg-slate-50 ${selId === r.id ? 'bg-blue-50' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 ${r.status === '요청' ? 'bg-amber-100 text-amber-800' : r.status === '발행완료' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{r.status === '요청' ? '발행 요청' : r.status}</span>
+                    <span className="text-sm font-semibold text-slate-800 truncate">{r.buyer_name}</span>
+                    <span className="ml-auto text-xs text-slate-400 shrink-0">발행일 {shipDay(r.issue_date).slice(5).replace('-', '/')}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">{shipWon(r.total_amount)} · {r.rep_name || ''}{r.shipping_orders?.order_no ? ` · ${r.shipping_orders.order_no}` : ''}</div>
+                </button>
+              ))}
+          </div>
+        </aside>
+        <main className="flex-1 overflow-y-auto">
+          {sel ? <SalesSettlementDetail key={sel.id} s={sel} user={user} onChanged={load} />
+            : <div className="p-10 text-sm text-slate-400">왼쪽에서 매출정산서를 고르세요</div>}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function SalesSettlementDetail({ s, user, onChanged }) {
+  const [cands, setCands] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const poIds = [...new Set((s.shipping_orders?.shipping_order_items || []).map(i => i.po_id).filter(Boolean))];
+  const h = s.hospitals || {};
+  const fmtReg = (r) => (/^\d{10}$/.test(r || '') ? `${r.slice(0, 3)}-${r.slice(3, 5)}-${r.slice(5)}` : (r || ''));
+  useEffect(() => {
+    if (s.status !== '요청') return;
+    // 같은 병원·같은 금액 매출 계산서 중 아직 정산서에 안 붙은 것
+    (async () => {
+      const [{ data: tis }, { data: used }] = await Promise.all([
+        sb.from('tax_invoices').select('id,issue_date,amount,party_name,memo,clobe_ti_id').eq('kind', 'sale').eq('hospital_id', s.hospital_id).eq('amount', s.total_amount).order('issue_date', { ascending: false }).limit(20),
+        sb.from('sales_settlements').select('tax_invoice_id').not('tax_invoice_id', 'is', null),
+      ]);
+      const usedSet = new Set((used || []).map(u => u.tax_invoice_id));
+      setCands((tis || []).filter(t => !usedSet.has(t.id)));
+    })();
+  }, [s.id]);
+  const copy = (v) => navigator.clipboard?.writeText(String(v || '')).then(() => setMsg(`복사: ${v}`)).catch(() => {});
+  const run = async (fn) => { setBusy(true); setMsg(''); try { await fn(); } catch (e) { console.error(e); setMsg('실패: ' + (e.message || e)); } finally { setBusy(false); } };
+
+  // 발행완료: 계산서를 고르면 정산서·발주 품목(sale_ti_id)에 연결. 계산서가 아직 앱에 없으면 표시만 (업데이트 때 연결)
+  const markIssued = (ti) => run(async () => {
+    if (!confirm(ti ? `${ti.issue_date} ${shipWon(ti.amount)} 계산서로 발행완료 처리할까요? 발주 품목에도 연결됩니다.` : '계산서를 아직 못 골랐습니다. 발행완료로만 표시할까요? (다음 업데이트 때 계산서 연결)')) return;
+    const by = await shipAdminName(user?.email);
+    if (ti && poIds.length) {
+      const { error: le } = await sb.from('purchase_order_items').update({ sale_ti_id: ti.id }).in('po_id', poIds).is('sale_ti_id', null);
+      if (le) throw le;
+    }
+    const { error } = await sb.from('sales_settlements').update({ status: '발행완료', tax_invoice_id: ti?.id || null, handled_by: by, handled_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', s.id);
+    if (error) throw error;
+    await onChanged();
+  });
+  const reject = () => run(async () => {
+    const reason = prompt('반려 이유 (영업사원에게 보입니다)');
+    if (reason == null) return;
+    const by = await shipAdminName(user?.email);
+    const { error } = await sb.from('sales_settlements').update({ status: '반려', reject_reason: reason.trim() || null, handled_by: by, handled_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', s.id).eq('status', '요청');
+    if (error) throw error;
+    await onChanged();
+  });
+
+  const field = (label, value, warn) => (
+    <div>
+      <div className="text-xs text-slate-400">{label}</div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-slate-900 break-all">{value || '-'}</span>
+        {value && <button onClick={() => copy(value)} className="text-[11px] text-blue-600 hover:text-blue-800 shrink-0">복사</button>}
+      </div>
+      {warn && <div className="text-[11px] text-amber-700">{warn}</div>}
+    </div>
+  );
+  const orderTotal = s.shipping_orders?.sale_total;
+  return (
+    <div className="p-6 max-w-5xl space-y-4">
+      <div>
+        <div className="text-xs text-slate-500">요청 {new Date(s.created_at).toLocaleString('ko-KR')} · 영업사원 {s.rep_name || '-'}{s.shipping_orders?.order_no ? ` · 출고지시서 ${s.shipping_orders.order_no}` : ''}</div>
+        <div className="text-xl font-bold text-slate-900">세금계산서 발행 요청 — {s.buyer_name}</div>
+        {s.status !== '요청' && <div className="text-sm text-slate-600 mt-1">{s.status}{s.handled_by ? ` · ${s.handled_by}` : ''}{s.handled_at ? ` · ${new Date(s.handled_at).toLocaleDateString('ko-KR')}` : ''}{s.reject_reason ? ` · ${s.reject_reason}` : ''}{s.status === '발행완료' && !s.tax_invoice_id ? ' · 계산서 연결 전 (업데이트 때 연결)' : ''}</div>}
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-4">
+        {field('상호 (병원 이름)', s.buyer_name)}
+        {field('사업자번호', fmtReg(s.buyer_reg_no), h.business_reg_no && h.business_reg_no !== s.buyer_reg_no ? `병원 정보의 번호(${fmtReg(h.business_reg_no)})와 다름` : null)}
+        {field('대표자 (원장)', s.buyer_ceo)}
+        {field('이메일', s.buyer_email)}
+        <div className="col-span-2">{field('주소', s.buyer_address)}</div>
+        {field('발행(작성)일자', s.issue_date)}
+        {field('발행금액 (부가세 포함)', shipWon(s.total_amount), orderTotal != null && orderTotal !== s.total_amount ? `출고지시서 금액 ${shipWon(orderTotal)}과 다름` : null)}
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs text-slate-500">
+            <tr><th className="px-3 py-2 text-left">품명</th><th className="px-2 py-2 text-left">규격</th><th className="px-2 py-2 text-right w-14">수량</th><th className="px-2 py-2 text-right w-28">단가</th><th className="px-2 py-2 text-right w-32">공급가액</th><th className="px-3 py-2 text-right w-28">세액</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {(s.items || []).map((l, i) => (
+              <tr key={i}>
+                <td className="px-3 py-2">{l.name}</td><td className="px-2 py-2 text-slate-600">{l.spec}</td>
+                <td className="px-2 py-2 text-right">{l.qty}</td><td className="px-2 py-2 text-right tnum">{shipWon(l.unit_price)}</td>
+                <td className="px-2 py-2 text-right tnum">{shipWon(l.supply)}</td><td className="px-3 py-2 text-right tnum">{shipWon(l.tax)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-slate-50 font-semibold">
+            <tr><td className="px-3 py-2" colSpan={4}>합계 {shipWon(s.total_amount)}</td><td className="px-2 py-2 text-right">{shipWon(s.supply_amount)}</td><td className="px-3 py-2 text-right">{shipWon(s.tax_amount)}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+      {s.memo && <div className="text-sm"><span className="text-xs text-slate-400">영업사원 메모 </span>{s.memo}</div>}
+
+      {s.status === '요청' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+          <div className="text-sm font-semibold text-slate-700">발행했으면 계산서를 고르세요 (같은 병원·같은 금액 매출 계산서)</div>
+          {cands === null ? <div className="text-sm text-slate-400">찾는 중...</div>
+            : cands.length === 0 ? <div className="text-sm text-slate-500">앱에 아직 없습니다. 홈택스·클로브에서 발행한 뒤 "업데이트"하면 들어옵니다.</div>
+            : cands.map(t => (
+              <div key={t.id} className="flex items-center gap-3 text-sm">
+                <span className="w-24">{t.issue_date}</span><span className="w-28 text-right">{shipWon(t.amount)}</span>
+                <span className="flex-1 text-slate-500 truncate">{t.memo || t.party_name}</span>
+                <button disabled={busy} onClick={() => markIssued(t)} className="px-3 py-1 rounded bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700">이 계산서로 발행완료</button>
+              </div>
+            ))}
+          <div className="flex gap-2 pt-2">
+            <button disabled={busy} onClick={() => markIssued(null)} className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold hover:bg-slate-50">발행완료로만 표시</button>
+            <button disabled={busy} onClick={reject} className="px-4 py-2 rounded-lg border border-rose-300 text-sm font-semibold text-rose-700 hover:bg-rose-50">반려</button>
+          </div>
+        </div>
+      )}
+      {msg && <div className={`text-sm ${msg.startsWith('실패') ? 'text-rose-600' : 'text-emerald-700'}`}>{msg}</div>}
     </div>
   );
 }
@@ -21145,6 +22025,8 @@ function App() {
     poPlan:    (lead) => { setPoPlanLead(lead); setView('po-plan'); },
     aiMonitor: () => setView('ai-monitor'),
     salesReps: () => setView('sales-reps'),
+    shippingOrders: () => setView('shipping-orders'),
+    settlements: () => setView('settlements'),
   };
 
   if (view === 'home') {
@@ -21152,6 +22034,12 @@ function App() {
   }
   if (view === 'ai-monitor') {
     return <ChatMonitorPage user={user} onLogout={handleLogout} nav={nav} />;
+  }
+  if (view === 'shipping-orders') {
+    return <ShippingOrdersPage user={user} onLogout={handleLogout} nav={nav} />;
+  }
+  if (view === 'settlements') {
+    return <SalesSettlementsPage user={user} onLogout={handleLogout} nav={nav} />;
   }
   if (view === 'sales-reps') {
     return <SalesRepsPage user={user} onLogout={handleLogout} nav={nav} />;
@@ -21308,7 +22196,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} onSalesReps={() => setView('sales-reps')} onAiMonitor={() => setView('ai-monitor')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} onSalesReps={() => setView('sales-reps')} onShippingOrders={() => setView('shipping-orders')} onSettlements={() => setView('settlements')} onAiMonitor={() => setView('ai-monitor')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>

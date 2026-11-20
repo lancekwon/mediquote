@@ -24,6 +24,11 @@ const PO_FIELDS = 'id,hospital_id,ordered_at,created_at,status,delivery_date,tra
 const SERVICE_FIELDS = 'id,hospital_id,equipment_name,model_name,issue,status,requested_at,created_at,engineer';
 const SERVICE_OPEN = `or=(status.is.null,status.neq.${enc('완료')})`;
 const NOTE_FIELDS = 'id,rep_id,hospital_id,draft_id,body,next_contact_date,contacted_at,created_at,sales_reps(name)';
+// 출고지시서·매출정산서 (sql/50). 품목의 매입가(purchase_price)·거래처(manufacturer_id)는 절대 넣지 말 것
+const ORDER_FIELDS = 'id,order_no,draft_id,hospital_id,hospital_name,delivery_date,delivery_place,memo,sale_total,status,reject_reason,approved_by,approved_at,created_at';
+const ORDER_ITEM_FIELDS = 'id,sort,item_name,model_name,quantity,sale_price,is_discount,po_id';
+const SETTLE_FIELDS = 'id,order_id,hospital_id,buyer_name,buyer_address,buyer_reg_no,buyer_ceo,buyer_email,issue_date,supply_amount,tax_amount,total_amount,items,memo,status,reject_reason,handled_at,created_at';
+const DISCOUNT_EQUIP_CODE = 'E714'; // 범용 "할인" 장비
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -143,12 +148,13 @@ async function home(rep) {
   const hospitals = await sb(`hospitals?assigned_rep_id=eq.${rep.id}&select=${HOSPITAL_FIELDS}&order=name`);
   const ids = hospitals.map((h) => h.id).join(',');
   const hospitalName = (id) => hospitals.find((h) => h.id === id)?.name || '';
-  const [drafts, notes, services, pos, consumables] = await Promise.all([
+  const [drafts, notes, services, pos, consumables, orders] = await Promise.all([
     sb(`quotes_ai_draft?owner=eq.${enc(rep.email)}&status=eq.draft&select=${DRAFT_FIELDS}&order=created_at.desc&limit=3`),
     sb(`sales_notes?rep_id=eq.${rep.id}&contacted_at=is.null&next_contact_date=lte.${today}&select=id,body,next_contact_date,hospital_id,draft_id,hospitals(name,phone,contact_phone),quotes_ai_draft(hospital_name)&order=next_contact_date`),
     ids ? sb(`service_requests?hospital_id=in.(${ids})&${SERVICE_OPEN}&select=${SERVICE_FIELDS}&order=created_at.desc&limit=20`) : [],
     ids ? sb(`purchase_orders?hospital_id=in.(${ids})&status=neq.${enc('취소')}&select=${PO_FIELDS}`) : [],
     ids ? consumableMap() : new Map(),
+    myOrders(rep, 30),
   ]);
   const followups = notes.map((n) => ({
     id: n.id, body: n.body, next_contact_date: n.next_contact_date, hospital_id: n.hospital_id, draft_id: n.draft_id,
@@ -174,6 +180,8 @@ async function home(rep) {
     services: services.map((s) => ({ ...s, hospital_name: hospitalName(s.hospital_id) })),
     reorders: findReorders(pos, consumables, hospitalName).slice(0, 5),
     upcoming,
+    // 진행 중인 출고지시서 (계산서 발행·취소된 건 빼고)
+    orders: orders.filter((o) => o.stage !== 'invoiced' && o.stage !== 'cancelled').slice(0, 5),
   };
 }
 
@@ -201,11 +209,224 @@ async function hospitalDetail(rep, id) {
 async function draftDetail(rep, id) {
   const draft = await ownDraft(rep, id, 'id,hospital_id,hospital_name,items,total_amount,created_at,global_discount');
   const equipIds = (draft.items || []).map((i) => i.equipment_id).filter(isUuid);
-  const [equips, notes] = await Promise.all([
+  const [equips, notes, orders] = await Promise.all([
     equipIds.length ? sb(`equipment?id=in.(${equipIds.join(',')})&select=id,cat_id,cat_name,item_name,model_name,manufacturer,price,image_url,description,specs,cert,as_period,model_notes`) : [],
     sb(`sales_notes?draft_id=eq.${id}&select=${NOTE_FIELDS}&order=created_at.desc&limit=50`),
+    sb(`shipping_orders?draft_id=eq.${id}&rep_id=eq.${rep.id}&select=id,order_no,status,created_at&order=created_at.desc&limit=1`),
   ]);
-  return { draft, equips, notes: notes.map(noteView) };
+  return { draft, equips, notes: notes.map(noteView), order: orders[0] || null };
+}
+
+// ============================================================
+// 출고지시서 (영업사원 → 관리자 승인 → 거래처별 발주)
+// ============================================================
+const poDone = (p) => !!p.tracking_delivered || p.status === '납품완료' || !!p.delivered;
+
+// 견적서 → 출고지시서 품목 줄. 매출 단가는 견적 그대로(부가세 포함), 견적 전체 할인은 "할인" 줄 하나로 따로 (사용자 2026-11-20)
+async function draftLines(draft) {
+  const raw = Array.isArray(draft.items) ? draft.items : [];
+  const ids = [...new Set(raw.map((i) => i.equipment_id).filter(isUuid))];
+  const equips = ids.length ? await sb(`equipment?id=in.(${ids.join(',')})&select=id,item_name,model_name`) : [];
+  const lines = [];
+  for (const i of raw) {
+    const e = equips.find((x) => x.id === i.equipment_id);
+    const name = clip(e?.item_name || i.name, 200);
+    if (!name) continue;
+    const qty = Math.max(1, Math.round(Number(i.qty) || 1));
+    const unit = Number.isFinite(Number(i.unit_price)) && i.unit_price != null ? Math.round(Number(i.unit_price)) : Math.round((Number(i.total) || 0) / qty);
+    lines.push({ equipment_id: e?.id || null, item_name: name, model_name: e ? (e.model_name || null) : null, quantity: qty, sale_price: unit, is_discount: false });
+  }
+  const gross = lines.reduce((s, l) => s + l.quantity * l.sale_price, 0);
+  const d = draft.global_discount || null;
+  const discount = d?.type === 'rate' ? Math.round(gross * (Number(d.value) || 0) / 100)
+    : d?.type === 'amount' ? Math.min(Math.round(Number(d.value) || 0), gross) : 0;
+  if (discount > 0) {
+    const [eq] = await sb(`equipment?equip_code=eq.${DISCOUNT_EQUIP_CODE}&select=id`);
+    lines.push({ equipment_id: eq?.id || null, item_name: '할인', model_name: null, quantity: 1, sale_price: -discount, is_discount: true });
+  }
+  return { lines, total: gross - discount };
+}
+
+// 영업사원 앱에 보여줄 진행 단계 — 발주 납품 여부와 정산서 상태로 계산
+async function withStage(orders) {
+  if (!orders.length) return [];
+  const poIds = [...new Set(orders.flatMap((o) => (o.shipping_order_items || []).map((i) => i.po_id)).filter(Boolean))];
+  const [pos, settles] = await Promise.all([
+    poIds.length ? sb(`purchase_orders?id=in.(${poIds.join(',')})&select=id,status,tracking_delivered,delivered`) : [],
+    sb(`sales_settlements?order_id=in.(${orders.map((o) => o.id).join(',')})&status=in.(${enc('요청')},${enc('발행완료')})&select=id,order_id,status,total_amount,issue_date`),
+  ]);
+  return orders.map((o) => {
+    const ids = [...new Set((o.shipping_order_items || []).map((i) => i.po_id).filter(Boolean))];
+    const live = ids.map((id) => pos.find((p) => p.id === id)).filter((p) => p && p.status !== '취소');
+    const delivered = live.filter(poDone).length;
+    const settlement = settles.find((s) => s.order_id === o.id) || null;
+    const stage = o.status === '요청' ? 'requested' : o.status === '반려' ? 'rejected' : o.status === '취소' ? 'cancelled'
+      : settlement?.status === '발행완료' ? 'invoiced' : settlement ? 'settle_requested'
+      : live.length && delivered === live.length ? 'delivered' : 'ordered';
+    return { ...o, stage, po_count: live.length, delivered_count: delivered, settlement };
+  });
+}
+
+async function ownOrder(rep, id) {
+  if (!isUuid(id)) throw new HttpError(400, '출고지시서 정보가 잘못됐습니다.');
+  const [order] = await sb(`shipping_orders?id=eq.${id}&rep_id=eq.${rep.id}&select=${ORDER_FIELDS},shipping_order_items(${ORDER_ITEM_FIELDS})`);
+  if (!order) throw new HttpError(404, '내 출고지시서가 아닙니다.');
+  order.shipping_order_items.sort((a, b) => a.sort - b.sort);
+  return (await withStage([order]))[0];
+}
+
+async function myOrders(rep, limit = 100) {
+  const rows = await sb(`shipping_orders?rep_id=eq.${rep.id}&select=${ORDER_FIELDS},shipping_order_items(${ORDER_ITEM_FIELDS})&order=created_at.desc&limit=${limit}`);
+  return withStage(rows);
+}
+
+async function orderForm(rep, draftId) {
+  const draft = await ownDraft(rep, draftId, 'id,hospital_id,hospital_name,items,total_amount,global_discount,created_at');
+  const [hospitals, open] = await Promise.all([
+    sb(`hospitals?assigned_rep_id=eq.${rep.id}&select=id,name,address&order=name`),
+    sb(`shipping_orders?draft_id=eq.${draftId}&status=in.(${enc('요청')},${enc('승인')})&select=id,order_no,status`),
+  ]);
+  const { lines, total } = await draftLines(draft);
+  const byName = hospitals.find((h) => salesNormName(h.name) === salesNormName(draft.hospital_name));
+  const preset = hospitals.find((h) => h.id === draft.hospital_id) || byName || null;
+  return { draft: { id: draft.id, hospital_name: draft.hospital_name }, hospitals, hospital_id: preset?.id || null, lines, total, open: open[0] || null };
+}
+const salesNormName = (s) => norm(s).replace(/의원|병원|한의원|클리닉/g, '');
+
+async function nextOrderNo() {
+  const prefix = `출고-${todayKST().slice(0, 4)}-`;
+  const [last] = await sb(`shipping_orders?order_no=like.${enc(prefix)}*&select=order_no&order=order_no.desc&limit=1`);
+  const n = last ? parseInt(last.order_no.slice(prefix.length), 10) || 0 : 0;
+  return `${prefix}${String(n + 1).padStart(3, '0')}`;
+}
+
+async function createOrder(rep, body) {
+  const draft = await ownDraft(rep, body.draft_id, 'id,hospital_id,hospital_name,items,total_amount,global_discount');
+  if (!body.hospital_id) throw new HttpError(400, '병원을 골라 주세요. 목록에 없으면 관리자에게 병원 등록·담당 지정을 부탁하세요.');
+  const hospital = await assignedHospital(rep, body.hospital_id); // 등록 먼저 (사용자 2026-11-20): 담당 병원만
+  const open = await sb(`shipping_orders?draft_id=eq.${draft.id}&status=in.(${enc('요청')},${enc('승인')})&select=id`);
+  if (open.length) throw new HttpError(409, '이 견적서로 낸 출고지시서가 이미 있습니다.');
+  const { lines, total } = await draftLines(draft);
+  if (!lines.some((l) => !l.is_discount)) throw new HttpError(400, '견적서에 품목이 없습니다.');
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(body.delivery_date || '') ? body.delivery_date : null;
+  let order = null;
+  for (let tries = 0; !order; tries++) {
+    try {
+      [order] = await sb('shipping_orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          order_no: await nextOrderNo(), rep_id: rep.id, rep_name: rep.name, draft_id: draft.id,
+          hospital_id: hospital.id, hospital_name: hospital.name, delivery_date: date,
+          delivery_place: clip(body.delivery_place, 300) || hospital.address || null, memo: clip(body.memo, 2000) || null,
+          sale_total: total,
+        }),
+      });
+    } catch (e) {
+      if (tries < 3 && /409|23505/.test(e.message) && /order_no/.test(e.message)) continue; // 번호가 겹치면 다시
+      if (/23505/.test(e.message)) throw new HttpError(409, '이 견적서로 낸 출고지시서가 이미 있습니다.');
+      throw e;
+    }
+  }
+  try {
+    await sb('shipping_order_items', { method: 'POST', body: JSON.stringify(lines.map((l, i) => ({ ...l, order_id: order.id, sort: i }))) });
+  } catch (e) {
+    await sb(`shipping_orders?id=eq.${order.id}`, { method: 'DELETE' }).catch(() => {});
+    throw e;
+  }
+  return { order: await ownOrder(rep, order.id) };
+}
+
+async function cancelOrder(rep, id) {
+  const order = await ownOrder(rep, id);
+  if (order.status !== '요청') throw new HttpError(409, '관리자가 이미 처리한 출고지시서는 취소할 수 없습니다. 관리자에게 말씀해 주세요.');
+  await sb(`shipping_orders?id=eq.${id}&rep_id=eq.${rep.id}&status=eq.${enc('요청')}`, { method: 'PATCH', body: JSON.stringify({ status: '취소', updated_at: new Date().toISOString() }) });
+  return { order: await ownOrder(rep, id) };
+}
+
+// ============================================================
+// 매출정산서 = 세금계산서 발행 요청 (납품완료 후에만 — 사용자 2026-11-20)
+// ============================================================
+const isRegNo = (s) => /^\d{10}$/.test(s);
+const isEmail = (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
+
+// 품목 한 줄: 금액(부가세 포함)에서 공급가액·세액·공급가 단가 계산
+function settleLine(l) {
+  const qty = Math.max(1, Math.round(Number(l.qty) || 1));
+  const amount = Math.round(Number(l.amount) || 0);
+  const supply = Math.round(amount / 1.1);
+  return { name: clip(l.name, 100), spec: clip(l.spec, 60), qty, unit_price: Math.round(supply / qty), supply, tax: amount - supply, amount };
+}
+
+async function settlementForm(rep, orderId) {
+  const order = await ownOrder(rep, orderId);
+  if (order.stage !== 'delivered') throw new HttpError(409, order.settlement ? '이미 계산서 발행을 요청했습니다.' : '납품이 다 끝나야 요청할 수 있습니다.');
+  const [h] = await sb(`hospitals?id=eq.${order.hospital_id}&assigned_rep_id=eq.${rep.id}&select=id,name,address,business_reg_no,ceo_name,contact_name,tax_email,contact_email`);
+  if (!h) throw new HttpError(404, '담당 병원이 아닙니다.');
+  const items = order.shipping_order_items.map((i) => settleLine({
+    name: i.is_discount ? '할인' : i.item_name, spec: i.model_name || '', qty: i.quantity, amount: i.quantity * i.sale_price,
+  }));
+  return {
+    order: { id: order.id, order_no: order.order_no, hospital_name: order.hospital_name, sale_total: order.sale_total },
+    form: {
+      buyer_name: h.name || '', buyer_address: h.address || '', buyer_reg_no: (h.business_reg_no || '').replace(/\D/g, ''),
+      buyer_ceo: h.ceo_name || '', buyer_email: h.tax_email || h.contact_email || '', issue_date: todayKST(), items,
+    },
+  };
+}
+
+async function createSettlement(rep, body) {
+  const order = await ownOrder(rep, body.order_id);
+  if (order.stage !== 'delivered') throw new HttpError(409, order.settlement ? '이미 계산서 발행을 요청했습니다.' : '납품이 다 끝나야 요청할 수 있습니다.');
+  const f = {
+    buyer_name: clip(body.buyer_name, 200), buyer_address: clip(body.buyer_address, 300),
+    buyer_reg_no: String(body.buyer_reg_no || '').replace(/\D/g, ''), buyer_ceo: clip(body.buyer_ceo, 100),
+    buyer_email: clip(body.buyer_email, 200).toLowerCase(), issue_date: String(body.issue_date || ''),
+  };
+  const missing = [
+    !f.buyer_name && '병원 이름', !f.buyer_address && '주소', !isRegNo(f.buyer_reg_no) && '사업자번호 10자리',
+    !f.buyer_ceo && '대표자(원장)', !isEmail(f.buyer_email) && '이메일', !/^\d{4}-\d{2}-\d{2}$/.test(f.issue_date) && '발행일',
+  ].filter(Boolean);
+  if (missing.length) throw new HttpError(400, `${missing.join(', ')}을(를) 확인해 주세요.`);
+  const items = (Array.isArray(body.items) ? body.items : []).map(settleLine).filter((l) => l.amount !== 0);
+  if (!items.length || items.some((l) => !l.name)) throw new HttpError(400, '품목 이름과 금액을 확인해 주세요.');
+  const total = items.reduce((s, l) => s + l.amount, 0);
+  if (total <= 0) throw new HttpError(400, '발행금액이 0원보다 커야 합니다.');
+
+  const [h] = await sb(`hospitals?id=eq.${order.hospital_id}&assigned_rep_id=eq.${rep.id}&select=id,address,business_reg_no,ceo_name,tax_email`);
+  if (!h) throw new HttpError(404, '담당 병원이 아닙니다.');
+  if (!h.business_reg_no) {
+    const [other] = await sb(`hospitals?business_reg_no=eq.${f.buyer_reg_no}&id=neq.${h.id}&select=name`);
+    if (other) throw new HttpError(409, `사업자번호 ${f.buyer_reg_no}는 다른 병원(${other.name})에 등록돼 있습니다. 번호를 확인하거나 관리자에게 말씀해 주세요.`);
+  }
+  const [row] = await sb('sales_settlements', {
+    method: 'POST',
+    body: JSON.stringify({
+      order_id: order.id, rep_id: rep.id, rep_name: rep.name, hospital_id: order.hospital_id, ...f,
+      supply_amount: items.reduce((s, l) => s + l.supply, 0), tax_amount: items.reduce((s, l) => s + l.tax, 0), total_amount: total,
+      items: items.map(({ amount, ...l }) => l), memo: clip(body.memo, 2000) || null,
+    }),
+  }).catch((e) => { if (/23505/.test(e.message)) throw new HttpError(409, '이미 계산서 발행을 요청했습니다.'); throw e; });
+  // 병원 정보 채워 두기 (다음 정산서에 자동) — 사업자번호·주소는 비어 있을 때만
+  const patch = { ceo_name: f.buyer_ceo, tax_email: f.buyer_email };
+  if (!h.business_reg_no) patch.business_reg_no = f.buyer_reg_no;
+  if (!h.address) patch.address = f.buyer_address;
+  await sb(`hospitals?id=eq.${h.id}&assigned_rep_id=eq.${rep.id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+    .catch((e) => console.error('[sales] 정산서 병원 정보 저장 실패', e));
+  return { settlement: row.id, order: await ownOrder(rep, order.id) };
+}
+
+async function settlementDetail(rep, id) {
+  if (!isUuid(id)) throw new HttpError(400, '정산서 정보가 잘못됐습니다.');
+  const [s] = await sb(`sales_settlements?id=eq.${id}&rep_id=eq.${rep.id}&select=${SETTLE_FIELDS}`);
+  if (!s) throw new HttpError(404, '내 정산서가 아닙니다.');
+  return { settlement: s };
+}
+
+async function cancelSettlement(rep, id) {
+  if (!isUuid(id)) throw new HttpError(400, '정산서 정보가 잘못됐습니다.');
+  const rows = await sb(`sales_settlements?id=eq.${id}&rep_id=eq.${rep.id}&status=eq.${enc('요청')}`, { method: 'PATCH', body: JSON.stringify({ status: '취소', updated_at: new Date().toISOString() }) });
+  if (!rows.length) throw new HttpError(409, '이미 처리된 요청은 취소할 수 없습니다. 관리자에게 말씀해 주세요.');
+  return { ok: true };
 }
 
 async function templates() {
@@ -293,6 +514,15 @@ export default async function handler(req, res) {
       case 'done_note': result = await doneNote(rep, body.id); break;
       case 'save_contact': result = await saveContact(rep, body); break;
       case 'share_quote': result = await shareQuote(rep, body); break;
+      case 'orders': result = { orders: await myOrders(rep) }; break;
+      case 'order': result = { order: await ownOrder(rep, body.id) }; break;
+      case 'order_form': result = await orderForm(rep, body.draft_id); break;
+      case 'create_order': result = await createOrder(rep, body); break;
+      case 'cancel_order': result = await cancelOrder(rep, body.id); break;
+      case 'settlement_form': result = await settlementForm(rep, body.order_id); break;
+      case 'create_settlement': result = await createSettlement(rep, body); break;
+      case 'settlement': result = await settlementDetail(rep, body.id); break;
+      case 'cancel_settlement': result = await cancelSettlement(rep, body.id); break;
       default: throw new HttpError(400, 'unknown action');
     }
     res.status(200).json(result);
