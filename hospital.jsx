@@ -122,7 +122,7 @@ const MENU = [
   { key: 'home', label: '홈', icon: 'home' },
   { key: 'equipment', label: '내 장비', icon: 'box' },
   { key: 'service', label: '점검·수리', icon: 'tool' },
-  { key: 'reorder', label: '재주문', icon: 'shopping-cart' },
+  { key: 'reorder', label: '주문하기', icon: 'shopping-cart' }, // 2026-11-20 사용자: '재주문' → '주문하기'
   { key: 'docs', label: '문서함', icon: 'file-text' },
 ];
 function TopHeader({ page, onNav, data }) {
@@ -218,7 +218,7 @@ function Home({ data, go }) {
           <SecHead title="자주 쓰는 소모품 다시 주문" right={<span className="t3">이전 주문 기준</span>} />
           <div className="chips">
             {quick.map((r) => <button key={r.key} className="chip" onClick={() => go('reorder', r.key)}>{r.name}</button>)}
-            <button className="btn primary sm" onClick={() => go('reorder')}>재주문 하기</button>
+            <button className="btn primary sm" onClick={() => go('reorder')}>주문하기</button>
           </div>
         </>
       )}
@@ -507,6 +507,8 @@ function Reorder({ data, preset, reload, pin }) {
   const [showAll, setShowAll] = useState(false);
   const [q, setSearch] = useState('');
   const [cat, setCat] = useState('전체');
+  // 목록에 없는 품목 — 검색창 오른쪽 단추로 열기 (2026-11-20 사용자: 맨 아래에서 위로). 이전 주문이 없으면 처음부터 열어 둠
+  const [showExtra, setShowExtra] = useState(data.reorder.length === 0);
   const picked = data.reorder.filter((r) => (qty[r.key] || 0) > 0);
   const count = picked.length + (extra.trim() ? 1 : 0);
   const cats = useMemo(() => {
@@ -538,23 +540,33 @@ function Reorder({ data, preset, reload, pin }) {
   };
   return (
     <div className="page">
-      <PageHead title="다시 주문하기" desc="전에 받으신 품목입니다. 수량을 정해 요청하시면 담당자가 확인 후 연락드립니다." />
+      <PageHead title="주문하기" desc="전에 받으신 품목은 수량만 정하시고, 목록에 없는 품목은 오른쪽 위 단추로 적어 주세요. 요청하시면 담당자가 확인 후 연락드립니다." />
+      <div className="toolbar">
+        {data.reorder.length > 0 && <div className="search"><Ti n="search" s={16} c="#8b95a1" /><input value={q} onChange={(e) => setSearch(e.target.value)} placeholder="품목 · 모델 · 분류 검색" /></div>}
+        <button className={'btn ' + (showExtra || extra.trim() ? 'primary' : 'secondary')} style={{ height: 40 }} onClick={() => setShowExtra((v) => !v)}>
+          <Ti n="plus" s={15} /> 목록에 없는 품목{extra.trim() && !showExtra ? ' (1)' : ''}
+        </button>
+      </div>
+      {showExtra && (
+        <div className="box" style={{ padding: 12, marginBottom: 16 }}>
+          <label className="label">목록에 없는 품목</label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <input className="input" style={{ flex: 1 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="품목 · 모델" autoFocus={data.reorder.length > 0} />
+            <input className="input" style={{ width: 76, textAlign: 'center' }} type="number" min={1} value={extraQty} onChange={(e) => setExtraQty(parseInt(e.target.value, 10) || 1)} aria-label="수량" />
+          </div>
+        </div>
+      )}
       {data.reorder.length > 0 && (
-        <>
-          <div className="toolbar">
-            <div className="search"><Ti n="search" s={16} c="#8b95a1" /><input value={q} onChange={(e) => setSearch(e.target.value)} placeholder="품목 · 모델 · 분류 검색" /></div>
-          </div>
-          <div className="chips" style={{ marginBottom: 16 }}>
-            {cats.map(([c, n]) => (
-              <button key={c} className={'chip' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c} <span className="chip-n">{n}</span></button>
-            ))}
-          </div>
-        </>
+        <div className="chips" style={{ marginBottom: 16 }}>
+          {cats.map(([c, n]) => (
+            <button key={c} className={'chip' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c} <span className="chip-n">{n}</span></button>
+          ))}
+        </div>
       )}
       <div className="table">
         <div className="tr th ro-cols"><div>품목</div><div className="hide-sm">최근 주문</div><div className="center">수량</div></div>
-        {data.reorder.length === 0 && <div className="empty">이전 주문 품목이 없습니다. 아래에 직접 적어 주세요.</div>}
-        {data.reorder.length > 0 && matched.length === 0 && <div className="empty">검색 결과가 없습니다. 아래 "목록에 없는 품목"에 적어 주세요.</div>}
+        {data.reorder.length === 0 && <div className="empty">이전 주문 품목이 없습니다. 위 "목록에 없는 품목"에 적어 주세요.</div>}
+        {data.reorder.length > 0 && matched.length === 0 && <div className="empty">검색 결과가 없습니다. 오른쪽 위 "목록에 없는 품목"을 눌러 적어 주세요.</div>}
         {list.map((r) => (
           <div key={r.key} className={'tr ro-cols' + ((qty[r.key] || 0) > 0 ? ' picked' : '')}>
             <div className="cell-main">
@@ -584,13 +596,6 @@ function Reorder({ data, preset, reload, pin }) {
       </div>
 
       <div className="form box" style={{ marginTop: 16 }}>
-        <div className="field">
-          <label className="label">목록에 없는 품목 <span className="t3">(선택)</span></label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input" style={{ flex: 1 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="품목 · 모델" />
-            <input className="input" style={{ width: 76, textAlign: 'center' }} type="number" min={1} value={extraQty} onChange={(e) => setExtraQty(parseInt(e.target.value, 10) || 1)} />
-          </div>
-        </div>
         <div className="field">
           <label className="label">요청 사항 <span className="t3">(선택)</span></label>
           <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 다음 주 화요일까지 필요" />
