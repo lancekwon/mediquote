@@ -1610,6 +1610,8 @@ function adminMenuItems(h, pendingReqs = 0, isAdmin = false, ship = {}) {
   if (isAdmin) {
     items.push({ section:'영업사원', label:'영업사원 관리', onClick: h.salesReps, icon:'M17 20h5v-2a4 4 0 00-5-3.87M9 20H4v-2a4 4 0 015-3.87m8-3.13a4 4 0 10-8 0 4 4 0 008 0zm-1-8a3 3 0 110 6M8 3a3 3 0 100 6' });
     items.push({ section:'영업사원', label:'AI 대화 보기', onClick: h.aiMonitor, icon:'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z' });
+    items.push({ section:'영업사원', label:'일일보고', onClick: h.dailyReports, icon: MENU_ICONS.list });
+    if (h.mobileView) items.push({ section:'화면', label:'폰 화면으로', onClick: h.mobileView, icon: MENU_ICONS.home });
   }
   return items;
 }
@@ -1632,7 +1634,7 @@ function AdminMenuList({ items, onPicked }) {
   ));
 }
 
-function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, onSalesReps, onAiMonitor, onShippingOrders, onSettlements, onTaxPdfs, user, onLogout }) {
+function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onManage, onHome, onHospitals, onService, onLeads, onPayables, onPoTracking, onOrderRequests, onDashboard, onSalesReps, onAiMonitor, onShippingOrders, onSettlements, onTaxPdfs, onDailyReports, onMobileView, user, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCompanySettings, setShowCompanySettings] = useState(false);
   const menuRef = useRef(null);
@@ -1648,7 +1650,7 @@ function Header({ quoteInfo, setQuoteInfo, onSave, onLoad, onLoadStandard, onMan
   const menuItems = adminMenuItems({
     home: onDashboard, poTracking: onPoTracking, editor: onHome, list: onLoad,
     hospitals: onHospitals, requests: onOrderRequests, manage: onManage, payables: onPayables,
-    salesReps: onSalesReps, aiMonitor: onAiMonitor, shippingOrders: onShippingOrders, settlements: onSettlements, taxPdfs: onTaxPdfs,
+    salesReps: onSalesReps, aiMonitor: onAiMonitor, shippingOrders: onShippingOrders, settlements: onSettlements, taxPdfs: onTaxPdfs, dailyReports: onDailyReports, mobileView: onMobileView,
   }, pendingReqs, isAdminEmail(user?.email), shipPending);
 
   const textFields = [
@@ -1740,7 +1742,7 @@ function AppHeader({ title, badge, onLogoClick, user, onLogout, nav, children })
   const menuItems = adminMenuItems({
     home: nav?.home, poTracking: nav?.poTracking, editor: nav?.editor, list: nav?.list,
     hospitals: nav?.hospitals, requests: nav?.orderRequests, manage: nav?.manage, payables: nav?.payables,
-    salesReps: nav?.salesReps, aiMonitor: nav?.aiMonitor, shippingOrders: nav?.shippingOrders, settlements: nav?.settlements, taxPdfs: nav?.taxPdfs,
+    salesReps: nav?.salesReps, aiMonitor: nav?.aiMonitor, shippingOrders: nav?.shippingOrders, settlements: nav?.settlements, taxPdfs: nav?.taxPdfs, dailyReports: nav?.dailyReports, mobileView: nav?.mobileView,
   }, pendingReqs, isAdminEmail(user?.email), shipPending);
   return (
     <header className="bg-slate-900 text-white px-6 py-3 flex items-center gap-4 shrink-0 border-b border-slate-800">
@@ -20095,7 +20097,7 @@ function SalesInfoCard({ title, sub, strong, danger, onClick }) {
 
 const salesReorderText = (r) => `주문한 지 ${r.days_since}일${r.cycle_days ? ` · 보통 ${r.cycle_days}일마다` : ''}`;
 
-function SalesHome({ data, onOpenOrder, onShowOrders, onMakeQuote, onGo, onFindEquipment, onShowDrafts, onOpenDraft, onOpenHospital, onFollowupDone, onLogout }) {
+function SalesHome({ data, onReport, onOpenOrder, onShowOrders, onMakeQuote, onGo, onFindEquipment, onShowDrafts, onOpenDraft, onOpenHospital, onFollowupDone, onLogout }) {
   const { rep, followups, services, reorders, drafts, upcoming, orders = [] } = data;
   const today = salesKstDate();
   const lateDays = (d) => Math.round((new Date(today) - new Date(d)) / 86400000);
@@ -20111,6 +20113,13 @@ function SalesHome({ data, onOpenOrder, onShowOrders, onMakeQuote, onGo, onFindE
         <button onClick={() => onGo('hospitals')} className={`${SALES_BTN_PLAIN} !min-h-[64px]`}><SalesIcon name="hospital" />병원 찾기</button>
         <button onClick={onFindEquipment} className={`${SALES_BTN_PLAIN} !min-h-[64px]`}><SalesIcon name="search" />장비 찾기</button>
       </div>
+      <button onClick={onReport} className={`${SALES_CARD} w-full text-left active:opacity-70 flex items-center justify-between gap-3`}>
+        <div>
+          <div className="text-[19px] font-bold text-slate-900">오늘 일일보고</div>
+          <div className={SALES_SUB}>{data.report_today ? `${salesTime(data.report_today.updated_at)}에 저장함` : '아직 안 썼습니다'}</div>
+        </div>
+        <span className={`text-[18px] font-bold shrink-0 ${data.report_today ? 'text-slate-600' : 'text-blue-700'}`}>{data.report_today ? '고치기' : '쓰기'}</span>
+      </button>
 
       {followups.length > 0 && <SalesSection>오늘 연락할 곳</SalesSection>}
       {followups.map(n => {
@@ -21070,6 +21079,89 @@ function SalesSettlementForm({ orderId, onBack, onDone }) {
   );
 }
 
+// ── 일일보고 (영업사원, 2026-11-20 사용자) — 글 한 칸 + 오늘 앱에서 한 일 자동. 하루 한 장, 그날 안엔 고침 ──
+const salesTime = (ts) => (ts ? new Date(ts).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '');
+
+function SalesActivityList({ activity, empty = '이날 앱에 남은 활동이 없습니다' }) {
+  const list = Array.isArray(activity) ? activity : [];
+  if (!list.length) return <SalesNote>{empty}</SalesNote>;
+  return (
+    <div className={`${SALES_CARD} divide-y divide-slate-200 !py-1`}>
+      {list.map((a, i) => (
+        <div key={i} className="py-2">
+          <div className="text-[15px] text-slate-500">{a.time} · {a.type}</div>
+          <div className="text-[17px] text-slate-900 break-words">{a.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SalesReport({ onBack, onSaved, onShowPast }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const load = () => {
+    setFailed(false);
+    salesApi('report_form').then(d => { setData(d); setText(d.report?.body || ''); }).catch(() => setFailed(true));
+  };
+  useEffect(load, []);
+  const save = async () => {
+    if (!text.trim()) { setMsg('보고 내용을 적어 주세요.'); return; }
+    setSaving(true); setMsg('');
+    try {
+      const r = await salesApi('save_report', { body: text });
+      setData(p => ({ ...p, report: r.report, activity: r.report.activity }));
+      setMsg('저장했습니다');
+      onSaved();
+    } catch (e) { setMsg(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (failed) return <SalesScreen><SalesBack label="홈으로" onClick={onBack} /><SalesRetry onRetry={load} /></SalesScreen>;
+  if (!data) return <SalesScreen><SalesBack label="홈으로" onClick={onBack} /><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  return (
+    <SalesScreen>
+      <SalesBack label="홈으로" onClick={onBack} />
+      <SalesTitle>일일보고</SalesTitle>
+      <div className={SALES_SUB}>{salesDate(data.date)} · {data.report ? `${salesTime(data.report.updated_at)}에 저장함 (오늘 안엔 고칠 수 있습니다)` : '아직 안 썼습니다'}</div>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={9} placeholder="오늘 한 일, 내일 할 일, 특이사항을 자유롭게 적어 주세요" className={SALES_INPUT} />
+      {msg && <div className={`text-[17px] font-bold ${msg === '저장했습니다' ? 'text-emerald-700' : 'text-rose-700'}`}>{msg}</div>}
+      <button onClick={save} disabled={saving} className={`${SALES_BTN_PRIMARY} w-full disabled:opacity-50`}>
+        {saving ? '저장하는 중입니다' : data.report ? '고쳐서 저장하기' : '보고 저장하기'}
+      </button>
+      <SalesSection>오늘 앱에서 한 일 (자동으로 붙음)</SalesSection>
+      <SalesActivityList activity={data.activity} empty="오늘 앱에 남은 활동이 없습니다" />
+      <button onClick={onShowPast} className={`${SALES_BTN_PLAIN} w-full`}>지난 보고 보기</button>
+    </SalesScreen>
+  );
+}
+
+function SalesReports({ onBack }) {
+  const [rows, setRows] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const load = () => { setFailed(false); salesApi('reports').then(r => setRows(r.reports)).catch(() => setFailed(true)); };
+  useEffect(load, []);
+  return (
+    <SalesScreen>
+      <SalesBack label="뒤로" onClick={onBack} />
+      <SalesTitle>지난 일일보고</SalesTitle>
+      {failed ? <SalesRetry onRetry={load} />
+        : rows === null ? <SalesNote>불러오는 중입니다</SalesNote>
+        : rows.length === 0 ? <SalesNote>아직 쓴 보고가 없습니다</SalesNote>
+        : rows.map(r => (
+          <div key={r.id} className={`${SALES_CARD} space-y-2`}>
+            <div className="text-[19px] font-bold text-slate-900">{salesDate(r.report_date)}</div>
+            <div className="text-[17px] text-slate-900 whitespace-pre-wrap break-words">{r.body}</div>
+            {Array.isArray(r.activity) && r.activity.length > 0 && <div className={SALES_SUB}>앱 활동 {r.activity.length}건</div>}
+          </div>
+        ))}
+    </SalesScreen>
+  );
+}
+
 const SALES_TABS = [
   { key: 'home', label: '홈', icon: 'home' },
   { key: 'chat', label: 'AI비서', icon: 'chat' },
@@ -21092,6 +21184,8 @@ function SalesApp({ user }) {
   const [orderScreen, setOrderScreen] = useState(null);
   const [settleOrderId, setSettleOrderId] = useState(null); // 매출정산서(계산서 발행 요청) 쓰기
   const [showOrders, setShowOrders] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false); // 일일보고 쓰기
+  const [pastReports, setPastReports] = useState(false);
   const [shareDialog, setShareDialog] = useState(null);
   const chat = useSalesChat();
 
@@ -21102,6 +21196,8 @@ function SalesApp({ user }) {
   useSalesBackLayer(!!draftDetailId, () => setDraftDetailId(null));
   useSalesBackLayer(!!viewerDraftId, () => setViewerDraftId(null));
   useSalesBackLayer(showOrders, () => setShowOrders(false));
+  useSalesBackLayer(reportOpen, () => setReportOpen(false));
+  useSalesBackLayer(pastReports, () => setPastReports(false));
   useSalesBackLayer(!!orderScreen, () => setOrderScreen(null));
   useSalesBackLayer(!!settleOrderId, () => setSettleOrderId(null));
 
@@ -21113,7 +21209,7 @@ function SalesApp({ user }) {
   useEffect(load, [email]);
 
   const logout = () => sb.auth.signOut();
-  const closeSubScreens = () => { setFindingEquipment(false); setShowDrafts(false); setDraftDetailId(null); setShowOrders(false); setOrderScreen(null); setSettleOrderId(null); };
+  const closeSubScreens = () => { setFindingEquipment(false); setShowDrafts(false); setDraftDetailId(null); setShowOrders(false); setOrderScreen(null); setSettleOrderId(null); setReportOpen(false); setPastReports(false); };
   const openOrder = (id) => setOrderScreen({ kind: 'detail', id });
   const goTab = (key) => { closeSubScreens(); setHospitalOpen(null); setTab(key); };
   const openHospital = (id) => { closeSubScreens(); setTab('hospitals'); setHospitalOpen({ id, editing: false }); };
@@ -21152,7 +21248,9 @@ function SalesApp({ user }) {
   }
 
   let screen;
-  if (settleOrderId) screen = <SalesSettlementForm key={settleOrderId} orderId={settleOrderId} onBack={() => setSettleOrderId(null)} onDone={() => { setSettleOrderId(null); refreshHome(); }} />;
+  if (pastReports) screen = <SalesReports onBack={() => setPastReports(false)} />;
+  else if (reportOpen) screen = <SalesReport onBack={() => setReportOpen(false)} onSaved={refreshHome} onShowPast={() => setPastReports(true)} />;
+  else if (settleOrderId) screen = <SalesSettlementForm key={settleOrderId} orderId={settleOrderId} onBack={() => setSettleOrderId(null)} onDone={() => { setSettleOrderId(null); refreshHome(); }} />;
   else if (orderScreen?.kind === 'detail') screen = <SalesOrderDetail key={orderScreen.id} id={orderScreen.id} onBack={() => setOrderScreen(null)} onSettle={setSettleOrderId} onChanged={refreshHome} />;
   else if (orderScreen?.kind === 'create') {
     screen = <SalesOrderCreate key={orderScreen.id} draftId={orderScreen.id} onBack={() => setOrderScreen(null)}
@@ -21170,11 +21268,11 @@ function SalesApp({ user }) {
     screen = <SalesHome data={data} onGo={goTab} onOpenDraft={setDraftDetailId} onOpenHospital={openHospital} onLogout={logout}
       onFindEquipment={() => setFindingEquipment(true)} onShowDrafts={() => setShowDrafts(true)}
       onFollowupDone={(id) => salesApi('done_note', { id }).then(refreshHome).catch(e => console.error('done_note', e))}
-      onOpenOrder={openOrder} onShowOrders={() => setShowOrders(true)}
+      onOpenOrder={openOrder} onShowOrders={() => setShowOrders(true)} onReport={() => setReportOpen(true)}
       onMakeQuote={() => { chat.guide(SALES_CHAT_GUIDES.quote); goTab('chat'); }} />;
   }
 
-  const onSubScreen = findingEquipment || showDrafts || !!draftDetailId || showOrders || !!orderScreen || !!settleOrderId;
+  const onSubScreen = findingEquipment || showDrafts || !!draftDetailId || showOrders || !!orderScreen || !!settleOrderId || reportOpen || pastReports;
   return (
     <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900">
       <div className="flex-1 min-h-0 w-full max-w-lg mx-auto flex flex-col">{screen}</div>
@@ -21233,15 +21331,14 @@ function useShippingPending() {
   return n;
 }
 
-function ShippingOrdersPage({ user, onLogout, nav }) {
+// 출고지시서 목록 읽기 — PC 화면·관리자 폰 화면 공용 (2026-11-20)
+function useShippingOrdersData() {
   const [orders, setOrders] = useState([]);
   const [mfrs, setMfrs] = useState([]);
   const [pos, setPos] = useState({});
   const [settles, setSettles] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [filter, setFilter] = useState('요청');
-  const [selId, setSelId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError('');
@@ -21261,6 +21358,13 @@ function ShippingOrdersPage({ user, onLogout, nav }) {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  return { orders, mfrs, pos, settles, loading, loadError, load };
+}
+
+function ShippingOrdersPage({ user, onLogout, nav }) {
+  const { orders, mfrs, pos, settles, loading, loadError, load } = useShippingOrdersData();
+  const [filter, setFilter] = useState('요청');
+  const [selId, setSelId] = useState(null);
 
   const counts = useMemo(() => orders.reduce((a, o) => ({ ...a, [o.status]: (a[o.status] || 0) + 1 }), {}), [orders]);
   const list = orders.filter(o => filter === '전체' || o.status === filter);
@@ -21313,7 +21417,8 @@ function ShippingOrdersPage({ user, onLogout, nav }) {
   );
 }
 
-function ShippingOrderDetail({ order, mfrs, pos, settlement, user, nav, onChanged }) {
+// 출고지시서 한 장 고치기·저장·반려·승인(=서명, 거래처별 발주) — PC 화면·관리자 폰 화면 공용 (2026-11-20)
+function useShippingOrderEditor({ order, mfrs, user, onChanged }) {
   const editable = order.status === '요청';
   const mfrById = useMemo(() => Object.fromEntries(mfrs.map(m => [m.id, m])), [mfrs]);
   const mfrByName = useMemo(() => Object.fromEntries(mfrs.map(m => [m.name, m])), [mfrs]);
@@ -21443,6 +21548,11 @@ function ShippingOrderDetail({ order, mfrs, pos, settlement, user, nav, onChange
     setMsg('승인했습니다. 발주 진행에서 확인하세요.');
   });
 
+  return { editable, items, edit, setLine, lineMfr, linePrice, vendorsInOrder, purchaseSum, blankPrices, profitSum, adminMemo, setAdminMemo, busy, msg, onSave, onReject, onApprove };
+}
+
+function ShippingOrderDetail({ order, mfrs, pos, settlement, user, nav, onChanged }) {
+  const { editable, items, edit, setLine, lineMfr, linePrice, vendorsInOrder, purchaseSum, blankPrices, profitSum, adminMemo, setAdminMemo, busy, msg, onSave, onReject, onApprove } = useShippingOrderEditor({ order, mfrs, user, onChanged });
   const orderPos = [...new Set(items.map(i => i.po_id).filter(Boolean))].map(id => pos[id]).filter(Boolean);
   const inputCls = 'border border-slate-300 rounded px-2 py-1 text-sm w-full';
 
@@ -21563,12 +21673,11 @@ function ShippingOrderDetail({ order, mfrs, pos, settlement, user, nav, onChange
 }
 
 // ── 어드민: 매출정산서 (영업사원 세금계산서 발행 요청) ──
-function SalesSettlementsPage({ user, onLogout, nav }) {
+// 매출정산서 목록 읽기 — PC 화면·관리자 폰 화면 공용 (2026-11-20)
+function useSettlementsData() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [filter, setFilter] = useState('요청');
-  const [selId, setSelId] = useState(null);
   const load = useCallback(async () => {
     setLoading(true); setLoadError('');
     const { data, error } = await sb.from('sales_settlements')
@@ -21578,6 +21687,13 @@ function SalesSettlementsPage({ user, onLogout, nav }) {
     setRows(data); setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  return { rows, loading, loadError, load };
+}
+
+function SalesSettlementsPage({ user, onLogout, nav }) {
+  const { rows, loading, loadError, load } = useSettlementsData();
+  const [filter, setFilter] = useState('요청');
+  const [selId, setSelId] = useState(null);
   const counts = useMemo(() => rows.reduce((a, r) => ({ ...a, [r.status]: (a[r.status] || 0) + 1 }), {}), [rows]);
   const list = rows.filter(r => filter === '전체' || r.status === filter || (filter === '반려·취소' && (r.status === '반려' || r.status === '취소')));
   const sel = rows.find(r => r.id === selId) || null;
@@ -21618,7 +21734,8 @@ function SalesSettlementsPage({ user, onLogout, nav }) {
   );
 }
 
-function SalesSettlementDetail({ s, user, onChanged }) {
+// 매출정산서 한 장 — 계산서 후보·발행완료·반려·복사 (PC 화면·관리자 폰 화면 공용, 2026-11-20)
+function useSettlementActions({ s, user, onChanged }) {
   const [cands, setCands] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -21661,6 +21778,11 @@ function SalesSettlementDetail({ s, user, onChanged }) {
     await onChanged();
   });
 
+  return { cands, busy, msg, copy, markIssued, reject, h, fmtReg, poIds };
+}
+
+function SalesSettlementDetail({ s, user, onChanged }) {
+  const { cands, busy, msg, copy, markIssued, reject, h, fmtReg } = useSettlementActions({ s, user, onChanged });
   const field = (label, value, warn) => (
     <div>
       <div className="text-xs text-slate-400">{label}</div>
@@ -21882,6 +22004,438 @@ function TaxInvoicePdfPage({ user, onLogout, nav }) {
   );
 }
 
+// ── 관리자 폰 화면 (2026-11-20 사용자: "어드민 계정으로 앱(핸드폰)에서 로그인하면 출고지시서·매출정산서·영업사원관리") ──
+//   휴대폰(좁은 화면)이면 자동. 위쪽 "PC 화면으로" → 이 기기에서 기억. PC 관리자 메뉴 "폰 화면으로"로 되돌림
+//   출고지시서·매출정산서 고치기·승인 로직은 PC 화면과 같은 훅(useShippingOrderEditor·useSettlementActions)
+const ADMIN_VIEW_KEY = 'dwAdminView'; // 'pc' | 'mobile'
+const isPhoneScreen = () => window.innerWidth < 768;
+function readAdminView() { try { return localStorage.getItem(ADMIN_VIEW_KEY); } catch (_) { return null; } }
+function saveAdminView(v) { try { localStorage.setItem(ADMIN_VIEW_KEY, v); } catch (_) {} }
+
+async function loadShipCounts() {
+  const [o, s] = await Promise.all([
+    sb.from('shipping_orders').select('id', { count: 'exact', head: true }).eq('status', '요청'),
+    sb.from('sales_settlements').select('id', { count: 'exact', head: true }).eq('status', '요청'),
+  ]);
+  return { orders: o.count || 0, settlements: s.count || 0 };
+}
+
+const ADMIN_M_TABS = [
+  { key: 'ship', label: '출고지시서', icon: 'doc' },
+  { key: 'settle', label: '정산서', icon: 'folder' },
+  { key: 'report', label: '일일보고', icon: 'chat' },
+  { key: 'reps', label: '영업사원', icon: 'hospital' },
+];
+
+function AdminMobileApp({ user, onDesktop }) {
+  const [tab, setTab] = useState('ship');
+  const [counts, setCounts] = useState({ orders: 0, settlements: 0 });
+  const [openShip, setOpenShip] = useState(null);
+  const [openSettle, setOpenSettle] = useState(null);
+  const refreshCounts = () => loadShipCounts().then(setCounts).catch(() => {});
+  useEffect(() => { refreshCounts(); }, [tab]);
+  useSalesBackLayer(!!openShip, () => setOpenShip(null));
+  useSalesBackLayer(!!openSettle, () => setOpenSettle(null));
+  const goTab = (k) => { setOpenShip(null); setOpenSettle(null); setTab(k); };
+
+  let screen;
+  if (tab === 'ship') screen = <AdminMShipping openId={openShip} setOpenId={setOpenShip} user={user} onChanged={refreshCounts} />;
+  else if (tab === 'settle') screen = <AdminMSettlements openId={openSettle} setOpenId={setOpenSettle} user={user} onChanged={refreshCounts} />;
+  else if (tab === 'report') screen = <SalesScreen><SalesTitle>일일보고</SalesTitle><DailyReportsView /></SalesScreen>;
+  else screen = <AdminMReps />;
+
+  return (
+    <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900">
+      <div className="bg-slate-900 text-white px-4 pb-2 flex items-center gap-2 shrink-0" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
+        <span className="font-bold text-[17px]">DWmedi 관리자</span>
+        <button onClick={onDesktop} className="ml-auto text-[14px] bg-slate-700 rounded-lg px-3 py-1.5">PC 화면으로</button>
+        <button onClick={() => sb.auth.signOut()} className="text-[14px] text-slate-300 px-2 py-1.5">로그아웃</button>
+      </div>
+      <div className="flex-1 min-h-0 w-full max-w-lg mx-auto flex flex-col">{screen}</div>
+      <nav className="bg-white border-t-2 border-slate-300 shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="grid grid-cols-4 max-w-lg mx-auto">
+          {ADMIN_M_TABS.map(t => {
+            const n = t.key === 'ship' ? counts.orders : t.key === 'settle' ? counts.settlements : 0;
+            const on = tab === t.key && !openShip && !openSettle;
+            return (
+              <button key={t.key} onClick={() => goTab(t.key)} aria-current={on ? 'page' : undefined}
+                className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[68px] text-[15px] font-bold ${tab === t.key ? 'text-blue-700 bg-blue-50' : 'text-slate-600'}`}>
+                <SalesIcon name={t.icon} className="w-7 h-7" />
+                {t.label}
+                {n > 0 && <span className="absolute top-1.5 right-[18%] min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[12px] leading-5 text-center">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+const AdminMFilter = ({ options, value, onChange }) => (
+  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+    {options.map(([k, label, n]) => (
+      <button key={k} onClick={() => onChange(k)}
+        className={`rounded-xl py-3 text-[16px] font-bold border-2 ${value === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300'}`}>
+        {label} <span className={value === k ? 'text-slate-300' : 'text-slate-400'}>{n}</span>
+      </button>
+    ))}
+  </div>
+);
+
+// 출고지시서 — 목록 + 한 장 (거래처·매입가 확인 → 승인(서명) = 거래처별 발주)
+function AdminMShipping({ openId, setOpenId, user, onChanged }) {
+  const { orders, mfrs, pos, settles, loading, loadError, load } = useShippingOrdersData();
+  const [filter, setFilter] = useState('요청');
+  const reload = async () => { await load(); onChanged?.(); };
+  const sel = openId ? orders.find(o => o.id === openId) : null;
+  if (sel) return <AdminMShippingDetail key={sel.id} order={sel} mfrs={mfrs} pos={pos} settlement={settles[sel.id]} user={user} onBack={() => setOpenId(null)} onChanged={reload} />;
+  const counts = orders.reduce((a, o) => ({ ...a, [o.status]: (a[o.status] || 0) + 1 }), {});
+  const list = orders.filter(o => filter === '전체' || o.status === filter);
+  return (
+    <SalesScreen>
+      <SalesTitle>출고지시서</SalesTitle>
+      <AdminMFilter value={filter} onChange={setFilter} options={[['요청', '승인 대기', counts['요청'] || 0], ['승인', '승인', counts['승인'] || 0], ['전체', '전체', orders.length]]} />
+      {loading ? <SalesNote>불러오는 중입니다</SalesNote>
+        : loadError ? <SalesNote>불러오지 못했습니다: {loadError}</SalesNote>
+        : list.length === 0 ? <SalesNote>없습니다</SalesNote>
+        : list.map(o => {
+          const poList = [...new Set(o.shipping_order_items.map(i => i.po_id).filter(Boolean))].map(id => pos[id]).filter(p => p && p.status !== '취소');
+          const done = poList.filter(shipPoDone).length;
+          const st = settles[o.id];
+          const state = o.status === '요청' ? '승인 대기' : o.status === '승인'
+            ? `납품 ${done}/${poList.length}${st ? (st.status === '발행완료' ? ' · 계산서 발행됨' : ' · 계산서 요청') : ''}` : o.status;
+          return <SalesInfoCard key={o.id} title={o.hospital_name} sub={`${o.order_no} · ${o.rep_name} · ${shipDay(o.created_at).slice(5).replace('-', '/')}`}
+            strong={`${state} · ${shipWon(o.sale_total)}`} danger={o.status === '반려'} onClick={() => setOpenId(o.id)} />;
+        })}
+    </SalesScreen>
+  );
+}
+
+function AdminMShippingDetail({ order, mfrs, pos, settlement, user, onBack, onChanged }) {
+  const { editable, items, edit, setLine, lineMfr, linePrice, vendorsInOrder, purchaseSum, blankPrices, profitSum, adminMemo, setAdminMemo, busy, msg, onSave, onReject, onApprove } = useShippingOrderEditor({ order, mfrs, user, onChanged });
+  const orderPos = [...new Set(items.map(i => i.po_id).filter(Boolean))].map(id => pos[id]).filter(Boolean);
+  return (
+    <SalesScreen>
+      <SalesBack label="목록" onClick={onBack} />
+      <SalesTitle>{order.hospital_name}</SalesTitle>
+      <div className={SALES_SUB}>{order.order_no} · 영업사원 {order.rep_name} · 요청 {shipDay(order.created_at)}</div>
+      <div className={`${SALES_CARD} space-y-1 text-[16px] text-slate-800`}>
+        <div className="text-[18px] font-bold">{order.status === '요청' ? '승인 대기' : order.status}{order.approved_at ? ` · 서명 ${order.approved_by}` : ''}</div>
+        <div>납품 희망일: {order.delivery_date || '-'}</div>
+        <div className="break-words">설치 장소: {order.delivery_place || '-'}</div>
+        {order.memo && <div className="whitespace-pre-wrap break-words">메모: {order.memo}</div>}
+        {order.reject_reason && <div className="text-rose-700">반려 이유: {order.reject_reason}</div>}
+      </div>
+      {items.map(it => {
+        const e = edit[it.id] || {};
+        const m = lineMfr(it);
+        const price = linePrice(it);
+        return (
+          <div key={it.id} className={`${SALES_CARD} space-y-2 ${it.is_discount ? '!bg-rose-50' : ''}`}>
+            <div className="text-[18px] font-bold text-slate-900 leading-snug">{it.item_name}{it.model_name && <span className="text-[15px] font-normal text-slate-500"> {it.model_name}</span>}</div>
+            <div className="text-[16px] text-slate-700">{it.quantity}개 × 매출 {shipWon(it.sale_price)}</div>
+            {e.hint && <div className="text-[14px] text-blue-700">{e.hint}</div>}
+            {!editable ? (
+              <div className="text-[16px] text-slate-700">거래처 {m?.name || '-'} · {it.is_discount ? '할인 줄' : `매입 ${shipWon(it.purchase_price)}`}{it.po_id && pos[it.po_id] ? ` · ${pos[it.po_id].po_no}` : ''}</div>
+            ) : it.is_discount ? (
+              <select value={m?.name || ''} onChange={ev => setLine(it.id, 'mfrName', ev.target.value)} className={SALES_INPUT}>
+                <option value="">넣을 발주(거래처) 고르기</option>
+                {vendorsInOrder.map(v => <option key={v.id} value={v.name}>{v.name} 발주에</option>)}
+              </select>
+            ) : (
+              <>
+                <input list="adm-m-mfr-list" value={e.mfrName || ''} onChange={ev => setLine(it.id, 'mfrName', ev.target.value)} placeholder="거래처 이름"
+                  className={`${SALES_INPUT} ${e.mfrName && !m ? '!border-rose-500' : ''}`} />
+                <input value={e.price ?? ''} onChange={ev => setLine(it.id, 'price', ev.target.value)} inputMode="numeric" placeholder="매입 단가 (빈칸 = 계산서 오면)" className={SALES_INPUT} />
+                {price != null && <div className={`text-[15px] ${it.sale_price - price < 0 ? 'text-rose-700' : 'text-slate-600'}`}>이익 {shipWon((it.sale_price - price) * it.quantity)}</div>}
+              </>
+            )}
+          </div>
+        );
+      })}
+      <datalist id="adm-m-mfr-list">{mfrs.map(mm => <option key={mm.id} value={mm.name} />)}</datalist>
+      <div className={`${SALES_CARD} space-y-1 text-[17px]`}>
+        <div className="flex justify-between"><span>매출 합계</span><b>{shipWon(order.sale_total)}</b></div>
+        <div className="flex justify-between"><span>매입 합계</span><b>{shipWon(purchaseSum)}</b></div>
+        <div className="flex justify-between"><span>이익{blankPrices ? ' (빈칸 빼고)' : ''}</span><b className={profitSum < 0 ? 'text-rose-700' : ''}>{shipWon(profitSum)}</b></div>
+        {blankPrices > 0 && <div className="text-[15px] text-amber-700">매입가 빈칸 {blankPrices}줄 — 비운 채로 승인하면 계산서 올 때 채움</div>}
+      </div>
+      {editable && <textarea value={adminMemo} onChange={e => setAdminMemo(e.target.value)} rows={2} placeholder="관리자 메모 (영업사원에게 안 보임)" className={SALES_INPUT} />}
+      {msg && <div className={`text-[17px] font-bold ${/실패|고르세요/.test(msg) ? 'text-rose-700' : 'text-emerald-700'}`}>{msg}</div>}
+      {editable && (
+        <>
+          <button disabled={busy} onClick={onApprove} className={`${SALES_BTN_PRIMARY} w-full disabled:opacity-50`}>승인(서명)하고 발주 만들기</button>
+          <div className="grid grid-cols-2 gap-2">
+            <button disabled={busy} onClick={onSave} className={SALES_BTN_PLAIN}>저장 (나중에)</button>
+            <button disabled={busy} onClick={onReject} className={`${SALES_BTN_PLAIN} !text-rose-700 !border-rose-300`}>반려</button>
+          </div>
+        </>
+      )}
+      {orderPos.length > 0 && <SalesSection>만들어진 발주</SalesSection>}
+      {orderPos.map(p => (
+        <SalesInfoCard key={p.id} title={`${p.po_no} · ${p.manufacturer_name}`} sub={`매입 ${shipWon(p.total_amount)} · 매출 ${shipWon(p.sale_amount)}`}
+          strong={p.status === '취소' ? '취소' : shipPoDone(p) ? '납품완료' : p.status} />
+      ))}
+      {settlement && <SalesNote>계산서 {settlement.status === '발행완료' ? '발행됨' : '발행 요청 들어옴'} · {shipWon(settlement.total_amount)}</SalesNote>}
+    </SalesScreen>
+  );
+}
+
+// 매출정산서 — 목록 + 한 장 (복사 단추, 계산서 골라 발행완료, 반려)
+function AdminMSettlements({ openId, setOpenId, user, onChanged }) {
+  const { rows, loading, loadError, load } = useSettlementsData();
+  const [filter, setFilter] = useState('요청');
+  const reload = async () => { await load(); onChanged?.(); };
+  const sel = openId ? rows.find(r => r.id === openId) : null;
+  if (sel) return <AdminMSettlementDetail key={sel.id} s={sel} user={user} onBack={() => setOpenId(null)} onChanged={reload} />;
+  const counts = rows.reduce((a, r) => ({ ...a, [r.status]: (a[r.status] || 0) + 1 }), {});
+  const list = rows.filter(r => filter === '전체' || r.status === filter);
+  return (
+    <SalesScreen>
+      <SalesTitle>매출정산서</SalesTitle>
+      <AdminMFilter value={filter} onChange={setFilter} options={[['요청', '발행 요청', counts['요청'] || 0], ['발행완료', '발행완료', counts['발행완료'] || 0], ['전체', '전체', rows.length]]} />
+      {loading ? <SalesNote>불러오는 중입니다</SalesNote>
+        : loadError ? <SalesNote>불러오지 못했습니다: {loadError}</SalesNote>
+        : list.length === 0 ? <SalesNote>없습니다</SalesNote>
+        : list.map(r => (
+          <SalesInfoCard key={r.id} title={r.buyer_name} sub={`발행일 ${r.issue_date} · ${r.rep_name || ''}${r.shipping_orders?.order_no ? ` · ${r.shipping_orders.order_no}` : ''}`}
+            strong={`${r.status === '요청' ? '발행 요청' : r.status} · ${shipWon(r.total_amount)}`} danger={r.status === '반려'} onClick={() => setOpenId(r.id)} />
+        ))}
+    </SalesScreen>
+  );
+}
+
+function AdminMSettlementDetail({ s, user, onBack, onChanged }) {
+  const { cands, busy, msg, copy, markIssued, reject, h, fmtReg } = useSettlementActions({ s, user, onChanged });
+  const orderTotal = s.shipping_orders?.sale_total;
+  const Row = ({ label, value, warn }) => (
+    <div className="py-2">
+      <div className="text-[14px] text-slate-500">{label}</div>
+      <div className="flex items-center gap-2">
+        <span className="text-[18px] text-slate-900 break-all flex-1">{value || '-'}</span>
+        {value && <button onClick={() => copy(value)} className="shrink-0 text-[15px] font-bold text-blue-700 border-2 border-blue-200 rounded-lg px-3 py-1.5">복사</button>}
+      </div>
+      {warn && <div className="text-[14px] text-amber-700">{warn}</div>}
+    </div>
+  );
+  return (
+    <SalesScreen>
+      <SalesBack label="목록" onClick={onBack} />
+      <SalesTitle>계산서 발행 요청</SalesTitle>
+      <div className={SALES_SUB}>{s.rep_name || ''} · 요청 {shipDay(s.created_at)}{s.shipping_orders?.order_no ? ` · ${s.shipping_orders.order_no}` : ''} · {s.status === '요청' ? '발행 요청' : s.status}</div>
+      <div className={`${SALES_CARD} divide-y divide-slate-200 !py-1`}>
+        <Row label="상호 (병원 이름)" value={s.buyer_name} />
+        <Row label="사업자번호" value={fmtReg(s.buyer_reg_no)} warn={h.business_reg_no && h.business_reg_no !== s.buyer_reg_no ? `병원 정보의 번호(${fmtReg(h.business_reg_no)})와 다름` : null} />
+        <Row label="대표자 (원장)" value={s.buyer_ceo} />
+        <Row label="이메일" value={s.buyer_email} />
+        <Row label="주소" value={s.buyer_address} />
+        <Row label="발행(작성)일자" value={s.issue_date} />
+        <Row label="발행금액 (부가세 포함)" value={shipWon(s.total_amount)} warn={orderTotal != null && orderTotal !== s.total_amount ? `출고지시서 금액 ${shipWon(orderTotal)}과 다름` : null} />
+      </div>
+      <SalesSection>품목</SalesSection>
+      {(s.items || []).map((l, i) => (
+        <div key={i} className={`${SALES_CARD} space-y-1`}>
+          <div className="text-[18px] font-bold">{l.name}{l.spec && <span className="text-[15px] font-normal text-slate-500"> {l.spec}</span>}</div>
+          <div className="text-[16px] text-slate-700">{l.qty}개 × 단가 {shipWon(l.unit_price)}</div>
+          <div className="text-[16px] text-slate-700">공급가액 {shipWon(l.supply)} · 세액 {shipWon(l.tax)}</div>
+        </div>
+      ))}
+      <div className={`${SALES_CARD} text-[17px] flex justify-between`}><span>공급가액 {shipWon(s.supply_amount)} · 세액 {shipWon(s.tax_amount)}</span></div>
+      {s.memo && <SalesNote>영업사원 메모: {s.memo}</SalesNote>}
+      {msg && <div className={`text-[16px] font-bold ${/실패/.test(msg) ? 'text-rose-700' : 'text-emerald-700'}`}>{msg}</div>}
+      {s.status === '요청' && (
+        <>
+          <SalesSection>발행했으면 계산서 고르기</SalesSection>
+          {cands === null ? <SalesNote>찾는 중입니다</SalesNote>
+            : cands.length === 0 ? <SalesNote>같은 병원·같은 금액 계산서가 아직 앱에 없습니다. 발행 후 "업데이트"하면 들어옵니다.</SalesNote>
+            : cands.map(t => (
+              <button key={t.id} disabled={busy} onClick={() => markIssued(t)} className={`${SALES_CARD} w-full text-left active:opacity-70`}>
+                <div className="text-[18px] font-bold">{t.issue_date} · {shipWon(t.amount)}</div>
+                <div className={SALES_SUB}>{t.memo || t.party_name}</div>
+                <div className="text-[16px] font-bold text-emerald-700 mt-1">이 계산서로 발행완료</div>
+              </button>
+            ))}
+          <div className="grid grid-cols-2 gap-2">
+            <button disabled={busy} onClick={() => markIssued(null)} className={SALES_BTN_PLAIN}>발행완료로만</button>
+            <button disabled={busy} onClick={reject} className={`${SALES_BTN_PLAIN} !text-rose-700 !border-rose-300`}>반려</button>
+          </div>
+        </>
+      )}
+    </SalesScreen>
+  );
+}
+
+// 영업사원 — 명단·담당 병원·담당 지정·추가
+function AdminMReps() {
+  const [reps, setReps] = useState([]);
+  const [hospitals, setHospitals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [openRep, setOpenRep] = useState(null);
+  const [q, setQ] = useState('');
+  const [form, setForm] = useState({ name: '', email: '' });
+  const [msg, setMsg] = useState('');
+  useSalesBackLayer(!!openRep, () => { setOpenRep(null); setQ(''); });
+  const load = async () => {
+    setLoading(true); setError('');
+    const [r, h] = await Promise.all([
+      sb.from('sales_reps').select('id,name,email').order('name'),
+      sb.from('hospitals').select('id,name,address,assigned_rep_id').order('name'),
+    ]);
+    if (r.error || h.error) { setError((r.error || h.error).message); setLoading(false); return; }
+    setReps(r.data.filter(x => !isAdminEmail(x.email))); setHospitals(h.data); setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+  const assign = async (hid, repId) => {
+    const { error: e } = await sb.from('hospitals').update({ assigned_rep_id: repId }).eq('id', hid);
+    if (e) { setMsg('담당 지정 실패: ' + e.message); return; }
+    setHospitals(p => p.map(x => (x.id === hid ? { ...x, assigned_rep_id: repId } : x)));
+  };
+  const addRep = async () => {
+    const name = form.name.trim(); const email = form.email.trim().toLowerCase();
+    if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setMsg('이름과 이메일을 정확히 적어 주세요.'); return; }
+    const { data, error: e } = await sb.from('sales_reps').insert({ name, email }).select('id,name,email').single();
+    if (e) { setMsg(e.code === '23505' ? '이미 등록된 이메일입니다.' : e.message); return; }
+    salesRepNamesPromise = null;
+    setReps(p => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
+    setForm({ name: '', email: '' }); setMsg(`${name}님을 추가했습니다. 로그인 계정은 Supabase에서 같은 이메일로 만들어 주세요.`);
+  };
+  const repName = (id) => reps.find(r => r.id === id)?.name || '';
+
+  if (loading) return <SalesScreen><SalesTitle>영업사원</SalesTitle><SalesNote>불러오는 중입니다</SalesNote></SalesScreen>;
+  if (error) return <SalesScreen><SalesTitle>영업사원</SalesTitle><SalesNote>불러오지 못했습니다: {error}</SalesNote></SalesScreen>;
+
+  if (openRep) {
+    const rep = reps.find(r => r.id === openRep);
+    const mine = hospitals.filter(h => h.assigned_rep_id === openRep);
+    const needle = salesNorm(q);
+    const found = needle.length >= 2 ? hospitals.filter(h => h.assigned_rep_id !== openRep && salesNorm(`${h.name} ${h.address || ''}`).includes(needle)).slice(0, 20) : [];
+    return (
+      <SalesScreen>
+        <SalesBack label="영업사원 목록" onClick={() => { setOpenRep(null); setQ(''); }} />
+        <SalesTitle>{rep?.name}</SalesTitle>
+        <div className={SALES_SUB}>{rep?.email}</div>
+        <SalesSection>담당 병원 {mine.length}곳</SalesSection>
+        {mine.length === 0 ? <SalesNote>아직 담당 병원이 없습니다</SalesNote> : mine.map(h => (
+          <div key={h.id} className={`${SALES_CARD} flex items-center gap-3`}>
+            <div className="flex-1 min-w-0"><div className="text-[18px] font-bold truncate">{h.name}</div><div className={`${SALES_SUB} truncate`}>{h.address || ''}</div></div>
+            <button onClick={() => assign(h.id, null)} className="shrink-0 text-[15px] font-bold text-rose-700 border-2 border-rose-200 rounded-lg px-3 py-2">빼기</button>
+          </div>
+        ))}
+        <SalesSection>병원 담당으로 넣기</SalesSection>
+        <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="병원 이름 두 글자 이상" className={SALES_INPUT} />
+        {found.map(h => (
+          <div key={h.id} className={`${SALES_CARD} flex items-center gap-3`}>
+            <div className="flex-1 min-w-0">
+              <div className="text-[18px] font-bold truncate">{h.name}</div>
+              <div className={`${SALES_SUB} truncate`}>{h.assigned_rep_id ? `지금 담당 ${repName(h.assigned_rep_id) || '다른 사람'}` : '담당 없음'}</div>
+            </div>
+            <button onClick={() => assign(h.id, openRep)} className="shrink-0 text-[15px] font-bold text-blue-700 border-2 border-blue-200 rounded-lg px-3 py-2">담당으로</button>
+          </div>
+        ))}
+        {msg && <div className="text-[16px] font-bold text-rose-700">{msg}</div>}
+      </SalesScreen>
+    );
+  }
+  const none = hospitals.filter(h => !h.assigned_rep_id).length;
+  return (
+    <SalesScreen>
+      <SalesTitle>영업사원</SalesTitle>
+      {reps.map(r => (
+        <SalesInfoCard key={r.id} title={r.name} sub={r.email} strong={`담당 병원 ${hospitals.filter(h => h.assigned_rep_id === r.id).length}곳`} onClick={() => setOpenRep(r.id)} />
+      ))}
+      <div className={SALES_SUB}>담당 없는 병원 {none}곳 — 영업사원을 눌러 담당을 넣을 수 있습니다</div>
+      <SalesSection>영업사원 추가</SalesSection>
+      <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="이름" className={SALES_INPUT} />
+      <input value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="로그인 이메일" inputMode="email" className={SALES_INPUT} />
+      <button onClick={addRep} className={`${SALES_BTN_PRIMARY} w-full`}>추가</button>
+      {msg && <div className="text-[16px] font-bold text-slate-700">{msg}</div>}
+    </SalesScreen>
+  );
+}
+
+// 일일보고 읽기 — 관리자 폰 화면·PC 메뉴 공용. 날짜별, 안 쓴 영업사원 표시 (관리자 계정은 빼고)
+function DailyReportsView() {
+  const today = shipToday();
+  const [date, setDate] = useState(today);
+  const [reps, setReps] = useState([]);
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
+  const [openAct, setOpenAct] = useState({});
+  useEffect(() => {
+    let alive = true;
+    setRows(null); setError('');
+    (async () => {
+      const [r, d] = await Promise.all([
+        sb.from('sales_reps').select('id,name,email').order('name'),
+        sb.from('sales_daily_reports').select('rep_id,body,activity,updated_at').eq('report_date', date),
+      ]);
+      if (!alive) return;
+      if (r.error || d.error) { setError((r.error || d.error).message); return; }
+      setReps(r.data.filter(x => !isAdminEmail(x.email)));
+      setRows(d.data);
+    })();
+    return () => { alive = false; };
+  }, [date]);
+  const move = (n) => { const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); setDate(d.toISOString().slice(0, 10)); };
+  const byRep = new Map((rows || []).map(x => [x.rep_id, x]));
+  const written = reps.filter(r => byRep.has(r.id));
+  const ordered = [...written, ...reps.filter(r => !byRep.has(r.id))];
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <button onClick={() => move(-1)} className={`${SALES_BTN_PLAIN} !min-h-[48px] !px-3`}>◀</button>
+        <input type="date" value={date} max={today} onChange={e => e.target.value && setDate(e.target.value)} className={`${SALES_INPUT} flex-1 text-center`} />
+        <button onClick={() => move(1)} disabled={date >= today} className={`${SALES_BTN_PLAIN} !min-h-[48px] !px-3 disabled:opacity-40`}>▶</button>
+      </div>
+      {error ? <SalesNote>불러오지 못했습니다: {error}</SalesNote>
+        : rows === null ? <SalesNote>불러오는 중입니다</SalesNote>
+        : (
+          <>
+            <div className="text-[17px] font-bold text-slate-700">쓴 사람 {written.length} / {reps.length}명</div>
+            {ordered.map(r => {
+              const x = byRep.get(r.id);
+              const act = Array.isArray(x?.activity) ? x.activity : [];
+              return (
+                <div key={r.id} className={`${SALES_CARD} space-y-2`}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[19px] font-bold text-slate-900">{r.name}</span>
+                    <span className={`text-[15px] font-bold ${x ? 'text-slate-500' : 'text-rose-700'}`}>{x ? new Date(x.updated_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '아직 안 씀'}</span>
+                  </div>
+                  {x && <div className="text-[17px] text-slate-900 whitespace-pre-wrap break-words">{x.body}</div>}
+                  {act.length > 0 && (
+                    <button onClick={() => setOpenAct(p => ({ ...p, [r.id]: !p[r.id] }))} className="text-[15px] font-bold text-blue-700">
+                      앱 활동 {act.length}건 {openAct[r.id] ? '접기' : '보기'}
+                    </button>
+                  )}
+                  {openAct[r.id] && act.map((a, i) => (
+                    <div key={i} className="text-[15px] text-slate-700 border-t border-slate-100 pt-1">
+                      <span className="text-slate-500">{a.time} · {a.type}</span> {a.text}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </>
+        )}
+    </>
+  );
+}
+
+function DailyReportsPage({ user, onLogout, nav }) {
+  return (
+    <div style={{ height: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <AppHeader title="일일보고" onLogoClick={nav?.home} user={user} onLogout={onLogout} nav={nav} />
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto p-6 space-y-4">
+          <DailyReportsView />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 어드민: 영업사원 명단 + 병원 담당 지정
 function SalesRepsPage({ user, onLogout, nav }) {
   const [reps, setReps] = useState([]);
@@ -22062,6 +22616,8 @@ function mergeQuoteSections(cats) {
 
 function App() {
   const [shareMode] = useState(() => detectShareMode());
+  // 관리자 폰 화면 (2026-11-20): 휴대폰이면 자동, "PC 화면으로"/"폰 화면으로"는 이 기기에서 기억
+  const [adminView, setAdminView] = useState(() => readAdminView() || (isPhoneScreen() ? 'mobile' : 'pc'));
   const [quoteInfo, setQuoteInfo] = useState({
     hospital: '',
     doctor: '',
@@ -22346,6 +22902,10 @@ function App() {
     return <SalesApp user={user} />;
   }
 
+  if (adminView === 'mobile') {
+    return <AdminMobileApp user={user} onDesktop={() => { saveAdminView('pc'); setAdminView('pc'); }} />;
+  }
+
   const nav = {
     leads:     () => { setListInitialTab('saved'); setListInitialDept(null); setLeadsStageFilter(null); setView('leads'); },
     editor:    () => setView('editor'),
@@ -22366,6 +22926,8 @@ function App() {
     shippingOrders: () => setView('shipping-orders'),
     settlements: () => setView('settlements'),
     taxPdfs: () => setView('tax-pdfs'),
+    dailyReports: () => setView('daily-reports'),
+    mobileView: () => { saveAdminView('mobile'); setAdminView('mobile'); },
   };
 
   if (view === 'home') {
@@ -22376,6 +22938,9 @@ function App() {
   }
   if (view === 'shipping-orders') {
     return <ShippingOrdersPage user={user} onLogout={handleLogout} nav={nav} />;
+  }
+  if (view === 'daily-reports') {
+    return <DailyReportsPage user={user} onLogout={handleLogout} nav={nav} />;
   }
   if (view === 'tax-pdfs') {
     return <TaxInvoicePdfPage user={user} onLogout={handleLogout} nav={nav} />;
@@ -22538,7 +23103,7 @@ function App() {
 
   return (
     <div style={{height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden'}}>
-      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} onSalesReps={() => setView('sales-reps')} onShippingOrders={() => setView('shipping-orders')} onSettlements={() => setView('settlements')} onTaxPdfs={() => setView('tax-pdfs')} onAiMonitor={() => setView('ai-monitor')} user={user} onLogout={handleLogout}/>
+      <Header quoteInfo={quoteInfo} setQuoteInfo={setQuoteInfo} onSave={handleSave} onLoad={() => { setListInitialTab('saved'); setListInitialDept(null); setView('list'); }} onLoadStandard={() => { setListInitialTab('standard'); setListInitialDept(null); setView('list'); }} onManage={() => setView('manage')} onHome={() => setView('editor')} onLeads={() => setView('leads')} onHospitals={() => setView('hospitals')} onService={() => setView('service')} onPayables={() => setView('payables')} onPoTracking={() => setView('po-tracking')} onOrderRequests={() => setView('order-requests')} onDashboard={() => setView('home')} onSalesReps={() => setView('sales-reps')} onShippingOrders={() => setView('shipping-orders')} onSettlements={() => setView('settlements')} onTaxPdfs={() => setView('tax-pdfs')} onDailyReports={() => setView('daily-reports')} onMobileView={() => { saveAdminView('mobile'); setAdminView('mobile'); }} onAiMonitor={() => setView('ai-monitor')} user={user} onLogout={handleLogout}/>
       <ControlsBar search={search} setSearch={setSearch} onAddEquip={()=>setAddEquipOpen(true)}/>
 
       <div style={{flex:1, display:'flex', overflow:'hidden', minHeight:0}}>

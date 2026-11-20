@@ -181,6 +181,7 @@ async function home(rep) {
     ids ? consumableMap() : new Map(),
     myOrders(rep, 30),
   ]);
+  const [reportToday] = await sb(`sales_daily_reports?rep_id=eq.${rep.id}&report_date=eq.${today}&select=updated_at`);
   const followups = notes.map((n) => ({
     id: n.id, body: n.body, next_contact_date: n.next_contact_date, hospital_id: n.hospital_id, draft_id: n.draft_id,
     name: n.hospitals?.name || n.quotes_ai_draft?.hospital_name || '이름 없는 견적',
@@ -207,6 +208,7 @@ async function home(rep) {
     upcoming,
     // 진행 중인 출고지시서 (계산서 발행·취소된 건 빼고)
     orders: orders.filter((o) => o.stage !== 'invoiced' && o.stage !== 'cancelled').slice(0, 5),
+    report_today: reportToday ? { updated_at: reportToday.updated_at } : null, // 오늘 일일보고 썼는지
   };
 }
 
@@ -400,6 +402,57 @@ async function cancelOrder(rep, id) {
   if (order.status !== '요청') throw new HttpError(409, '관리자가 이미 처리한 출고지시서는 취소할 수 없습니다. 관리자에게 말씀해 주세요.');
   await sb(`shipping_orders?id=eq.${id}&rep_id=eq.${rep.id}&status=eq.${enc('요청')}`, { method: 'PATCH', body: JSON.stringify({ status: '취소', updated_at: new Date().toISOString() }) });
   return { order: await ownOrder(rep, id) };
+}
+
+// ============================================================
+// 일일보고 (2026-11-20 사용자) — 글 한 칸 + 그날 활동 자동 기록. 하루 한 장, 그날 안엔 고침
+// ============================================================
+const nextDay = (date) => { const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
+const hhmm = (ts) => new Date(new Date(ts).getTime() + 9 * 3600e3).toISOString().slice(11, 16);
+const wonText = (n) => `${Number(n || 0).toLocaleString('ko-KR')}원`;
+const REPORT_FIELDS = 'id,report_date,body,activity,created_at,updated_at';
+
+// 그날(한국 날짜) 이 영업사원이 앱에서 한 일 — 견적서·방문 메모·출고지시서·계산서 요청·카톡 보낸 링크
+async function dayActivity(rep, date) {
+  const range = `created_at=gte.${enc(`${date}T00:00:00+09:00`)}&created_at=lt.${enc(`${nextDay(date)}T00:00:00+09:00`)}`;
+  const safe = (p) => sb(p).catch((e) => { console.error('[sales] 활동 읽기', e.message); return []; });
+  const [drafts, notes, orders, settles, shares] = await Promise.all([
+    safe(`quotes_ai_draft?owner=eq.${enc(rep.email)}&${range}&select=hospital_name,total_amount,items,created_at&order=created_at`),
+    safe(`sales_notes?rep_id=eq.${rep.id}&${range}&select=body,created_at,hospitals(name),quotes_ai_draft(hospital_name)&order=created_at`),
+    safe(`shipping_orders?rep_id=eq.${rep.id}&${range}&select=order_no,hospital_name,sale_total,created_at&order=created_at`),
+    safe(`sales_settlements?rep_id=eq.${rep.id}&${range}&select=buyer_name,total_amount,created_at&order=created_at`),
+    safe(`quote_shares?rep_id=eq.${rep.id}&${range}&select=title,created_at&order=created_at`),
+  ]);
+  const firstItem = (items) => { const a = Array.isArray(items) ? items : []; return a.length ? `${a[0].name}${a.length > 1 ? ` 외 ${a.length - 1}건` : ''}` : '품목 없음'; };
+  return [
+    ...drafts.map((d) => ({ type: '견적서', time: hhmm(d.created_at), text: `${d.hospital_name || '병원 미지정'} · ${firstItem(d.items)} · ${wonText(d.total_amount)}` })),
+    ...notes.map((n) => ({ type: '방문 메모', time: hhmm(n.created_at), text: `${n.hospitals?.name || n.quotes_ai_draft?.hospital_name || ''}${n.hospitals?.name || n.quotes_ai_draft?.hospital_name ? ': ' : ''}${clip(n.body, 200)}` })),
+    ...orders.map((o) => ({ type: '출고지시서', time: hhmm(o.created_at), text: `${o.hospital_name} · ${o.order_no} · ${wonText(o.sale_total)}` })),
+    ...settles.map((s) => ({ type: '계산서 요청', time: hhmm(s.created_at), text: `${s.buyer_name} · ${wonText(s.total_amount)}` })),
+    ...shares.map((s) => ({ type: '카톡 보냄', time: hhmm(s.created_at), text: s.title || '견적서' })),
+  ].sort((a, b) => a.time.localeCompare(b.time));
+}
+
+async function reportForm(rep) {
+  const date = todayKST();
+  const [rows, activity] = await Promise.all([
+    sb(`sales_daily_reports?rep_id=eq.${rep.id}&report_date=eq.${date}&select=${REPORT_FIELDS}`),
+    dayActivity(rep, date),
+  ]);
+  return { date, report: rows[0] || null, activity };
+}
+
+async function saveReport(rep, body) {
+  const text = clip(body.body, 5000);
+  if (!text) throw new HttpError(400, '보고 내용을 적어 주세요.');
+  const date = todayKST(); // 오늘 것만 쓰고 고침
+  const activity = await dayActivity(rep, date);
+  const [row] = await sb('sales_daily_reports?on_conflict=rep_id,report_date', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({ rep_id: rep.id, report_date: date, body: text, activity, updated_at: new Date().toISOString() }),
+  });
+  return { report: row };
 }
 
 // ============================================================
@@ -601,6 +654,9 @@ export default async function handler(req, res) {
       case 'save_contact': result = await saveContact(rep, body); break;
       case 'share_quote': result = await shareQuote(rep, body); break;
       case 'invoice': result = await invoiceDetail(rep, body.id); break;
+      case 'report_form': result = await reportForm(rep); break;
+      case 'save_report': result = await saveReport(rep, body); break;
+      case 'reports': result = { reports: await sb(`sales_daily_reports?rep_id=eq.${rep.id}&select=${REPORT_FIELDS}&order=report_date.desc&limit=30`) }; break;
       case 'orders': result = { orders: await myOrders(rep) }; break;
       case 'order': result = { order: await ownOrder(rep, body.id) }; break;
       case 'order_form': result = await orderForm(rep, body.draft_id); break;

@@ -14,7 +14,8 @@ begin
     ('po_notes', 'po_notes_all'), ('purchase_order_items', 'all'), ('purchase_orders', 'all'), ('quote_shares', 'all'),
     ('quotes', 'all'), ('quotes_ai_draft', 'quotes_ai_draft_all'), ('receivable_transactions', 'receivable_tx_all'),
     ('sales_notes', 'all'), ('sales_reps', 'all'), ('service_requests', 'all'), ('tax_invoices', 'tax_invoices_all'),
-    ('shipping_orders', 'all'), ('shipping_order_items', 'all'), ('sales_settlements', 'all') -- sql/50
+    ('shipping_orders', 'all'), ('shipping_order_items', 'all'), ('sales_settlements', 'all'), -- sql/50
+    ('sales_daily_reports', 'all') -- sql/54
   ) v(tbl, pol) loop
     execute format('drop policy if exists admin_all on public.%I', r.tbl);
     execute format('drop policy if exists %I on public.%I', r.pol, r.tbl);
